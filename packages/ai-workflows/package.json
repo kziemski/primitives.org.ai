@@ -1,5 +1,5 @@
 {
-  "name": "@primitives/ai-workflows",
+  "name": "ai-workflows",
   "version": "0.0.1",
   "description": "AI-powered workflow primitives for orchestrating intelligent processes",
   "type": "module",

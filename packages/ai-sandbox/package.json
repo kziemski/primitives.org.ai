@@ -1,5 +1,5 @@
 {
-  "name": "@primitives/ai-sandbox",
+  "name": "ai-sandbox",
   "version": "0.0.1",
   "description": "AI-powered sandbox primitives for secure code execution and experimentation",
   "type": "module",

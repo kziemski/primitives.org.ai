@@ -1,5 +1,5 @@
 {
-  "name": "@primitives/language-models",
+  "name": "language-models",
   "version": "0.0.1",
   "description": "Language model primitives for building LLM-powered applications",
   "type": "module",

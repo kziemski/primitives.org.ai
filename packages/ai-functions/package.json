@@ -1,5 +1,5 @@
 {
-  "name": "@primitives/ai-functions",
+  "name": "ai-functions",
   "version": "0.0.1",
   "description": "AI-powered function primitives for building intelligent applications",
   "type": "module",

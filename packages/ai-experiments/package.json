@@ -1,5 +1,5 @@
 {
-  "name": "@primitives/ai-experiments",
+  "name": "ai-experiments",
   "version": "0.0.1",
   "description": "AI-powered experimentation primitives for testing and evaluating models",
   "type": "module",

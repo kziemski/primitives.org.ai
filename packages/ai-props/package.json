@@ -1,5 +1,5 @@
 {
-  "name": "@primitives/ai-props",
+  "name": "ai-props",
   "version": "0.0.1",
   "description": "AI-powered props primitives for intelligent component properties",
   "type": "module",
