@@ -16,5 +16,6 @@ export type {
   LogEntry,
   TestResults,
   TestResult,
-  SandboxEnv
+  SandboxEnv,
+  SDKConfig
 } from './types.js'

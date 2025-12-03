@@ -3,6 +3,28 @@
  */
 
 /**
+ * SDK configuration for the sandbox environment
+ */
+export interface SDKConfig {
+  /** Execution context: local (in-memory) or remote (RPC) */
+  context?: 'local' | 'remote'
+  /** RPC endpoint URL for all services (default: https://rpc.do) */
+  rpcUrl?: string
+  /** Database RPC URL (default: https://db.do/rpc) */
+  dbUrl?: string
+  /** AI RPC URL (default: https://ai.do/rpc) */
+  aiUrl?: string
+  /** Authentication token */
+  token?: string
+  /** Default namespace for database operations */
+  ns?: string
+  /** Cloudflare AI Gateway URL (e.g., https://gateway.ai.cloudflare.com/v1/{account}/{gateway}) */
+  aiGatewayUrl?: string
+  /** Cloudflare AI Gateway authentication token */
+  aiGatewayToken?: string
+}
+
+/**
  * Options for evaluate()
  */
 export interface EvaluateOptions {
@@ -22,6 +44,10 @@ export interface EvaluateOptions {
   rpc?: Record<string, unknown>
   /** Outbound RPC interceptor - intercepts fetch calls to RPC URLs */
   outboundRpc?: (url: string, request: Request) => Promise<Response> | Response | null
+  /** SDK configuration - enables $, db, ai, api, on, send globals */
+  sdk?: SDKConfig | boolean
+  /** Top-level imports to hoist (for MDX test files with external imports) */
+  imports?: string[]
 }
 
 /**

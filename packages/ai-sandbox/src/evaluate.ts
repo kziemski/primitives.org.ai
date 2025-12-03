@@ -16,6 +16,40 @@ import type {
 import { generateWorkerCode, generateDevWorkerCode } from './worker-template.js'
 
 /**
+ * Check if code contains JSX syntax that needs transformation
+ */
+function containsJSX(code: string): boolean {
+  if (!code) return false
+  // Look for JSX patterns
+  const jsxPattern = /<[A-Z][a-zA-Z0-9]*[\s/>]|<[a-z][a-z0-9-]*[\s/>]|<>|<\/>/
+  const jsxReturnPattern = /return\s*\(\s*<|return\s+<[A-Za-z]/
+  return jsxPattern.test(code) || jsxReturnPattern.test(code)
+}
+
+/**
+ * Transform JSX in code using esbuild
+ */
+async function transformJSX(code: string): Promise<string> {
+  if (!code || !containsJSX(code)) return code
+
+  try {
+    const { transform } = await import('esbuild')
+    const result = await transform(code, {
+      loader: 'tsx',
+      jsxFactory: 'h',
+      jsxFragment: 'Fragment',
+      target: 'esnext',
+      format: 'esm',
+    })
+    return result.code
+  } catch (error) {
+    // If transform fails, return original code and let sandbox handle the error
+    console.error('JSX transform failed:', error)
+    return code
+  }
+}
+
+/**
  * Evaluate code in a sandboxed worker
  *
  * @example
@@ -55,13 +89,21 @@ export async function evaluate(
   const start = Date.now()
 
   try {
+    // Transform JSX in module, tests, and script before evaluation
+    const transformedOptions: EvaluateOptions = {
+      ...options,
+      module: options.module ? await transformJSX(options.module) : options.module,
+      tests: options.tests ? await transformJSX(options.tests) : options.tests,
+      script: options.script ? await transformJSX(options.script) : options.script,
+    }
+
     // Use worker_loaders if available (Cloudflare Workers)
     if (env?.LOADER && env?.TEST) {
-      return await evaluateWithWorkerLoader(options, env.LOADER, env.TEST, start)
+      return await evaluateWithWorkerLoader(transformedOptions, env.LOADER, env.TEST, start)
     }
 
     // Fall back to Miniflare with local TestService (Node.js)
-    return await evaluateWithMiniflare(options, start)
+    return await evaluateWithMiniflare(transformedOptions, start)
   } catch (error) {
     return {
       success: false,
@@ -81,7 +123,13 @@ async function evaluateWithWorkerLoader(
   testService: unknown,
   start: number
 ): Promise<EvaluateResult> {
-  const workerCode = generateWorkerCode(options)
+  const workerCode = generateWorkerCode({
+    module: options.module,
+    tests: options.tests,
+    script: options.script,
+    sdk: options.sdk,
+    imports: options.imports
+  })
   const id = `sandbox-${Date.now()}-${Math.random().toString(36).slice(2)}`
 
   const worker = loader.get(id, async () => ({
@@ -120,7 +168,13 @@ async function evaluateWithMiniflare(
   // Dynamic import to avoid bundling in production
   const { Miniflare } = await import('miniflare')
 
-  const workerCode = generateDevWorkerCode(options)
+  const workerCode = generateDevWorkerCode({
+    module: options.module,
+    tests: options.tests,
+    script: options.script,
+    sdk: options.sdk,
+    imports: options.imports
+  })
 
   const mf = new Miniflare({
     modules: true,
