@@ -10,6 +10,7 @@
   - [ ] `ai.code()`
   - [ ] `ai.decide()`
   - [ ] `ai.diagram()`
+  - [ ] `ai.embed()`
   - [ ] `ai.generate()`
   - [ ] `ai.image()`
   - [ ] `ai.video()`

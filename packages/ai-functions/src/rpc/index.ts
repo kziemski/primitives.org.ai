@@ -1,13 +1,15 @@
 /**
- * RPC primitives built on capnweb
+ * RPC primitives with unified auth
  *
- * Re-exports capnweb's promise pipelining capabilities with additional
- * utilities for AI primitives.
+ * Re-exports capnweb's RPC capabilities with:
+ * - Unified authentication via oauth.do
+ * - Default RPC target: apis.do/rpc
+ * - Token from DO_TOKEN env or oauth.do CLI flow
  *
- * @see https://github.com/cloudflare/capnweb
+ * @packageDocumentation
  */
 
-// Re-export core capnweb types and functions
+// Re-export core capnweb types - consumers import from here, not capnweb directly
 export {
   newWebSocketRpcSession,
   newHttpBatchRpcSession,
@@ -19,17 +21,15 @@ export {
 // For Cloudflare Workers server-side
 export { newWorkersRpcResponse } from 'capnweb'
 
-/**
- * Create an RPC session with the appropriate transport
- */
-export interface RPCSessionOptions {
-  /** WebSocket URL for persistent connections */
-  wsUrl?: string
-  /** HTTP URL for batch requests */
-  httpUrl?: string
-  /** Prefer WebSocket over HTTP when both are available */
-  preferWebSocket?: boolean
-}
+// Export our session utilities
+export { createRPCSession, type RPCSessionOptions } from './session.js'
+export { createLocalTarget, LocalTarget } from './local.js'
 
-export { createRPCSession } from './session.js'
-export { createLocalTarget } from './local.js'
+// Export authenticated client
+export {
+  createAuthenticatedClient,
+  getDefaultRPCClient,
+  configureRPC,
+  type AuthenticatedClientOptions,
+  type RPCConfig
+} from './auth.js'

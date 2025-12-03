@@ -5,8 +5,7 @@
  * Useful for testing, development, and client-side caching.
  */
 
-import { RpcTarget } from 'capnweb'
-import type { RpcPromise } from 'capnweb'
+import { RpcTarget, type RpcPromise } from 'ai-functions/rpc'
 import {
   type Thing,
   type Relationship,

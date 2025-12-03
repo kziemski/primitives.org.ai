@@ -2,17 +2,23 @@
  * DB() and db - Database client constructors
  *
  * Provides the main entry points for database operations,
- * with full RPC promise pipelining support via capnweb.
+ * with full RPC promise pipelining and unified auth via ai-functions.
  */
 
-import { createRPCSession, type RPCSessionOptions } from 'ai-functions/rpc'
+import { createAuthenticatedClient, type AuthenticatedClientOptions } from 'ai-functions/rpc'
 import type { DBClient, QueryOptions } from './types.js'
-import { createMemoryDB, MemoryDB } from './memory.js'
+import { createMemoryDB } from './memory.js'
+
+/**
+ * Default database RPC endpoint
+ */
+export const DEFAULT_DB_URL = 'https://db.apis.do/rpc'
+export const DEFAULT_DB_WS_URL = 'wss://db.apis.do/rpc'
 
 /**
  * Options for creating a DB instance
  */
-export interface DBOptions extends Partial<RPCSessionOptions> {
+export interface DBOptions extends Partial<AuthenticatedClientOptions> {
   /** Default namespace for operations */
   ns?: string
   /** Use in-memory storage (for testing/development) */
@@ -24,114 +30,148 @@ export interface DBOptions extends Partial<RPCSessionOptions> {
  *
  * @example
  * ```ts
- * // Connect to remote database service
- * const db = DB({ wsUrl: 'wss://db.example.com/rpc', ns: 'example.com' })
+ * // Connect to default db.apis.do with DO_TOKEN auth
+ * const db = await DB({ ns: 'example.com' })
  *
  * // Use promise pipelining - single round trip!
  * const user = db.get('https://example.com/users/123')
  * const posts = user.map(u => db.find({ ns: 'example.com', type: 'posts', where: { authorId: u.id } }))
  * console.log(await posts)
  *
- * // In-memory for testing
- * const testDb = DB({ memory: true, ns: 'test.local' })
+ * // In-memory for testing (sync)
+ * const testDb = DB({ memory: true })
+ *
+ * // Custom endpoint
+ * const db = await DB({ httpUrl: 'https://custom.example.com/rpc' })
  * ```
  */
-export function DB(options: DBOptions = {}): DBClient {
-  const { ns, memory, ...sessionOptions } = options
+export function DB(options: DBOptions & { memory: true }): DBClient
+export function DB(options?: DBOptions): Promise<DBClient>
+export function DB(options: DBOptions = {}): DBClient | Promise<DBClient> {
+  const { ns, memory, ...clientOptions } = options
 
-  // Use in-memory storage
-  if (memory || (!sessionOptions.wsUrl && !sessionOptions.httpUrl)) {
+  // Use in-memory storage (synchronous)
+  if (memory) {
     return createMemoryDB()
   }
 
-  // Create RPC session to database service
-  return createRPCSession<DBClient>(sessionOptions as RPCSessionOptions)
+  // Use authenticated RPC client (async)
+  return createAuthenticatedClient<DBClient>({
+    httpUrl: DEFAULT_DB_URL,
+    wsUrl: DEFAULT_DB_WS_URL,
+    ...clientOptions
+  })
 }
 
 // Default client management
 let defaultClient: DBClient | null = null
+let defaultClientPromise: Promise<DBClient> | null = null
 let defaultNs: string | null = null
 
 /**
  * Configure the default database client
  */
-export function configureDB(options: DBOptions): void {
-  defaultClient = DB(options)
+export async function configureDB(options: DBOptions): Promise<void> {
+  if (options.memory) {
+    defaultClient = createMemoryDB()
+  } else {
+    defaultClient = await DB(options)
+  }
   defaultNs = options.ns || null
 }
 
 /**
- * Get the default database client
+ * Get the default database client (async initialization)
  */
-function getDefaultDBClient(): DBClient {
-  if (!defaultClient) {
-    // Try to auto-configure from environment
-    const wsUrl = typeof process !== 'undefined' ? process.env?.DB_WS_URL : undefined
-    const httpUrl = typeof process !== 'undefined' ? process.env?.DB_HTTP_URL : undefined
-    const ns = typeof process !== 'undefined' ? process.env?.DB_NS : undefined
+async function getDefaultDBClient(): Promise<DBClient> {
+  if (defaultClient) {
+    return defaultClient
+  }
 
-    if (wsUrl || httpUrl) {
-      defaultClient = DB({ wsUrl, httpUrl, ns })
+  if (!defaultClientPromise) {
+    defaultClientPromise = (async () => {
+      // Try to auto-configure from environment
+      const httpUrl = typeof process !== 'undefined' ? process.env?.DB_HTTP_URL : undefined
+      const wsUrl = typeof process !== 'undefined' ? process.env?.DB_WS_URL : undefined
+      const ns = typeof process !== 'undefined' ? process.env?.DB_NS : undefined
+
+      // If no URLs specified, use default apis.do endpoint with auth
+      defaultClient = await DB({ httpUrl, wsUrl, ns })
       defaultNs = ns || null
-    } else {
-      // Fall back to in-memory
-      defaultClient = createMemoryDB()
-    }
+      return defaultClient
+    })()
+  }
+
+  return defaultClientPromise
+}
+
+/**
+ * Get in-memory client for sync operations (testing)
+ */
+function getMemoryClient(): DBClient {
+  if (!defaultClient) {
+    defaultClient = createMemoryDB()
   }
   return defaultClient
 }
 
 /**
  * Shorthand database operations using default client
+ *
+ * Note: These return promises that resolve to RpcPromise.
+ * For sync testing, use DB({ memory: true }) directly.
  */
 export const db = {
-  list: <T extends Record<string, unknown>>(options?: QueryOptions) =>
-    getDefaultDBClient().list<T>(options),
+  list: async <T extends Record<string, unknown>>(options?: QueryOptions) =>
+    (await getDefaultDBClient()).list<T>(options),
 
-  find: <T extends Record<string, unknown>>(options: QueryOptions) =>
-    getDefaultDBClient().find<T>(options),
+  find: async <T extends Record<string, unknown>>(options: QueryOptions) =>
+    (await getDefaultDBClient()).find<T>(options),
 
-  search: <T extends Record<string, unknown>>(options: Parameters<DBClient['search']>[0]) =>
-    getDefaultDBClient().search<T>(options),
+  search: async <T extends Record<string, unknown>>(options: Parameters<DBClient['search']>[0]) =>
+    (await getDefaultDBClient()).search<T>(options),
 
-  get: <T extends Record<string, unknown>>(url: string) =>
-    getDefaultDBClient().get<T>(url),
+  get: async <T extends Record<string, unknown>>(url: string) =>
+    (await getDefaultDBClient()).get<T>(url),
 
-  getById: <T extends Record<string, unknown>>(ns: string, type: string, id: string) =>
-    getDefaultDBClient().getById<T>(ns, type, id),
+  getById: async <T extends Record<string, unknown>>(ns: string, type: string, id: string) =>
+    (await getDefaultDBClient()).getById<T>(ns, type, id),
 
-  set: <T extends Record<string, unknown>>(url: string, data: T) =>
-    getDefaultDBClient().set<T>(url, data),
+  set: async <T extends Record<string, unknown>>(url: string, data: T) =>
+    (await getDefaultDBClient()).set<T>(url, data),
 
-  create: <T extends Record<string, unknown>>(options: Parameters<DBClient['create']>[0]) =>
-    getDefaultDBClient().create<T>(options as Parameters<DBClient['create']>[0]),
+  create: async <T extends Record<string, unknown>>(options: Parameters<DBClient['create']>[0]) =>
+    (await getDefaultDBClient()).create<T>(options as Parameters<DBClient['create']>[0]),
 
-  update: <T extends Record<string, unknown>>(url: string, options: Parameters<DBClient['update']>[1]) =>
-    getDefaultDBClient().update<T>(url, options as Parameters<DBClient['update']>[1]),
+  update: async <T extends Record<string, unknown>>(url: string, options: Parameters<DBClient['update']>[1]) =>
+    (await getDefaultDBClient()).update<T>(url, options as Parameters<DBClient['update']>[1]),
 
-  upsert: <T extends Record<string, unknown>>(options: Parameters<DBClient['upsert']>[0]) =>
-    getDefaultDBClient().upsert<T>(options as Parameters<DBClient['upsert']>[0]),
+  upsert: async <T extends Record<string, unknown>>(options: Parameters<DBClient['upsert']>[0]) =>
+    (await getDefaultDBClient()).upsert<T>(options as Parameters<DBClient['upsert']>[0]),
 
-  delete: (url: string) =>
-    getDefaultDBClient().delete(url),
+  delete: async (url: string) =>
+    (await getDefaultDBClient()).delete(url),
 
-  forEach: <T extends Record<string, unknown>>(
+  forEach: async <T extends Record<string, unknown>>(
     options: QueryOptions,
     callback: (thing: Parameters<DBClient['forEach']>[1] extends (t: infer U) => unknown ? U : never) => void | Promise<void>
-  ) => getDefaultDBClient().forEach<T>(options, callback as Parameters<DBClient['forEach']>[1]),
+  ) => (await getDefaultDBClient()).forEach<T>(options, callback as Parameters<DBClient['forEach']>[1]),
 
-  relate: <T extends Record<string, unknown>>(options: Parameters<DBClient['relate']>[0]) =>
-    getDefaultDBClient().relate<T>(options as Parameters<DBClient['relate']>[0]),
+  relate: async <T extends Record<string, unknown>>(options: Parameters<DBClient['relate']>[0]) =>
+    (await getDefaultDBClient()).relate<T>(options as Parameters<DBClient['relate']>[0]),
 
-  unrelate: (from: string, type: string, to: string) =>
-    getDefaultDBClient().unrelate(from, type, to),
+  unrelate: async (from: string, type: string, to: string) =>
+    (await getDefaultDBClient()).unrelate(from, type, to),
 
-  related: <T extends Record<string, unknown>>(
+  related: async <T extends Record<string, unknown>>(
     url: string,
     relationshipType?: string,
     direction?: 'from' | 'to' | 'both'
-  ) => getDefaultDBClient().related<T>(url, relationshipType, direction),
+  ) => (await getDefaultDBClient()).related<T>(url, relationshipType, direction),
 
-  relationships: (url: string, type?: string, direction?: 'from' | 'to' | 'both') =>
-    getDefaultDBClient().relationships(url, type, direction)
+  relationships: async (url: string, type?: string, direction?: 'from' | 'to' | 'both') =>
+    (await getDefaultDBClient()).relationships(url, type, direction),
+
+  /** Get an in-memory client for sync testing */
+  memory: () => createMemoryDB()
 }

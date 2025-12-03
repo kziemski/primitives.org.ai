@@ -24,6 +24,9 @@
   "dependencies": {
     "capnweb": "^0.0.3"
   },
-  "keywords": ["ai", "functions", "rpc", "capnweb", "primitives"],
+  "optionalDependencies": {
+    "oauth.do": "^0.0.1"
+  },
+  "keywords": ["ai", "functions", "rpc", "capnweb", "oauth", "primitives"],
   "license": "MIT"
 }

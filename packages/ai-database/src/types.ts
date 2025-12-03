@@ -11,7 +11,7 @@
  * - Relationships: Edges between things with a type and optional properties
  */
 
-import type { RpcPromise } from 'capnweb'
+import type { RpcPromise } from 'ai-functions/rpc'
 
 /**
  * Base identifier for all entities

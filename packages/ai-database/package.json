@@ -18,8 +18,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "ai-functions": "workspace:*",
-    "capnweb": "^0.0.3"
+    "ai-functions": "workspace:*"
   },
   "keywords": ["ai", "database", "linked-data", "mdxld", "primitives"],
   "license": "MIT"
