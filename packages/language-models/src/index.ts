@@ -6,5 +6,16 @@
  * @packageDocumentation
  */
 
-export { resolve, list, get, search, type ModelInfo } from './models.js'
+export {
+  resolve,
+  resolveWithProvider,
+  list,
+  get,
+  search,
+  DIRECT_PROVIDERS,
+  type ModelInfo,
+  type ProviderEndpoint,
+  type ResolvedModel,
+  type DirectProvider
+} from './models.js'
 export { ALIASES } from './aliases.js'
