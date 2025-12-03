@@ -6,7 +6,12 @@
  * - Token from DO_TOKEN env or oauth.do CLI flow
  */
 
-import { newWebSocketRpcSession, newHttpBatchRpcSession } from 'capnweb'
+// Use require-style imports to avoid TypeScript's deep type instantiation
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const capnweb = require('capnweb') as {
+  newWebSocketRpcSession: (url: string) => unknown
+  newHttpBatchRpcSession: (url: string) => unknown
+}
 
 /**
  * Default RPC endpoints
@@ -104,6 +109,7 @@ async function getToken(explicitToken?: string): Promise<string> {
 async function getTokenFromOAuth(): Promise<string | null> {
   // Dynamic import to avoid bundling oauth.do if not needed
   try {
+    // @ts-expect-error oauth.do is an optional dependency
     const oauth = await import('oauth.do')
     const token = await oauth.getToken?.()
     return token || null
@@ -145,10 +151,12 @@ export async function createAuthenticatedClient<T>(
   const authHttpUrl = addAuthToUrl(httpUrl, authToken)
 
   if (preferWebSocket) {
-    return newWebSocketRpcSession<T>(authWsUrl)
+    // RpcStub<T> proxies all methods of T, so cast is safe at runtime
+    return capnweb.newWebSocketRpcSession(authWsUrl) as T
   }
 
-  return newHttpBatchRpcSession<T>(authHttpUrl)
+  // RpcStub<T> proxies all methods of T, so cast is safe at runtime
+  return capnweb.newHttpBatchRpcSession(authHttpUrl) as T
 }
 
 /**

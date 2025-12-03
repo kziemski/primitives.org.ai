@@ -2,10 +2,12 @@
  * RPC session management utilities
  */
 
-import {
-  newWebSocketRpcSession,
-  newHttpBatchRpcSession
-} from 'capnweb'
+// Use require-style imports to avoid TypeScript's deep type instantiation
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const capnweb = require('capnweb') as {
+  newWebSocketRpcSession: (url: string) => unknown
+  newHttpBatchRpcSession: (url: string) => unknown
+}
 
 export interface RPCSessionOptions {
   /** WebSocket URL for persistent connections */
@@ -46,11 +48,13 @@ export function createRPCSession<T>(options: RPCSessionOptions): T {
   const useWebSocket = preferWebSocket ? wsUrl : (wsUrl && !httpUrl)
 
   if (useWebSocket && wsUrl) {
-    return newWebSocketRpcSession<T>(wsUrl)
+    // RpcStub<T> proxies all methods of T, so cast is safe at runtime
+    return capnweb.newWebSocketRpcSession(wsUrl) as T
   }
 
   if (httpUrl) {
-    return newHttpBatchRpcSession<T>(httpUrl)
+    // RpcStub<T> proxies all methods of T, so cast is safe at runtime
+    return capnweb.newHttpBatchRpcSession(httpUrl) as T
   }
 
   throw new Error('No valid URL provided')

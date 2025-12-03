@@ -143,11 +143,13 @@ export async function generateObject<T>(
 ): Promise<GenerateObjectResult<T>> {
   const model = await resolveModel(options.model)
   const schema = resolveSchema(options.schema as SchemaArg)
+  // Use 'as any' to handle AI SDK v4 API variance
   return sdkGenerateObject({
     ...options,
     model,
-    schema
-  } as Parameters<typeof sdkGenerateObject>[0]) as Promise<GenerateObjectResult<T>>
+    schema,
+    output: 'object'
+  } as any) as Promise<GenerateObjectResult<T>>
 }
 
 /**
@@ -175,7 +177,7 @@ export async function generateObject<T>(
  */
 export async function generateText(
   options: GenerateTextOptions
-): Promise<GenerateTextResult<Record<string, unknown>, never>> {
+): Promise<Awaited<ReturnType<typeof sdkGenerateText>>> {
   const model = await resolveModel(options.model)
   return sdkGenerateText({
     ...options,
@@ -203,14 +205,16 @@ export async function generateText(
  */
 export async function streamObject<T>(
   options: GenerateObjectOptions<T>
-): Promise<StreamObjectResult<T, never, never>> {
+) {
   const model = await resolveModel(options.model)
   const schema = resolveSchema(options.schema as SchemaArg)
+  // Use 'as any' to handle AI SDK v4 API variance
   return sdkStreamObject({
     ...options,
     model,
-    schema
-  } as Parameters<typeof sdkStreamObject>[0]) as Promise<StreamObjectResult<T, never, never>>
+    schema,
+    output: 'object'
+  } as any)
 }
 
 /**
@@ -232,7 +236,7 @@ export async function streamObject<T>(
  */
 export async function streamText(
   options: GenerateTextOptions
-): Promise<StreamTextResult<Record<string, unknown>, never>> {
+): Promise<ReturnType<typeof sdkStreamText>> {
   const model = await resolveModel(options.model)
   return sdkStreamText({
     ...options,

@@ -6,7 +6,10 @@
  */
 
 import { RpcTarget } from 'capnweb'
-import type { RpcPromise } from 'capnweb'
+
+// Use Promise as RpcPromise for type definitions
+// The actual RPC layer handles pipelining transparently
+type RpcPromise<T> = Promise<T>
 import { createRPCSession, type RPCSessionOptions } from './rpc/session.js'
 import { generateObject } from './generate.js'
 import type { SimpleSchema } from './schema.js'
@@ -161,7 +164,7 @@ export function AI<T extends Record<string, SimpleSchema>>(
       get(target, prop: string) {
         // Return existing methods
         if (prop in target) {
-          return (target as Record<string, unknown>)[prop]
+          return (target as unknown as Record<string, unknown>)[prop]
         }
 
         // Handle dynamic function calls (ai.functionName())
@@ -173,7 +176,7 @@ export function AI<T extends Record<string, SimpleSchema>>(
   }
 
   // Schema functions mode - create a function for each schema
-  return createSchemaFunctions(schemasOrOptions as Record<string, SimpleSchema>, defaultOptions)
+  return createSchemaFunctions(schemasOrOptions as Record<string, SimpleSchema>, defaultOptions) as SchemaFunctions<T>
 }
 
 /**

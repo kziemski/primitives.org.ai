@@ -2,7 +2,9 @@
  * Core types for AI functions
  */
 
-import type { RpcPromise } from 'capnweb'
+// Use Promise directly for interface definitions
+// The actual RPC layer handles serialization
+type RpcPromise<T> = Promise<T>
 
 /**
  * A function definition that can be called by AI
