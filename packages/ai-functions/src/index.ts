@@ -6,6 +6,7 @@
  * - RPC primitives with capnweb promise pipelining
  * - AI function types and interfaces
  * - Core AI() and ai() constructors
+ * - Embedding utilities from AI SDK
  *
  * @packageDocumentation
  */
@@ -16,3 +17,6 @@ export * from './rpc/index.js'
 // Export AI function types and interfaces
 export * from './types.js'
 export * from './ai.js'
+
+// Export embedding utilities
+export * from './embeddings.js'

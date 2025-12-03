@@ -13,6 +13,10 @@
     "./rpc": {
       "import": "./dist/rpc/index.js",
       "types": "./dist/rpc/index.d.ts"
+    },
+    "./embeddings": {
+      "import": "./dist/embeddings.js",
+      "types": "./dist/embeddings.d.ts"
     }
   },
   "scripts": {
@@ -22,11 +26,12 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "ai": "^4.0.0",
     "capnweb": "^0.0.3"
   },
   "optionalDependencies": {
     "oauth.do": "^0.0.1"
   },
-  "keywords": ["ai", "functions", "rpc", "capnweb", "oauth", "primitives"],
+  "keywords": ["ai", "functions", "rpc", "capnweb", "embeddings", "oauth", "primitives"],
   "license": "MIT"
 }
