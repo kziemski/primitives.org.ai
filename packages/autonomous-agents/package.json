@@ -1,0 +1,21 @@
+{
+  "name": "autonomous-agents",
+  "version": "0.0.1",
+  "description": "Primitives for building and orchestrating autonomous AI agents",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest"
+  },
+  "keywords": ["ai", "agents", "autonomous", "primitives"],
+  "license": "MIT"
+}

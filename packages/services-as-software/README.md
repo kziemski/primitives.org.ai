@@ -1,0 +1,3 @@
+# services-as-software
+
+Primitives for building AI-powered services that operate as software.

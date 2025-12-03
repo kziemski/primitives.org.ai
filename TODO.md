@@ -1,0 +1,24 @@
+# AI Primitives
+
+- [ ] `ai-functions`
+  - [ ] `AI()`
+  - [ ] `ai()`
+  - [ ] `ai.defineFunction()`
+- [ ] `ai-database`
+  - [ ] `DB()`
+  - [ ] `db.list()`
+  - [ ] `db.find()`
+  - [ ] `db.search()`
+  - [ ] `db.get()`
+  - [ ] `db.set()`
+  - [ ] `db.create()`
+  - [ ] `db.update()`
+  - [ ] `db.upsert()`
+  - [ ] `db.delete()`
+- [ ] `ai-workflows`
+  - [ ] `Workflow()`
+  - [ ] `on()`
+  - [ ] `every()`
+  - [ ] `track()`
+- [ ] `ai-sandbox`
+  - [ ] `evaluate()`
