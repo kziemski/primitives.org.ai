@@ -1,7 +1,7 @@
 {
   "name": "ai-sandbox",
   "version": "0.0.1",
-  "description": "AI-powered sandbox primitives for secure code execution",
+  "description": "Secure code execution in sandboxed environments",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -12,14 +12,19 @@
     }
   },
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
     "test": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
     "clean": "rm -rf dist"
   },
   "dependencies": {
     "ai-functions": "workspace:*"
   },
-  "keywords": ["ai", "sandbox", "primitives"],
+  "optionalDependencies": {
+    "miniflare": "^3.20241106.0"
+  },
+  "keywords": ["ai", "sandbox", "evaluate", "cloudflare", "workers", "miniflare", "primitives"],
   "license": "MIT"
 }
