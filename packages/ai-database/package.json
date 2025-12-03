@@ -1,7 +1,7 @@
 {
   "name": "ai-database",
   "version": "0.0.1",
-  "description": "AI-powered database primitives for intelligent data storage and retrieval",
+  "description": "AI-powered database interface primitives",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -14,7 +14,11 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "vitest"
+    "test": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "ai-functions": "workspace:*"
   },
   "keywords": ["ai", "database", "primitives"],
   "license": "MIT"

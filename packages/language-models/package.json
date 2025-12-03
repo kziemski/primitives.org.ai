@@ -14,7 +14,12 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "vitest"
+    "test": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "ai-functions": "workspace:*",
+    "ai-providers": "workspace:*"
   },
   "keywords": ["ai", "llm", "language-models", "primitives"],
   "license": "MIT"

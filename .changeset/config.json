@@ -1,0 +1,28 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@3.0.0/schema.json",
+  "changelog": "@changesets/cli/changelog",
+  "commit": false,
+  "fixed": [
+    [
+      "ai-functions",
+      "ai-database",
+      "ai-workflows",
+      "ai-experiments",
+      "ai-props",
+      "ai-providers",
+      "ai-sandbox",
+      "autonomous-agents",
+      "business-as-code",
+      "digital-products",
+      "digital-workers",
+      "human-in-the-loop",
+      "language-models",
+      "services-as-software"
+    ]
+  ],
+  "linked": [],
+  "access": "public",
+  "baseBranch": "main",
+  "updateInternalDependencies": "patch",
+  "ignore": []
+}

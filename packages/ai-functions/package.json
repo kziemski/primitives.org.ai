@@ -1,7 +1,7 @@
 {
   "name": "ai-functions",
   "version": "0.0.1",
-  "description": "AI-powered function primitives for building intelligent applications",
+  "description": "Core AI primitives for building intelligent applications",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -9,13 +9,18 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./rpc": {
+      "import": "./dist/rpc/index.js",
+      "types": "./dist/rpc/index.d.ts"
     }
   },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "vitest"
+    "test": "vitest",
+    "clean": "rm -rf dist"
   },
-  "keywords": ["ai", "functions", "primitives"],
+  "keywords": ["ai", "functions", "rpc", "primitives"],
   "license": "MIT"
 }

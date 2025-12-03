@@ -1,7 +1,7 @@
 {
   "name": "ai-sandbox",
   "version": "0.0.1",
-  "description": "AI-powered sandbox primitives for secure code execution and experimentation",
+  "description": "AI-powered sandbox primitives for secure code execution",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -14,7 +14,11 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "vitest"
+    "test": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "ai-functions": "workspace:*"
   },
   "keywords": ["ai", "sandbox", "primitives"],
   "license": "MIT"

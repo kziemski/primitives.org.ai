@@ -14,6 +14,7 @@
   - [ ] `ai.image()`
   - [ ] `ai.video()`
   - [ ] `ai.write()`
+  - [ ] `RPC()`
 - [ ] `ai-database`
   - [ ] `DB()`
   - [ ] `db.list()`

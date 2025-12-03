@@ -14,8 +14,12 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "vitest"
+    "test": "vitest",
+    "clean": "rm -rf dist"
   },
-  "keywords": ["ai", "props", "primitives"],
+  "dependencies": {
+    "ai-functions": "workspace:*"
+  },
+  "keywords": ["ai", "props", "react", "primitives"],
   "license": "MIT"
 }

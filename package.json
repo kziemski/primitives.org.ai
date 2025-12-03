@@ -1,0 +1,28 @@
+{
+  "name": "primitives",
+  "version": "0.0.1",
+  "private": true,
+  "description": "AI Primitives monorepo",
+  "type": "module",
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "test": "turbo test",
+    "lint": "turbo lint",
+    "clean": "turbo clean",
+    "prepare-publish": "tsx scripts/prepare-publish.ts",
+    "version-packages": "changeset version",
+    "release": "pnpm build && pnpm prepare-publish && changeset publish"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.27.0",
+    "tsx": "^4.7.0",
+    "turbo": "^2.0.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=18"
+  }
+}

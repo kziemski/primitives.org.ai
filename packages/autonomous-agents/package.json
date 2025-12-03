@@ -14,7 +14,12 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "vitest"
+    "test": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "ai-functions": "workspace:*",
+    "digital-workers": "workspace:*"
   },
   "keywords": ["ai", "agents", "autonomous", "primitives"],
   "license": "MIT"
