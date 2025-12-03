@@ -16,11 +16,14 @@
     }
   },
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
     "test": "vitest",
     "clean": "rm -rf dist"
   },
-  "keywords": ["ai", "functions", "rpc", "primitives"],
+  "dependencies": {
+    "capnweb": "^0.0.3"
+  },
+  "keywords": ["ai", "functions", "rpc", "capnweb", "primitives"],
   "license": "MIT"
 }

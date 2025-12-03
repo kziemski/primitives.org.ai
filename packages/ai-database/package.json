@@ -1,7 +1,7 @@
 {
   "name": "ai-database",
   "version": "0.0.1",
-  "description": "AI-powered database interface primitives",
+  "description": "AI-powered database interface primitives with mdxld conventions",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -12,14 +12,15 @@
     }
   },
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
     "test": "vitest",
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "ai-functions": "workspace:*"
+    "ai-functions": "workspace:*",
+    "capnweb": "^0.0.3"
   },
-  "keywords": ["ai", "database", "primitives"],
+  "keywords": ["ai", "database", "linked-data", "mdxld", "primitives"],
   "license": "MIT"
 }
