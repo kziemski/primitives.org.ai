@@ -518,7 +518,7 @@ async function resolveProvider(): Promise<DBProvider> {
 
       case 'fs': {
         try {
-          const { createFsProvider } = await import('@mdxdb/fs/provider' as any)
+          const { createFsProvider } = await import('@mdxdb/fs' as any)
           globalProvider = createFsProvider({ root: parsed.root })
 
           // Check file count and warn if approaching threshold
@@ -533,7 +533,7 @@ async function resolveProvider(): Promise<DBProvider> {
 
       case 'sqlite': {
         try {
-          const { createSqliteProvider } = await import('@mdxdb/sqlite/provider' as any)
+          const { createSqliteProvider } = await import('@mdxdb/sqlite' as any)
 
           if (parsed.remoteUrl) {
             // Remote Turso
@@ -553,7 +553,7 @@ async function resolveProvider(): Promise<DBProvider> {
 
       case 'clickhouse': {
         try {
-          const { createClickhouseProvider } = await import('@mdxdb/clickhouse/provider' as any)
+          const { createClickhouseProvider } = await import('@mdxdb/clickhouse' as any)
 
           if (parsed.remoteUrl) {
             // Remote ClickHouse
