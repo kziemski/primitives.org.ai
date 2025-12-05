@@ -274,6 +274,49 @@ console.log(`Completed: ${result.completed}, Failed: ${result.failed}`)
 | `onError` | `'continue' \| 'retry' \| 'skip' \| 'stop' \| fn` | Error handling |
 | `timeout` | `number` | Timeout per item in ms |
 | `signal` | `AbortSignal` | Cancellation signal |
+| `persist` | `ForEachPersistOptions` | Enable durability & resume |
+
+### Durable forEach (Resumable)
+
+Persist progress to survive crashes and resume where you left off:
+
+```typescript
+const { db, actions } = DB(schema)
+
+// Start a durable operation
+const result = await db.Lead.forEach(async lead => {
+  const analysis = await ai`analyze ${lead}`
+  await db.Lead.update(lead.$id, { analysis })
+}, {
+  concurrency: 10,
+  persist: {
+    actions,
+    actionType: 'analyze-leads',
+    getItemId: lead => lead.$id,
+  },
+})
+
+console.log(`Action ID: ${result.actionId}`)
+```
+
+Resume after a crash:
+
+```typescript
+// Get the action ID from before the crash
+const actionId = 'action-123'
+
+// Resume - automatically skips already-processed items
+const result = await db.Lead.forEach(processLead, {
+  concurrency: 10,
+  persist: {
+    actions,
+    actionId,  // Resume from this action
+    getItemId: lead => lead.$id,
+  },
+})
+
+console.log(`Resumed: ${result.skipped} already done, ${result.completed} new`)
+```
 
 ---
 

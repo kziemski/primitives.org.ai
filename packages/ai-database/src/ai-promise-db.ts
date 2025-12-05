@@ -105,10 +105,57 @@ export interface ForEachProgress {
 export type ForEachErrorAction = 'continue' | 'retry' | 'skip' | 'stop'
 
 /**
+ * Actions API interface for persistence
+ */
+export interface ForEachActionsAPI {
+  create(data: { type: string; data: unknown; total?: number }): Promise<{ id: string }>
+  get(id: string): Promise<ForEachActionState | null>
+  update(id: string, updates: Partial<ForEachActionState>): Promise<unknown>
+}
+
+/**
+ * Action state for forEach persistence
+ */
+export interface ForEachActionState {
+  id: string
+  type: string
+  status: 'pending' | 'active' | 'completed' | 'failed'
+  progress?: number
+  total?: number
+  data: {
+    /** IDs of items that have been processed */
+    processedIds?: string[]
+    /** Custom data passed to forEach */
+    [key: string]: unknown
+  }
+  result?: ForEachResult
+  error?: string
+}
+
+/**
+ * Persistence options for forEach
+ */
+export interface ForEachPersistOptions<T = unknown> {
+  /** Actions API reference */
+  actions: ForEachActionsAPI
+  /** Resume from existing action ID (if provided, will skip already processed items) */
+  actionId?: string
+  /** Action type name (default: 'forEach') */
+  actionType?: string
+  /** Custom data to store with the action */
+  data?: Record<string, unknown>
+  /** How often to persist progress (default: every item) */
+  persistInterval?: number
+  /** Function to get ID from item for tracking processed items */
+  getItemId?: (item: T) => string
+}
+
+/**
  * Options for forEach operations
  *
  * @example
  * ```ts
+ * // In-memory processing
  * await db.Lead.list().forEach(async lead => {
  *   const analysis = await ai`analyze ${lead}`
  *   await db.Lead.update(lead.$id, { analysis })
@@ -116,6 +163,19 @@ export type ForEachErrorAction = 'continue' | 'retry' | 'skip' | 'stop'
  *   concurrency: 10,
  *   onProgress: p => console.log(`${p.completed}/${p.total}`),
  *   onError: (err, item) => err.retryable ? 'retry' : 'continue',
+ * })
+ *
+ * // With persistence (resumable)
+ * const { actions } = DB(schema)
+ * await db.Lead.list().forEach(async lead => {
+ *   await processLead(lead)
+ * }, {
+ *   concurrency: 10,
+ *   persist: {
+ *     actions,
+ *     actionType: 'process-leads',
+ *     getItemId: lead => lead.$id,
+ *   },
  * })
  * ```
  */
@@ -171,6 +231,34 @@ export interface ForEachOptions<T = unknown> {
    * Timeout per item in ms (default: none)
    */
   timeout?: number
+
+  /**
+   * Persist progress to actions for durability and resume capability
+   *
+   * @example
+   * ```ts
+   * const { db, actions } = DB(schema)
+   *
+   * // Start new action
+   * const result = await db.Lead.forEach(processLead, {
+   *   persist: {
+   *     actions,
+   *     actionType: 'process-leads',
+   *     getItemId: lead => lead.$id,
+   *   },
+   * })
+   *
+   * // Resume after crash
+   * const result = await db.Lead.forEach(processLead, {
+   *   persist: {
+   *     actions,
+   *     actionId: 'action-123',  // Resume from this action
+   *     getItemId: lead => lead.$id,
+   *   },
+   * })
+   * ```
+   */
+  persist?: ForEachPersistOptions<T>
 }
 
 /**
@@ -191,6 +279,8 @@ export interface ForEachResult {
   errors: Array<{ item: unknown; error: Error; index: number }>
   /** Was the operation cancelled? */
   cancelled: boolean
+  /** Action ID if persistence was enabled */
+  actionId?: string
 }
 
 // =============================================================================
@@ -451,6 +541,7 @@ export class DBPromise<T> implements PromiseLike<T> {
       onComplete,
       signal,
       timeout,
+      persist,
     } = options
 
     const startTime = Date.now()
@@ -459,6 +550,38 @@ export class DBPromise<T> implements PromiseLike<T> {
     let failed = 0
     let skipped = 0
     let cancelled = false
+    let actionId: string | undefined
+
+    // Persistence state
+    let processedIds = new Set<string>()
+    let persistCounter = 0
+    const persistInterval = persist?.persistInterval ?? 1
+    const getItemId = persist?.getItemId ?? ((item: any) => item?.$id ?? item?.id ?? String(item))
+
+    // Initialize persistence if enabled
+    if (persist) {
+      const { actions, actionId: resumeActionId, actionType = 'forEach', data = {} } = persist
+
+      if (resumeActionId) {
+        // Resume from existing action
+        const existingAction = await actions.get(resumeActionId)
+        if (existingAction) {
+          actionId = existingAction.id
+          processedIds = new Set(existingAction.data?.processedIds ?? [])
+          // Update status to active
+          await actions.update(actionId, { status: 'active' })
+        } else {
+          throw new Error(`Action ${resumeActionId} not found`)
+        }
+      } else {
+        // Create new action - items not resolved yet, so we'll update total later
+        const action = await actions.create({
+          type: actionType,
+          data: { ...data, processedIds: [] },
+        })
+        actionId = action.id
+      }
+    }
 
     // Resolve the items
     const items = await this.resolve()
@@ -467,6 +590,11 @@ export class DBPromise<T> implements PromiseLike<T> {
     }
 
     const total = items.length
+
+    // Update action with total if persistence is enabled
+    if (persist && actionId) {
+      await persist.actions.update(actionId, { total, status: 'active' })
+    }
 
     // Helper to calculate progress
     const getProgress = (index: number, current?: unknown): ForEachProgress => {
@@ -485,6 +613,25 @@ export class DBPromise<T> implements PromiseLike<T> {
         elapsed,
         remaining,
         rate,
+      }
+    }
+
+    // Helper to persist progress
+    const persistProgress = async (itemId: string): Promise<void> => {
+      if (!persist || !actionId) return
+
+      processedIds.add(itemId)
+      persistCounter++
+
+      // Only persist at intervals to reduce overhead
+      if (persistCounter % persistInterval === 0) {
+        await persist.actions.update(actionId, {
+          progress: completed + failed + skipped,
+          data: {
+            ...persist.data,
+            processedIds: Array.from(processedIds),
+          },
+        })
       }
     }
 
@@ -512,6 +659,13 @@ export class DBPromise<T> implements PromiseLike<T> {
         return
       }
 
+      // Check if already processed (for resume)
+      const itemId = getItemId(item as any)
+      if (processedIds.has(itemId)) {
+        skipped++
+        return
+      }
+
       let attempt = 0
       while (true) {
         try {
@@ -531,6 +685,7 @@ export class DBPromise<T> implements PromiseLike<T> {
 
           // Success
           completed++
+          await persistProgress(itemId)
           await onComplete?.(item as any, result, index)
           onProgress?.(getProgress(index, item))
           return
@@ -547,6 +702,7 @@ export class DBPromise<T> implements PromiseLike<T> {
               }
               // Fall through to continue if max retries exceeded
               failed++
+              await persistProgress(itemId) // Still mark as processed
               errors.push({ item, error: error as Error, index })
               onProgress?.(getProgress(index, item))
               return
@@ -558,6 +714,7 @@ export class DBPromise<T> implements PromiseLike<T> {
 
             case 'stop':
               failed++
+              await persistProgress(itemId)
               errors.push({ item, error: error as Error, index })
               cancelled = true
               return
@@ -565,6 +722,7 @@ export class DBPromise<T> implements PromiseLike<T> {
             case 'continue':
             default:
               failed++
+              await persistProgress(itemId)
               errors.push({ item, error: error as Error, index })
               onProgress?.(getProgress(index, item))
               return
@@ -574,41 +732,68 @@ export class DBPromise<T> implements PromiseLike<T> {
     }
 
     // Process items with concurrency
-    if (concurrency === 1) {
-      // Sequential processing
-      for (let i = 0; i < items.length; i++) {
-        if (cancelled || signal?.aborted) {
-          cancelled = true
-          break
+    try {
+      if (concurrency === 1) {
+        // Sequential processing
+        for (let i = 0; i < items.length; i++) {
+          if (cancelled || signal?.aborted) {
+            cancelled = true
+            break
+          }
+          await processItem(items[i], i)
         }
-        await processItem(items[i], i)
-      }
-    } else {
-      // Concurrent processing with semaphore
-      const semaphore = new Semaphore(concurrency)
-      const promises: Promise<void>[] = []
+      } else {
+        // Concurrent processing with semaphore
+        const semaphore = new Semaphore(concurrency)
+        const promises: Promise<void>[] = []
 
-      for (let i = 0; i < items.length; i++) {
-        if (cancelled || signal?.aborted) {
-          cancelled = true
-          break
+        for (let i = 0; i < items.length; i++) {
+          if (cancelled || signal?.aborted) {
+            cancelled = true
+            break
+          }
+
+          const itemIndex = i
+          const item = items[i]
+
+          promises.push(
+            semaphore.acquire().then(async (release) => {
+              try {
+                await processItem(item, itemIndex)
+              } finally {
+                release()
+              }
+            })
+          )
         }
 
-        const itemIndex = i
-        const item = items[i]
-
-        promises.push(
-          semaphore.acquire().then(async (release) => {
-            try {
-              await processItem(item, itemIndex)
-            } finally {
-              release()
-            }
-          })
-        )
+        await Promise.all(promises)
       }
+    } finally {
+      // Final persistence update
+      if (persist && actionId) {
+        const finalResult: ForEachResult = {
+          total,
+          completed,
+          failed,
+          skipped,
+          elapsed: Date.now() - startTime,
+          errors,
+          cancelled,
+          actionId,
+        }
 
-      await Promise.all(promises)
+        await persist.actions.update(actionId, {
+          status: cancelled ? 'failed' : failed > 0 ? 'completed' : 'completed',
+          progress: completed + failed + skipped,
+          data: {
+            ...persist.data,
+            processedIds: Array.from(processedIds),
+          },
+          result: finalResult,
+          error: cancelled ? 'Cancelled' : errors.length > 0 ? `${errors.length} items failed` : undefined,
+        })
+      }
     }
 
     return {
@@ -619,6 +804,7 @@ export class DBPromise<T> implements PromiseLike<T> {
       elapsed: Date.now() - startTime,
       errors,
       cancelled,
+      actionId,
     }
   }
 
