@@ -37,6 +37,11 @@ export interface ProviderConfig {
   /** AI Gateway auth token */
   gatewayToken?: string
 
+  /** Use llm.do WebSocket transport instead of HTTP (persistent connection) */
+  useWebSocket?: boolean
+  /** llm.do WebSocket URL (default: wss://llm.do/ws) */
+  llmUrl?: string
+
   /** OpenAI API key (fallback if no gateway) */
   openaiApiKey?: string
   /** Anthropic API key (fallback if no gateway) */
@@ -76,6 +81,10 @@ function getEnvConfig(): ProviderConfig {
     gatewayUrl: process.env.AI_GATEWAY_URL,
     gatewayToken: process.env.AI_GATEWAY_TOKEN || process.env.DO_TOKEN,
 
+    // llm.do WebSocket transport
+    useWebSocket: process.env.LLM_WEBSOCKET === 'true' || process.env.USE_LLM_WEBSOCKET === 'true',
+    llmUrl: process.env.LLM_URL,
+
     // Individual provider keys (fallbacks)
     openaiApiKey: process.env.OPENAI_API_KEY,
     anthropicApiKey: process.env.ANTHROPIC_API_KEY,
@@ -108,11 +117,30 @@ function getBaseUrl(
   return defaultUrl
 }
 
+// Lazy-loaded WebSocket fetch (to avoid circular imports)
+let llmFetchInstance: typeof fetch | null = null
+
 /**
- * Create a custom fetch that handles Cloudflare AI Gateway authentication
- * When using gateway with secrets, we strip SDK's API key headers and let the gateway inject them
+ * Create a custom fetch that handles gateway authentication
+ * Supports both HTTP (Cloudflare AI Gateway) and WebSocket (llm.do) transports
  */
 function createGatewayFetch(config: ProviderConfig): typeof fetch | undefined {
+  // Use llm.do WebSocket transport if enabled
+  if (config.useWebSocket && config.gatewayToken) {
+    // Return a lazy-initializing fetch that creates the WebSocket connection on first use
+    return async (url, init) => {
+      if (!llmFetchInstance) {
+        const { createLLMFetch } = await import('./llm.do.js')
+        llmFetchInstance = createLLMFetch({
+          url: config.llmUrl,
+          token: config.gatewayToken!
+        })
+      }
+      return llmFetchInstance(url, init)
+    }
+  }
+
+  // Use HTTP gateway
   if (!config.gatewayUrl || !config.gatewayToken) {
     return undefined
   }
