@@ -722,8 +722,8 @@ describe('MemoryProvider', () => {
       await provider.cancelAction(action.id)
 
       const cancelled = await provider.getAction(action.id)
-      expect(cancelled?.status).toBe('failed')
-      expect(cancelled?.error).toBe('Cancelled')
+      expect(cancelled?.status).toBe('cancelled')
+      // Note: cancelled actions no longer set error message
     })
 
     it('throws error when cancelling completed action', async () => {

@@ -69,8 +69,14 @@ export type {
   ArtifactsAPI,
   NounsAPI,
   VerbsAPI,
+  // Event types
   DBEvent,
+  ActorData,
+  CreateEventOptions,
+  // Action types
   DBAction,
+  CreateActionOptions,
+  // Artifact types
   DBArtifact,
   // Natural Language Query types
   NLQueryResult,

@@ -33,7 +33,7 @@
   },
   "dependencies": {
     "ai": "^4.0.0",
-    "ai-providers": "workspace:*",
+    "ai-providers": "workspace:^",
     "language-models": "workspace:*",
     "rpc.do": "^0.1.0",
     "yaml": "^2.8.0",

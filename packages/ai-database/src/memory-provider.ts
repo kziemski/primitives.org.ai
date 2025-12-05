@@ -73,29 +73,107 @@ export class Semaphore {
 }
 
 // =============================================================================
-// Types
+// Types (Actor-Event-Object-Result pattern)
 // =============================================================================
 
-export interface Event {
-  id: string
-  type: string
-  url?: string
-  data: unknown
-  timestamp: Date
+/**
+ * Actor metadata for events and actions
+ */
+export interface ActorData {
+  name?: string
+  email?: string
+  org?: string
+  role?: string
+  [key: string]: unknown
 }
 
+/**
+ * Event with Actor-Event-Object-Result pattern
+ *
+ * Following ActivityStreams semantics:
+ * - Actor: Who did it (user, system, agent)
+ * - Event: What happened (created, updated, published)
+ * - Object: What it was done to
+ * - Result: What was the outcome
+ */
+export interface Event {
+  id: string
+  /** Actor identifier (user:id, system, agent:name) */
+  actor: string
+  /** Actor metadata */
+  actorData?: ActorData
+  /** Event type (Entity.action format) */
+  event: string
+  /** Object URL/identifier */
+  object?: string
+  /** Object data snapshot */
+  objectData?: Record<string, unknown>
+  /** Result URL/identifier */
+  result?: string
+  /** Result data */
+  resultData?: Record<string, unknown>
+  /** Additional metadata */
+  meta?: Record<string, unknown>
+  /** When the event occurred */
+  timestamp: Date
+
+  // Legacy compatibility
+  /** @deprecated Use 'event' instead */
+  type?: string
+  /** @deprecated Use 'object' instead */
+  url?: string
+  /** @deprecated Use 'objectData' instead */
+  data?: unknown
+}
+
+/**
+ * Action with linguistic verb conjugations
+ *
+ * Uses act/action/activity pattern for semantic clarity:
+ * - act: Present tense 3rd person (creates, publishes)
+ * - action: Base verb form (create, publish)
+ * - activity: Gerund/progressive (creating, publishing)
+ */
 export interface Action {
   id: string
-  type: string
-  status: 'pending' | 'active' | 'completed' | 'failed'
+  /** Actor identifier */
+  actor: string
+  /** Actor metadata */
+  actorData?: ActorData
+  /** Present tense verb (creates, publishes) */
+  act: string
+  /** Base verb form (create, publish) */
+  action: string
+  /** Gerund form (creating, publishing) */
+  activity: string
+  /** Object being acted upon */
+  object?: string
+  /** Object data/parameters */
+  objectData?: Record<string, unknown>
+  /** Action status */
+  status: 'pending' | 'active' | 'completed' | 'failed' | 'cancelled'
+  /** Progress count */
   progress?: number
+  /** Total items */
   total?: number
-  data: unknown
-  result?: unknown
+  /** Result data */
+  result?: Record<string, unknown>
+  /** Error message */
   error?: string
+  /** Additional metadata */
+  meta?: Record<string, unknown>
+  /** Created timestamp */
   createdAt: Date
+  /** Started timestamp */
   startedAt?: Date
+  /** Completed timestamp */
   completedAt?: Date
+
+  // Legacy compatibility
+  /** @deprecated Use 'action' instead */
+  type?: string
+  /** @deprecated Use 'objectData' instead */
+  data?: unknown
 }
 
 export interface Artifact {
@@ -118,6 +196,96 @@ export interface MemoryProviderOptions {
 
 function generateId(): string {
   return crypto.randomUUID()
+}
+
+// =============================================================================
+// Verb Conjugation (Linguistic Helpers)
+// =============================================================================
+
+/**
+ * Conjugate a verb to get all forms
+ *
+ * @example
+ * ```ts
+ * conjugateVerb('create')
+ * // => { action: 'create', act: 'creates', activity: 'creating' }
+ *
+ * conjugateVerb('publish')
+ * // => { action: 'publish', act: 'publishes', activity: 'publishing' }
+ * ```
+ */
+function conjugateVerb(verb: string): { action: string; act: string; activity: string } {
+  const base = verb.toLowerCase()
+
+  // Known verbs with pre-defined conjugations
+  const known: Record<string, { act: string; activity: string }> = {
+    create: { act: 'creates', activity: 'creating' },
+    update: { act: 'updates', activity: 'updating' },
+    delete: { act: 'deletes', activity: 'deleting' },
+    publish: { act: 'publishes', activity: 'publishing' },
+    archive: { act: 'archives', activity: 'archiving' },
+    generate: { act: 'generates', activity: 'generating' },
+    process: { act: 'processes', activity: 'processing' },
+    sync: { act: 'syncs', activity: 'syncing' },
+    import: { act: 'imports', activity: 'importing' },
+    export: { act: 'exports', activity: 'exporting' },
+    run: { act: 'runs', activity: 'running' },
+    execute: { act: 'executes', activity: 'executing' },
+    send: { act: 'sends', activity: 'sending' },
+    fetch: { act: 'fetches', activity: 'fetching' },
+    build: { act: 'builds', activity: 'building' },
+    deploy: { act: 'deploys', activity: 'deploying' },
+  }
+
+  if (known[base]) {
+    return { action: base, ...known[base] }
+  }
+
+  // Auto-conjugate unknown verbs
+  return {
+    action: base,
+    act: toPresent(base),
+    activity: toGerund(base),
+  }
+}
+
+/** Check if character is a vowel */
+function isVowel(char: string | undefined): boolean {
+  return char ? 'aeiou'.includes(char.toLowerCase()) : false
+}
+
+/** Check if we should double the final consonant */
+function shouldDoubleConsonant(verb: string): boolean {
+  if (verb.length < 2) return false
+  const last = verb[verb.length - 1]!
+  const secondLast = verb[verb.length - 2]!
+  if ('wxy'.includes(last)) return false
+  if (isVowel(last) || !isVowel(secondLast)) return false
+  // Short words (3 letters) almost always double
+  if (verb.length <= 3) return true
+  return false
+}
+
+/** Convert verb to present 3rd person (create → creates) */
+function toPresent(verb: string): string {
+  if (verb.endsWith('y') && !isVowel(verb[verb.length - 2])) {
+    return verb.slice(0, -1) + 'ies'
+  }
+  if (verb.endsWith('s') || verb.endsWith('x') || verb.endsWith('z') ||
+      verb.endsWith('ch') || verb.endsWith('sh')) {
+    return verb + 'es'
+  }
+  return verb + 's'
+}
+
+/** Convert verb to gerund (create → creating) */
+function toGerund(verb: string): string {
+  if (verb.endsWith('ie')) return verb.slice(0, -2) + 'ying'
+  if (verb.endsWith('e') && !verb.endsWith('ee')) return verb.slice(0, -1) + 'ing'
+  if (shouldDoubleConsonant(verb)) {
+    return verb + verb[verb.length - 1] + 'ing'
+  }
+  return verb + 'ing'
 }
 
 // =============================================================================
@@ -419,24 +587,80 @@ export class MemoryProvider implements DBProvider {
   }
 
   // ===========================================================================
-  // Events
+  // Events (Actor-Event-Object-Result pattern)
   // ===========================================================================
 
-  async emit(type: string, data: unknown): Promise<void> {
-    const event: Event = {
-      id: generateId(),
-      type,
-      data,
-      timestamp: new Date(),
+  /**
+   * Emit an event using Actor-Event-Object-Result pattern
+   *
+   * @example
+   * ```ts
+   * // New pattern
+   * await provider.emit({
+   *   actor: 'user:john',
+   *   event: 'Post.created',
+   *   object: 'Post/hello-world',
+   *   objectData: { title: 'Hello World' },
+   * })
+   *
+   * // Legacy pattern (still supported)
+   * await provider.emit('Post.created', { title: 'Hello World' })
+   * ```
+   */
+  async emit(
+    eventOrType: string | {
+      actor?: string
+      actorData?: ActorData
+      event: string
+      object?: string
+      objectData?: Record<string, unknown>
+      result?: string
+      resultData?: Record<string, unknown>
+      meta?: Record<string, unknown>
+    },
+    data?: unknown
+  ): Promise<Event> {
+    let event: Event
+
+    if (typeof eventOrType === 'string') {
+      // Legacy pattern: emit('Post.created', { ... })
+      event = {
+        id: generateId(),
+        actor: 'system',
+        event: eventOrType,
+        objectData: data as Record<string, unknown> | undefined,
+        timestamp: new Date(),
+        // Legacy fields
+        type: eventOrType,
+        data,
+      }
+    } else {
+      // New pattern: emit({ actor, event, object, ... })
+      event = {
+        id: generateId(),
+        actor: eventOrType.actor ?? 'system',
+        actorData: eventOrType.actorData,
+        event: eventOrType.event,
+        object: eventOrType.object,
+        objectData: eventOrType.objectData,
+        result: eventOrType.result,
+        resultData: eventOrType.resultData,
+        meta: eventOrType.meta,
+        timestamp: new Date(),
+        // Legacy fields
+        type: eventOrType.event,
+      }
     }
 
     this.events.push(event)
 
     // Trigger handlers (with concurrency control)
-    const handlers = this.getEventHandlers(type)
+    const handlers = this.getEventHandlers(event.event)
     await this.semaphore.map(handlers, (handler) =>
       Promise.resolve(handler(event))
     )
+
+    return event
   }
 
   private getEventHandlers(type: string): Array<(event: Event) => void | Promise<void>> {
@@ -482,15 +706,27 @@ export class MemoryProvider implements DBProvider {
   }
 
   async listEvents(options?: {
-    type?: string
+    event?: string
+    actor?: string
+    object?: string
     since?: Date
     until?: Date
     limit?: number
+    /** @deprecated Use 'event' instead */
+    type?: string
   }): Promise<Event[]> {
     let results = [...this.events]
 
-    if (options?.type) {
-      results = results.filter((e) => this.matchesPattern(e.type, options.type!))
+    // Filter by event pattern
+    const eventPattern = options?.event ?? options?.type
+    if (eventPattern) {
+      results = results.filter((e) => this.matchesPattern(e.event, eventPattern))
+    }
+    if (options?.actor) {
+      results = results.filter((e) => e.actor === options.actor)
+    }
+    if (options?.object) {
+      results = results.filter((e) => e.object === options.object)
     }
     if (options?.since) {
       results = results.filter((e) => e.timestamp >= options.since!)
@@ -506,12 +742,16 @@ export class MemoryProvider implements DBProvider {
   }
 
   async replayEvents(options: {
-    type?: string
+    event?: string
+    actor?: string
     since?: Date
     handler: (event: Event) => void | Promise<void>
+    /** @deprecated Use 'event' instead */
+    type?: string
   }): Promise<void> {
     const events = await this.listEvents({
-      type: options.type,
+      event: options.event ?? options.type,
+      actor: options.actor,
       since: options.since,
     })
 
@@ -521,27 +761,77 @@ export class MemoryProvider implements DBProvider {
   }
 
   // ===========================================================================
-  // Actions
+  // Actions (Linguistic Verb Pattern)
   // ===========================================================================
 
+  /**
+   * Create an action with automatic verb conjugation
+   *
+   * @example
+   * ```ts
+   * // New pattern with verb conjugation
+   * const action = await provider.createAction({
+   *   actor: 'system',
+   *   action: 'generate',  // auto-conjugates to act='generates', activity='generating'
+   *   object: 'Post',
+   *   objectData: { count: 100 },
+   *   total: 100,
+   * })
+   *
+   * // Legacy pattern (still supported)
+   * const action = await provider.createAction({
+   *   type: 'generate',
+   *   data: { count: 100 },
+   *   total: 100,
+   * })
+   * ```
+   */
   async createAction(data: {
-    type: string
-    data: unknown
+    actor?: string
+    actorData?: ActorData
+    action?: string
+    object?: string
+    objectData?: Record<string, unknown>
     total?: number
+    meta?: Record<string, unknown>
+    // Legacy
+    type?: string
+    data?: unknown
   }): Promise<Action> {
+    // Get base verb from action or legacy type
+    const baseVerb = data.action ?? data.type ?? 'process'
+
+    // Auto-conjugate verb forms
+    const conjugated = conjugateVerb(baseVerb)
+
     const action: Action = {
       id: generateId(),
-      type: data.type,
+      actor: data.actor ?? 'system',
+      actorData: data.actorData,
+      act: conjugated.act,
+      action: conjugated.action,
+      activity: conjugated.activity,
+      object: data.object,
+      objectData: data.objectData ?? (data.data as Record<string, unknown> | undefined),
       status: 'pending',
       progress: 0,
       total: data.total,
-      data: data.data,
+      meta: data.meta,
       createdAt: new Date(),
+      // Legacy fields
+      type: baseVerb,
+      data: data.data,
     }
 
     this.actions.set(action.id, action)
 
-    await this.emit('Action.created', action)
+    await this.emit({
+      actor: action.actor,
+      actorData: action.actorData,
+      event: 'Action.created',
+      object: action.id,
+      objectData: { action: action.action, object: action.object },
+    })
 
     return action
   }
@@ -563,17 +853,44 @@ export class MemoryProvider implements DBProvider {
 
     if (updates.status === 'active' && !action.startedAt) {
       action.startedAt = new Date()
-      await this.emit('Action.started', action)
+      await this.emit({
+        actor: action.actor,
+        event: 'Action.started',
+        object: action.id,
+        objectData: { action: action.action, activity: action.activity },
+      })
     }
 
     if (updates.status === 'completed') {
       action.completedAt = new Date()
-      await this.emit('Action.completed', action)
+      await this.emit({
+        actor: action.actor,
+        event: 'Action.completed',
+        object: action.id,
+        objectData: { action: action.action },
+        result: action.object,
+        resultData: action.result,
+      })
     }
 
     if (updates.status === 'failed') {
       action.completedAt = new Date()
-      await this.emit('Action.failed', action)
+      await this.emit({
+        actor: action.actor,
+        event: 'Action.failed',
+        object: action.id,
+        objectData: { action: action.action, error: action.error },
+      })
+    }
+
+    if (updates.status === 'cancelled') {
+      action.completedAt = new Date()
+      await this.emit({
+        actor: action.actor,
+        event: 'Action.cancelled',
+        object: action.id,
+        objectData: { action: action.action },
+      })
     }
 
     return action
@@ -581,16 +898,36 @@ export class MemoryProvider implements DBProvider {
 
   async listActions(options?: {
     status?: Action['status']
-    type?: string
+    action?: string
+    actor?: string
+    object?: string
+    since?: Date
+    until?: Date
     limit?: number
+    /** @deprecated Use 'action' instead */
+    type?: string
   }): Promise<Action[]> {
     let results = Array.from(this.actions.values())
 
     if (options?.status) {
       results = results.filter((a) => a.status === options.status)
     }
-    if (options?.type) {
-      results = results.filter((a) => a.type === options.type)
+    // Filter by action or legacy type
+    const actionFilter = options?.action ?? options?.type
+    if (actionFilter) {
+      results = results.filter((a) => a.action === actionFilter)
+    }
+    if (options?.actor) {
+      results = results.filter((a) => a.actor === options.actor)
+    }
+    if (options?.object) {
+      results = results.filter((a) => a.object === options.object)
+    }
+    if (options?.since) {
+      results = results.filter((a) => a.createdAt >= options.since!)
+    }
+    if (options?.until) {
+      results = results.filter((a) => a.createdAt <= options.until!)
     }
     if (options?.limit) {
       results = results.slice(0, options.limit)
@@ -613,6 +950,13 @@ export class MemoryProvider implements DBProvider {
     action.startedAt = undefined
     action.completedAt = undefined
 
+    await this.emit({
+      actor: action.actor,
+      event: 'Action.retried',
+      object: action.id,
+      objectData: { action: action.action },
+    })
+
     return action
   }
 
@@ -621,15 +965,19 @@ export class MemoryProvider implements DBProvider {
     if (!action) {
       throw new Error(`Action not found: ${id}`)
     }
-    if (action.status === 'completed' || action.status === 'failed') {
+    if (action.status === 'completed' || action.status === 'failed' || action.status === 'cancelled') {
       throw new Error(`Cannot cancel finished action: ${id}`)
     }
 
-    action.status = 'failed'
-    action.error = 'Cancelled'
+    action.status = 'cancelled'
     action.completedAt = new Date()
 
-    await this.emit('Action.cancelled', action)
+    await this.emit({
+      actor: action.actor,
+      event: 'Action.cancelled',
+      object: action.id,
+      objectData: { action: action.action },
+    })
   }
 
   // ===========================================================================
@@ -730,7 +1078,7 @@ export class MemoryProvider implements DBProvider {
     entities: number
     relations: number
     events: number
-    actions: { pending: number; active: number; completed: number; failed: number }
+    actions: { pending: number; active: number; completed: number; failed: number; cancelled: number }
     artifacts: number
     concurrency: { active: number; pending: number }
   } {
@@ -744,7 +1092,7 @@ export class MemoryProvider implements DBProvider {
       relationCount += targets.size
     }
 
-    const actionStats = { pending: 0, active: 0, completed: 0, failed: 0 }
+    const actionStats = { pending: 0, active: 0, completed: 0, failed: 0, cancelled: 0 }
     for (const action of this.actions.values()) {
       actionStats[action.status]++
     }

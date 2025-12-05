@@ -1542,18 +1542,110 @@ export interface GenerateOptions {
 }
 
 // =============================================================================
-// Events API
+// Events API (Actor-Event-Object-Result pattern)
 // =============================================================================
 
 /**
- * Event data structure
+ * Actor data - who performed the action
+ *
+ * @example
+ * ```ts
+ * const actorData: ActorData = {
+ *   name: 'John Doe',
+ *   email: 'john@example.com',
+ *   org: 'Acme Corp',
+ *   role: 'admin',
+ * }
+ * ```
+ */
+export interface ActorData {
+  /** Actor's display name */
+  name?: string
+  /** Actor's email */
+  email?: string
+  /** Actor's organization */
+  org?: string
+  /** Actor's role or access level */
+  role?: string
+  /** Additional actor metadata */
+  [key: string]: unknown
+}
+
+/**
+ * Event data structure - Actor-Event-Object-Result pattern
+ *
+ * Following ActivityStreams semantics:
+ * - Actor: Who did it (user, system, agent)
+ * - Event: What happened (created, updated, published)
+ * - Object: What it was done to (the entity)
+ * - Result: What was the outcome (optional)
+ *
+ * @example
+ * ```ts
+ * const event: DBEvent = {
+ *   id: '01HGXYZ...',
+ *   actor: 'user:john',
+ *   actorData: { name: 'John Doe', email: 'john@example.com' },
+ *   event: 'Post.published',
+ *   object: 'https://example.com/Post/hello-world',
+ *   objectData: { title: 'Hello World' },
+ *   result: 'https://example.com/Publication/123',
+ *   resultData: { url: 'https://blog.example.com/hello-world' },
+ *   timestamp: new Date(),
+ * }
+ * ```
  */
 export interface DBEvent {
+  /** Unique event ID (ULID recommended) */
   id: string
-  type: string
-  url?: string
-  data: unknown
+  /** Actor identifier (user:id, system, agent:name) */
+  actor: string
+  /** Actor metadata */
+  actorData?: ActorData
+  /** Event type (Entity.action format, e.g., Post.created) */
+  event: string
+  /** Object URL/identifier that was acted upon */
+  object?: string
+  /** Object data snapshot at time of event */
+  objectData?: Record<string, unknown>
+  /** Result URL/identifier (outcome of the action) */
+  result?: string
+  /** Result data */
+  resultData?: Record<string, unknown>
+  /** Additional metadata */
+  meta?: Record<string, unknown>
+  /** When the event occurred */
   timestamp: Date
+
+  // Legacy compatibility (deprecated)
+  /** @deprecated Use 'event' instead */
+  type?: string
+  /** @deprecated Use 'objectData' instead */
+  data?: unknown
+  /** @deprecated Use 'object' instead */
+  url?: string
+}
+
+/**
+ * Options for creating an event
+ */
+export interface CreateEventOptions {
+  /** Actor identifier */
+  actor: string
+  /** Actor metadata */
+  actorData?: ActorData
+  /** Event type */
+  event: string
+  /** Object URL/identifier */
+  object?: string
+  /** Object data */
+  objectData?: Record<string, unknown>
+  /** Result URL/identifier */
+  result?: string
+  /** Result data */
+  resultData?: Record<string, unknown>
+  /** Additional metadata */
+  meta?: Record<string, unknown>
 }
 
 /**
@@ -1563,51 +1655,176 @@ export interface EventsAPI {
   /** Subscribe to events matching a pattern */
   on(pattern: string, handler: (event: DBEvent) => void | Promise<void>): () => void
 
-  /** Emit a custom event */
-  emit(type: string, data: unknown): Promise<void>
+  /** Emit an event using Actor-Event-Object-Result pattern */
+  emit(options: CreateEventOptions): Promise<DBEvent>
+
+  /** Emit a simple event (legacy compatibility) */
+  emit(type: string, data: unknown): Promise<DBEvent>
 
   /** List events with optional filters */
   list(options?: {
-    type?: string
+    event?: string
+    actor?: string
+    object?: string
     since?: Date
     until?: Date
     limit?: number
+    /** @deprecated Use 'event' instead */
+    type?: string
   }): Promise<DBEvent[]>
 
   /** Replay events through a handler */
   replay(options: {
-    type?: string
+    event?: string
+    actor?: string
     since?: Date
     handler: (event: DBEvent) => void | Promise<void>
+    /** @deprecated Use 'event' instead */
+    type?: string
   }): Promise<void>
 }
 
 // =============================================================================
-// Actions API
+// Actions API (Linguistic Verb Pattern)
 // =============================================================================
 
 /**
  * Action data structure for durable execution
+ *
+ * Uses linguistic verb conjugations for semantic clarity:
+ * - act: Present tense 3rd person (creates, publishes)
+ * - action: Base verb form (create, publish)
+ * - activity: Gerund/progressive (creating, publishing)
+ *
+ * @example
+ * ```ts
+ * const action: DBAction = {
+ *   id: '01HGXYZ...',
+ *   actor: 'user:john',
+ *   actorData: { name: 'John Doe' },
+ *   // Verb conjugations
+ *   act: 'generates',        // Present tense: "system generates posts"
+ *   action: 'generate',      // Base form for lookups
+ *   activity: 'generating',  // Progressive: "currently generating posts"
+ *   // Target
+ *   object: 'Post',
+ *   objectData: { count: 100 },
+ *   // Status
+ *   status: 'active',
+ *   progress: 50,
+ *   total: 100,
+ *   // Result
+ *   result: { created: 50 },
+ *   timestamp: new Date(),
+ * }
+ * ```
  */
 export interface DBAction {
+  /** Unique action ID (ULID recommended) */
   id: string
-  type: string
-  status: 'pending' | 'active' | 'completed' | 'failed'
+
+  /** Actor identifier (user:id, system, agent:name) */
+  actor: string
+  /** Actor metadata */
+  actorData?: ActorData
+
+  /** Present tense 3rd person verb (creates, publishes, generates) */
+  act: string
+  /** Base verb form - imperative (create, publish, generate) */
+  action: string
+  /** Gerund/progressive form (creating, publishing, generating) */
+  activity: string
+
+  /** Object being acted upon (type name or URL) */
+  object?: string
+  /** Object data/parameters for the action */
+  objectData?: Record<string, unknown>
+
+  /** Action status */
+  status: 'pending' | 'active' | 'completed' | 'failed' | 'cancelled'
+
+  /** Current progress count */
   progress?: number
+  /** Total items to process */
   total?: number
-  data: unknown
-  result?: unknown
+
+  /** Result data on completion */
+  result?: Record<string, unknown>
+  /** Error message on failure */
   error?: string
+
+  /** Additional metadata */
+  meta?: Record<string, unknown>
+
+  /** When the action was created */
   createdAt: Date
+  /** When the action started executing */
   startedAt?: Date
+  /** When the action completed/failed */
   completedAt?: Date
+
+  // Legacy compatibility (deprecated)
+  /** @deprecated Use 'action' instead */
+  type?: string
+  /** @deprecated Use 'objectData' instead */
+  data?: unknown
+}
+
+/**
+ * Options for creating an action
+ */
+export interface CreateActionOptions {
+  /** Actor identifier */
+  actor: string
+  /** Actor metadata */
+  actorData?: ActorData
+  /** Base verb (will auto-conjugate to act/activity) */
+  action: string
+  /** Object being acted upon */
+  object?: string
+  /** Object data/parameters */
+  objectData?: Record<string, unknown>
+  /** Total items for progress tracking */
+  total?: number
+  /** Additional metadata */
+  meta?: Record<string, unknown>
+
+  // Legacy compatibility
+  /** @deprecated Use 'action' instead */
+  type?: string
+  /** @deprecated Use 'objectData' instead */
+  data?: unknown
 }
 
 /**
  * Actions API for durable execution tracking
+ *
+ * @example
+ * ```ts
+ * // Create an action with verb conjugation
+ * const action = await actions.create({
+ *   actor: 'system',
+ *   action: 'generate',  // auto-conjugates to act='generates', activity='generating'
+ *   object: 'Post',
+ *   objectData: { count: 100 },
+ *   total: 100,
+ * })
+ *
+ * // Update progress
+ * await actions.update(action.id, { progress: 50 })
+ *
+ * // Complete with result
+ * await actions.update(action.id, {
+ *   status: 'completed',
+ *   result: { created: 100 },
+ * })
+ * ```
  */
 export interface ActionsAPI {
-  /** Create a new action */
+  /** Create a new action (auto-conjugates verb forms) */
+  create(options: CreateActionOptions): Promise<DBAction>
+
+  /** Create with legacy format (deprecated) */
   create(data: { type: string; data: unknown; total?: number }): Promise<DBAction>
 
   /** Get an action by ID */
@@ -1622,8 +1839,14 @@ export interface ActionsAPI {
   /** List actions with optional filters */
   list(options?: {
     status?: DBAction['status']
-    type?: string
+    action?: string
+    actor?: string
+    object?: string
+    since?: Date
+    until?: Date
     limit?: number
+    /** @deprecated Use 'action' instead */
+    type?: string
   }): Promise<DBAction[]>
 
   /** Retry a failed action */
@@ -1631,6 +1854,9 @@ export interface ActionsAPI {
 
   /** Cancel a pending/active action */
   cancel(id: string): Promise<void>
+
+  /** Conjugate a verb to get all forms */
+  conjugate(action: string): Verb
 }
 
 // =============================================================================
@@ -2421,10 +2647,33 @@ export function DB<TSchema extends DatabaseSchema>(
       return () => unsubscribe()
     },
 
-    async emit(type, data) {
+    async emit(optionsOrType: CreateEventOptions | string, data?: unknown): Promise<DBEvent> {
       const provider = await resolveProvider()
       if ('emit' in provider) {
-        await (provider as any).emit(type, data)
+        return (provider as any).emit(optionsOrType, data)
+      }
+      // Return minimal event if provider doesn't support emit
+      const now = new Date()
+      if (typeof optionsOrType === 'string') {
+        return {
+          id: crypto.randomUUID(),
+          actor: 'system',
+          event: optionsOrType,
+          objectData: data as Record<string, unknown> | undefined,
+          timestamp: now,
+        }
+      }
+      return {
+        id: crypto.randomUUID(),
+        actor: optionsOrType.actor,
+        actorData: optionsOrType.actorData,
+        event: optionsOrType.event,
+        object: optionsOrType.object,
+        objectData: optionsOrType.objectData,
+        result: optionsOrType.result,
+        resultData: optionsOrType.resultData,
+        meta: optionsOrType.meta,
+        timestamp: now,
       }
     },
 
@@ -2470,6 +2719,8 @@ export function DB<TSchema extends DatabaseSchema>(
         await (provider as any).cancelAction(id)
       }
     },
+
+    conjugate,
   }
 
   // Create Artifacts API
