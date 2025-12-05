@@ -145,5 +145,6 @@ vite.config.ts.timestamp-*
 .DS_Store
 Thumbs.db
 
-.open-next.source
+.open-next
+.source
 .wrangler
