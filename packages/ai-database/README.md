@@ -173,6 +173,54 @@ const embedding = await artifacts.get('Post/hello', 'embedding')
 const all = await artifacts.list('Post/hello')
 ```
 
+## Thing Types (mdxld)
+
+Entities follow the [mdxld](https://mdx.org.ai) convention with two representations:
+
+### Flat Format
+
+Used for JSON-LD compatible storage with `$`-prefixed metadata:
+
+```typescript
+import type { ThingFlat } from 'ai-database'
+
+const post: ThingFlat = {
+  $id: 'post-123',
+  $type: 'Post',
+  $context: 'https://schema.org',
+  title: 'Hello World',
+  content: 'This is my post...',
+}
+```
+
+### Expanded Format
+
+Used for full document representation with structured data:
+
+```typescript
+import type { ThingExpanded } from 'ai-database'
+
+const post: ThingExpanded = {
+  id: 'post-123',
+  type: 'Post',
+  context: 'https://schema.org',
+  data: { title: 'Hello World', author: 'john' },
+  content: '# Hello World\n\nThis is my post...',
+}
+```
+
+### Conversion Utilities
+
+```typescript
+import { toExpanded, toFlat } from 'ai-database'
+
+// Convert flat to expanded
+const expanded = toExpanded(flatPost)
+
+// Convert expanded to flat
+const flat = toFlat(expandedPost)
+```
+
 ## Semantic Types
 
 Auto-generate linguistic forms for any noun or verb:

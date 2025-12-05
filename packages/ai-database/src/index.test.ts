@@ -753,7 +753,7 @@ describe('provider resolution', () => {
       User: { name: 'string' },
     } as const
 
-    const db = DB(schema)
+    const { db } = DB(schema)
 
     await db.User.create('test', { name: 'Test User' })
 
@@ -767,11 +767,11 @@ describe('provider resolution', () => {
 
     setProvider(provider1)
     const schema = { User: { name: 'string' } } as const
-    const db1 = DB(schema)
+    const { db: db1 } = DB(schema)
     await db1.User.create('john', { name: 'John' })
 
     setProvider(provider2)
-    const db2 = DB(schema)
+    const { db: db2 } = DB(schema)
     const user = await db2.User.get('john')
 
     expect(user).toBeNull()

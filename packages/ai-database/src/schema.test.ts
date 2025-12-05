@@ -28,8 +28,172 @@ import {
   createNounRecord,
   createEdgeRecords,
   setNLQueryGenerator,
+  toExpanded,
+  toFlat,
 } from './schema.js'
-import type { DatabaseSchema, ParsedField, Noun, Verb, TypeMeta, NLQueryPlan } from './schema.js'
+import type { DatabaseSchema, ParsedField, Noun, Verb, TypeMeta, NLQueryPlan, ThingFlat, ThingExpanded } from './schema.js'
+
+describe('Thing types (mdxld)', () => {
+  describe('ThingFlat', () => {
+    it('represents entity with $-prefixed metadata', () => {
+      const post: ThingFlat = {
+        $id: 'post-123',
+        $type: 'Post',
+        $context: 'https://schema.org',
+        title: 'Hello World',
+        content: 'This is my post',
+      }
+
+      expect(post.$id).toBe('post-123')
+      expect(post.$type).toBe('Post')
+      expect(post.$context).toBe('https://schema.org')
+      expect(post.title).toBe('Hello World')
+    })
+
+    it('allows optional $context', () => {
+      const post: ThingFlat = {
+        $id: 'post-123',
+        $type: 'Post',
+        title: 'Hello',
+      }
+
+      expect(post.$context).toBeUndefined()
+    })
+  })
+
+  describe('ThingExpanded', () => {
+    it('represents entity with mdxld structure', () => {
+      const post: ThingExpanded = {
+        id: 'post-123',
+        type: 'Post',
+        context: 'https://schema.org',
+        data: { title: 'Hello World', author: 'john' },
+        content: '# Hello World\n\nThis is my post...',
+      }
+
+      expect(post.id).toBe('post-123')
+      expect(post.type).toBe('Post')
+      expect(post.context).toBe('https://schema.org')
+      expect(post.data.title).toBe('Hello World')
+      expect(post.content).toContain('Hello World')
+    })
+  })
+
+  describe('toExpanded', () => {
+    it('converts flat to expanded format', () => {
+      const flat: ThingFlat = {
+        $id: 'post-123',
+        $type: 'Post',
+        $context: 'https://schema.org',
+        title: 'Hello World',
+        author: 'john',
+      }
+
+      const expanded = toExpanded(flat)
+
+      expect(expanded.id).toBe('post-123')
+      expect(expanded.type).toBe('Post')
+      expect(expanded.context).toBe('https://schema.org')
+      expect(expanded.data.title).toBe('Hello World')
+      expect(expanded.data.author).toBe('john')
+    })
+
+    it('handles content field specially', () => {
+      const flat: ThingFlat = {
+        $id: 'post-123',
+        $type: 'Post',
+        title: 'Hello',
+        content: '# Markdown content',
+      }
+
+      const expanded = toExpanded(flat)
+
+      expect(expanded.content).toBe('# Markdown content')
+      expect(expanded.data.content).toBe('# Markdown content')
+    })
+
+    it('handles missing context', () => {
+      const flat: ThingFlat = {
+        $id: 'post-123',
+        $type: 'Post',
+        title: 'Hello',
+      }
+
+      const expanded = toExpanded(flat)
+
+      expect(expanded.context).toBeUndefined()
+    })
+  })
+
+  describe('toFlat', () => {
+    it('converts expanded to flat format', () => {
+      const expanded: ThingExpanded = {
+        id: 'post-123',
+        type: 'Post',
+        context: 'https://schema.org',
+        data: { title: 'Hello World', author: 'john' },
+        content: '',
+      }
+
+      const flat = toFlat(expanded)
+
+      expect(flat.$id).toBe('post-123')
+      expect(flat.$type).toBe('Post')
+      expect(flat.$context).toBe('https://schema.org')
+      expect(flat.title).toBe('Hello World')
+      expect(flat.author).toBe('john')
+    })
+
+    it('includes content in flat output when present', () => {
+      const expanded: ThingExpanded = {
+        id: 'post-123',
+        type: 'Post',
+        data: { title: 'Hello' },
+        content: '# Markdown content',
+      }
+
+      const flat = toFlat(expanded)
+
+      expect(flat.content).toBe('# Markdown content')
+    })
+
+    it('omits content when empty', () => {
+      const expanded: ThingExpanded = {
+        id: 'post-123',
+        type: 'Post',
+        data: { title: 'Hello' },
+        content: '',
+      }
+
+      const flat = toFlat(expanded)
+
+      expect(flat.content).toBeUndefined()
+    })
+  })
+
+  describe('round-trip conversion', () => {
+    it('preserves data through flat -> expanded -> flat', () => {
+      const original: ThingFlat = {
+        $id: 'post-123',
+        $type: 'Post',
+        $context: 'https://schema.org',
+        title: 'Hello World',
+        author: 'john',
+        tags: ['typescript', 'ai'],
+      }
+
+      const expanded = toExpanded(original)
+      const roundTripped = toFlat(expanded)
+
+      expect(roundTripped.$id).toBe(original.$id)
+      expect(roundTripped.$type).toBe(original.$type)
+      expect(roundTripped.$context).toBe(original.$context)
+      expect(roundTripped.title).toBe(original.title)
+      expect(roundTripped.author).toBe(original.author)
+      expect(roundTripped.tags).toEqual(original.tags)
+    })
+  })
+})
 
 describe('parseSchema', () => {
   describe('primitive fields', () => {
@@ -396,7 +560,7 @@ describe('DB factory', () => {
       },
     }
 
-    const db = DB(schema)
+    const { db } = DB(schema)
 
     expect(db).toBeDefined()
     expect(db.$schema).toBeDefined()
@@ -415,7 +579,7 @@ describe('DB factory', () => {
       Tag: { name: 'string' },
     }
 
-    const db = DB(schema)
+    const { db } = DB(schema)
 
     expect(db.Post).toBeDefined()
     expect(db.Author).toBeDefined()
@@ -427,7 +591,7 @@ describe('DB factory', () => {
       User: { name: 'string' },
     }
 
-    const db = DB(schema)
+    const { db } = DB(schema)
 
     expect(typeof db.get).toBe('function')
     expect(typeof db.search).toBe('function')
@@ -444,7 +608,7 @@ describe('DB factory', () => {
       },
     }
 
-    const db = DB(schema)
+    const { db } = DB(schema)
 
     expect(db.$schema.entities.size).toBe(2)
     const user = db.$schema.entities.get('User')
@@ -462,7 +626,7 @@ describe('type inference', () => {
       },
     } as const
 
-    const db = DB(schema)
+    const { db } = DB(schema)
 
     // TypeScript should infer these types
     // Runtime check that the structure is correct
@@ -481,7 +645,7 @@ describe('type inference', () => {
       },
     } as const
 
-    const db = DB(schema)
+    const { db } = DB(schema)
 
     expect(db.Post).toBeDefined()
     expect(db.Author).toBeDefined()
@@ -653,7 +817,7 @@ describe('Noun & Verb', () => {
         },
       })
 
-      const db = DB({
+      const { db } = DB({
         Post: nounToSchema(Post),
         Author: nounToSchema(Author),
       })

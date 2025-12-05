@@ -2,10 +2,11 @@
  * Schema-first Database Definition
  *
  * Declarative schema with automatic bi-directional relationships.
+ * Uses mdxld conventions for entity structure.
  *
  * @example
  * ```ts
- * const db = DB({
+ * const { db } = DB({
  *   Post: {
  *     title: 'string',
  *     author: 'Author.posts',     // one-to-many: Post.author -> Author, Author.posts -> Post[]
@@ -27,6 +28,89 @@
  * post.tags    // Tag[] (array)
  * ```
  */
+
+import type { MDXLD } from 'mdxld'
+
+// =============================================================================
+// Thing Types (mdxld-based entity structure)
+// =============================================================================
+
+/**
+ * Flat Thing shape with $-prefixed metadata fields
+ * Used for JSON-LD compatible serialization
+ *
+ * @example
+ * ```ts
+ * const post: ThingFlat = {
+ *   $id: 'post-123',
+ *   $type: 'Post',
+ *   $context: 'https://schema.org',
+ *   title: 'Hello World',
+ *   content: '...',
+ * }
+ * ```
+ */
+export interface ThingFlat {
+  /** Unique identifier */
+  $id: string
+  /** Entity type */
+  $type: string
+  /** JSON-LD context (optional) */
+  $context?: string | Record<string, unknown>
+  /** Additional data fields */
+  [key: string]: unknown
+}
+
+/**
+ * Expanded Thing shape with structured data and content
+ * Used for full document representation (mdxld format)
+ *
+ * @example
+ * ```ts
+ * const post: ThingExpanded = {
+ *   id: 'post-123',
+ *   type: 'Post',
+ *   context: 'https://schema.org',
+ *   data: { title: 'Hello World', author: 'john' },
+ *   content: '# Hello World\n\nThis is my post...',
+ * }
+ * ```
+ */
+export interface ThingExpanded extends MDXLD {
+  /** Unique identifier */
+  id: string
+  /** Entity type */
+  type: string
+}
+
+/**
+ * Convert flat thing to expanded format
+ */
+export function toExpanded(flat: ThingFlat): ThingExpanded {
+  const { $id, $type, $context, ...rest } = flat
+  return {
+    id: $id,
+    type: $type,
+    context: $context,
+    data: rest,
+    content: typeof rest.content === 'string' ? rest.content : '',
+  }
+}
+
+/**
+ * Convert expanded thing to flat format
+ */
+export function toFlat(expanded: ThingExpanded): ThingFlat {
+  const { id, type, context, data, content, ...rest } = expanded
+  return {
+    $id: id,
+    $type: type,
+    $context: context,
+    ...data,
+    ...rest,
+    ...(content ? { content } : {}),
+  }
+}
 
 // =============================================================================
 // Schema Definition Types

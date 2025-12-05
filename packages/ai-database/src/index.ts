@@ -32,6 +32,9 @@
 
 export { DB } from './schema.js'
 export type {
+  // Thing types (mdxld-based)
+  ThingFlat,
+  ThingExpanded,
   // Schema types
   DatabaseSchema,
   EntitySchema,
@@ -73,6 +76,9 @@ export type {
 } from './schema.js'
 
 export {
+  // Thing conversion utilities
+  toExpanded,
+  toFlat,
   // Configuration
   setProvider,
   setNLQueryGenerator,

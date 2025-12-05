@@ -17,7 +17,7 @@ describe('edge cases', () => {
     it('handles empty schema', () => {
       const schema: DatabaseSchema = {}
 
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       expect(db.$schema.entities.size).toBe(0)
       expect(typeof db.get).toBe('function')
@@ -29,7 +29,7 @@ describe('edge cases', () => {
         Empty: {},
       }
 
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       expect(db.Empty).toBeDefined()
       expect(typeof db.Empty.create).toBe('function')
@@ -40,7 +40,7 @@ describe('edge cases', () => {
         Marker: {},
       }
 
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       const marker = await db.Marker.create('mark1', {})
 
@@ -55,7 +55,7 @@ describe('edge cases', () => {
     } as const
 
     it('handles IDs with hyphens', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       const user = await db.User.create('user-123', { name: 'Test' })
       expect(user.$id).toBe('user-123')
@@ -65,28 +65,28 @@ describe('edge cases', () => {
     })
 
     it('handles IDs with underscores', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       const user = await db.User.create('user_123', { name: 'Test' })
       expect(user.$id).toBe('user_123')
     })
 
     it('handles IDs with dots', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       const user = await db.User.create('user.123', { name: 'Test' })
       expect(user.$id).toBe('user.123')
     })
 
     it('handles IDs with slashes (path-like)', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       const user = await db.User.create('org/user/123', { name: 'Test' })
       expect(user.$id).toBe('org/user/123')
     })
 
     it('handles UUID-style IDs', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       const uuid = '550e8400-e29b-41d4-a716-446655440000'
       const user = await db.User.create(uuid, { name: 'Test' })
@@ -103,7 +103,7 @@ describe('edge cases', () => {
     } as const
 
     it('handles unicode characters', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       const user = await db.User.create('user1', {
         name: '日本語',
@@ -115,7 +115,7 @@ describe('edge cases', () => {
     })
 
     it('handles newlines in data', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       const user = await db.User.create('user1', {
         name: 'John',
@@ -126,7 +126,7 @@ describe('edge cases', () => {
     })
 
     it('handles special JSON characters', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       const user = await db.User.create('user1', {
         name: 'Test "quoted" name',
@@ -147,7 +147,7 @@ describe('edge cases', () => {
     } as const
 
     it('handles large strings', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       const largeContent = 'x'.repeat(100000) // 100KB string
 
@@ -160,7 +160,7 @@ describe('edge cases', () => {
     })
 
     it('handles many entities', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       const count = 1000
       const promises = []
@@ -181,7 +181,7 @@ describe('edge cases', () => {
     })
 
     it('handles large result sets', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       // Create 100 documents
       for (let i = 0; i < 100; i++) {
@@ -204,7 +204,7 @@ describe('edge cases', () => {
     } as const
 
     it('handles concurrent creates', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       const promises = []
       for (let i = 0; i < 10; i++) {
@@ -220,7 +220,7 @@ describe('edge cases', () => {
     })
 
     it('handles concurrent updates', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       await db.Counter.create('counter1', { value: 0 })
 
@@ -238,7 +238,7 @@ describe('edge cases', () => {
     })
 
     it('handles concurrent list operations', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       await db.Counter.create('counter1', { value: 1 })
       await db.Counter.create('counter2', { value: 2 })
@@ -267,7 +267,7 @@ describe('edge cases', () => {
     } as const
 
     it('creates entity with missing optional fields', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       const user = await db.User.create('user1', {
         name: 'John',
@@ -279,7 +279,7 @@ describe('edge cases', () => {
     })
 
     it('creates entity with some optional fields', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       const user = await db.User.create('user1', {
         name: 'John',
@@ -291,7 +291,7 @@ describe('edge cases', () => {
     })
 
     it('updates to set optional field', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       await db.User.create('user1', { name: 'John' })
 
@@ -303,7 +303,7 @@ describe('edge cases', () => {
     })
 
     it('updates to unset optional field (set to undefined)', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       await db.User.create('user1', {
         name: 'John',
@@ -328,7 +328,7 @@ describe('edge cases', () => {
     } as const
 
     it('creates entity with empty arrays', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       const post = await db.Post.create('post1', {
         title: 'Test',
@@ -341,7 +341,7 @@ describe('edge cases', () => {
     })
 
     it('creates entity with array values', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       const post = await db.Post.create('post1', {
         title: 'Test',
@@ -354,7 +354,7 @@ describe('edge cases', () => {
     })
 
     it('updates array fields', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       await db.Post.create('post1', {
         title: 'Test',
@@ -376,7 +376,7 @@ describe('edge cases', () => {
     } as const
 
     it('parses full HTTPS URL', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       await db.User.create('john', { name: 'John' })
 
@@ -385,7 +385,7 @@ describe('edge cases', () => {
     })
 
     it('parses HTTP URL', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       await db.User.create('john', { name: 'John' })
 
@@ -394,7 +394,7 @@ describe('edge cases', () => {
     })
 
     it('parses type/id path', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       await db.User.create('john', { name: 'John' })
 
@@ -403,7 +403,7 @@ describe('edge cases', () => {
     })
 
     it('parses nested path IDs', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       await db.User.create('org/team/john', { name: 'John' })
 
@@ -412,7 +412,7 @@ describe('edge cases', () => {
     })
 
     it('handles URL with query parameters', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       await db.User.create('john', { name: 'John' })
 
@@ -422,7 +422,7 @@ describe('edge cases', () => {
     })
 
     it('handles URL with hash', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       await db.User.create('john', { name: 'John' })
 
@@ -441,7 +441,7 @@ describe('edge cases', () => {
     } as const
 
     it('handles self-referential optional relation', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       const user = await db.User.create('john', {
         name: 'John',
@@ -453,7 +453,7 @@ describe('edge cases', () => {
     })
 
     it('handles circular relations through provider', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
       const provider = createMemoryProvider()
       setProvider(provider)
 
@@ -481,7 +481,7 @@ describe('edge cases', () => {
     } as const
 
     it('searches for empty string', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       await db.Post.create('post1', {
         title: 'Test',
@@ -495,7 +495,7 @@ describe('edge cases', () => {
     })
 
     it('searches for special regex characters', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       await db.Post.create('post1', {
         title: 'Test [brackets]',
@@ -508,7 +508,7 @@ describe('edge cases', () => {
     })
 
     it('searches for very long query', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       await db.Post.create('post1', {
         title: 'Test',
@@ -522,7 +522,7 @@ describe('edge cases', () => {
     })
 
     it('searches with minScore 0', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       await db.Post.create('post1', {
         title: 'Test TypeScript',
@@ -537,7 +537,7 @@ describe('edge cases', () => {
     })
 
     it('searches with minScore 1', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       await db.Post.create('post1', {
         title: 'Test',
@@ -559,14 +559,14 @@ describe('edge cases', () => {
     } as const
 
     beforeEach(async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
       for (let i = 0; i < 10; i++) {
         await db.Item.create(`item${i}`, { value: i })
       }
     })
 
     it('handles offset beyond result count', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       const results = await db.Item.list({
         offset: 100,
@@ -576,7 +576,7 @@ describe('edge cases', () => {
     })
 
     it('handles limit of 0', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       const results = await db.Item.list({
         limit: 0,
@@ -587,7 +587,7 @@ describe('edge cases', () => {
     })
 
     it('handles negative limit (treated as invalid)', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       const results = await db.Item.list({
         limit: -1,
@@ -598,7 +598,7 @@ describe('edge cases', () => {
     })
 
     it('handles very large limit', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       const results = await db.Item.list({
         limit: 1000000,
@@ -618,7 +618,7 @@ describe('edge cases', () => {
     } as const
 
     it('stores values as provided', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       const item = await db.Mixed.create('item1', {
         str: 'hello',
@@ -632,7 +632,7 @@ describe('edge cases', () => {
     })
 
     it('handles null values', async () => {
-      const db = DB(schema)
+      const { db } = DB(schema)
 
       const item = await db.Mixed.create('item1', {
         str: 'test',

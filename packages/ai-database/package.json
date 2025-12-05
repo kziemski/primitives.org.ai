@@ -21,8 +21,15 @@
   },
   "dependencies": {
     "ai-functions": "workspace:*",
+    "mdxld": "^1.0.1",
     "rpc.do": "^0.1.0"
   },
-  "keywords": ["ai", "database", "linked-data", "mdxld", "primitives"],
+  "keywords": [
+    "ai",
+    "database",
+    "linked-data",
+    "mdxld",
+    "primitives"
+  ],
   "license": "MIT"
 }
