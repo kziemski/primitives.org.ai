@@ -2260,13 +2260,38 @@ export function DB<TSchema extends DatabaseSchema>(
 ): DBResult<TSchema> {
   const parsedSchema = parseSchema(schema)
 
+  // Create Actions API early so it can be injected into entity operations
+  const actionsAPI = {
+    async create(data: { type: string; data: unknown; total?: number }) {
+      const provider = await resolveProvider()
+      if ('createAction' in provider) {
+        return (provider as any).createAction(data)
+      }
+      throw new Error('Provider does not support actions')
+    },
+    async get(id: string) {
+      const provider = await resolveProvider()
+      if ('getAction' in provider) {
+        return (provider as any).getAction(id)
+      }
+      return null
+    },
+    async update(id: string, updates: unknown) {
+      const provider = await resolveProvider()
+      if ('updateAction' in provider) {
+        return (provider as any).updateAction(id, updates)
+      }
+      throw new Error('Provider does not support actions')
+    },
+  }
+
   // Create entity operations for each type with promise pipelining
   const entityOperations: Record<string, PipelineEntityOperations<unknown>> = {}
 
   for (const [entityName, entity] of parsedSchema.entities) {
     const baseOps = createEntityOperations(entityName, entity, parsedSchema)
-    // Wrap with DBPromise for chainable queries
-    entityOperations[entityName] = wrapEntityOperations(entityName, baseOps)
+    // Wrap with DBPromise for chainable queries, inject actions for forEach persistence
+    entityOperations[entityName] = wrapEntityOperations(entityName, baseOps, actionsAPI)
   }
 
   // Noun definitions cache
@@ -2400,31 +2425,9 @@ export function DB<TSchema extends DatabaseSchema>(
     },
   }
 
-  // Create Actions API
+  // Create Actions API (extends actionsAPI with list, retry, cancel)
   const actions: ActionsAPI = {
-    async create(data) {
-      const provider = await resolveProvider()
-      if ('createAction' in provider) {
-        return (provider as any).createAction(data)
-      }
-      throw new Error('Provider does not support actions')
-    },
-
-    async get(id) {
-      const provider = await resolveProvider()
-      if ('getAction' in provider) {
-        return (provider as any).getAction(id)
-      }
-      return null
-    },
-
-    async update(id, updates) {
-      const provider = await resolveProvider()
-      if ('updateAction' in provider) {
-        return (provider as any).updateAction(id, updates)
-      }
-      throw new Error('Provider does not support actions')
-    },
+    ...actionsAPI,
 
     async list(options) {
       const provider = await resolveProvider()

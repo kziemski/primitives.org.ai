@@ -50,6 +50,8 @@ export interface DBPromiseOptions<T> {
   executor: () => Promise<T>
   /** Batch context for .map() */
   batchContext?: BatchContext
+  /** Actions API for persistence (injected by wrapEntityOperations) */
+  actionsAPI?: ForEachActionsAPI
 }
 
 /** Batch context for recording map operations */
@@ -105,7 +107,7 @@ export interface ForEachProgress {
 export type ForEachErrorAction = 'continue' | 'retry' | 'skip' | 'stop'
 
 /**
- * Actions API interface for persistence
+ * Actions API interface for persistence (internal)
  */
 export interface ForEachActionsAPI {
   create(data: { type: string; data: unknown; total?: number }): Promise<{ id: string }>
@@ -125,7 +127,6 @@ export interface ForEachActionState {
   data: {
     /** IDs of items that have been processed */
     processedIds?: string[]
-    /** Custom data passed to forEach */
     [key: string]: unknown
   }
   result?: ForEachResult
@@ -133,62 +134,33 @@ export interface ForEachActionState {
 }
 
 /**
- * Persistence options for forEach
- */
-export interface ForEachPersistOptions<T = unknown> {
-  /** Actions API reference */
-  actions: ForEachActionsAPI
-  /** Resume from existing action ID (if provided, will skip already processed items) */
-  actionId?: string
-  /** Action type name (default: 'forEach') */
-  actionType?: string
-  /** Custom data to store with the action */
-  data?: Record<string, unknown>
-  /** How often to persist progress (default: every item) */
-  persistInterval?: number
-  /** Function to get ID from item for tracking processed items */
-  getItemId?: (item: T) => string
-}
-
-/**
  * Options for forEach operations
  *
  * @example
  * ```ts
- * // In-memory processing
- * await db.Lead.list().forEach(async lead => {
- *   const analysis = await ai`analyze ${lead}`
- *   await db.Lead.update(lead.$id, { analysis })
- * }, {
- *   concurrency: 10,
- *   onProgress: p => console.log(`${p.completed}/${p.total}`),
- *   onError: (err, item) => err.retryable ? 'retry' : 'continue',
- * })
+ * // Simple
+ * await db.Lead.forEach(lead => console.log(lead.name))
  *
- * // With persistence (resumable)
- * const { actions } = DB(schema)
- * await db.Lead.list().forEach(async lead => {
+ * // With concurrency
+ * await db.Lead.forEach(async lead => {
  *   await processLead(lead)
- * }, {
- *   concurrency: 10,
- *   persist: {
- *     actions,
- *     actionType: 'process-leads',
- *     getItemId: lead => lead.$id,
- *   },
- * })
+ * }, { concurrency: 10 })
+ *
+ * // Persist progress (survives crashes)
+ * await db.Lead.forEach(processLead, { persist: true })
+ *
+ * // Resume from where we left off
+ * await db.Lead.forEach(processLead, { resume: 'action-123' })
  * ```
  */
 export interface ForEachOptions<T = unknown> {
   /**
    * Maximum concurrent operations (default: 1)
-   * Set higher for I/O-bound operations, lower for CPU-bound
    */
   concurrency?: number
 
   /**
    * Batch size for fetching items (default: 100)
-   * Helps with memory efficiency for large datasets
    */
   batchSize?: number
 
@@ -198,67 +170,46 @@ export interface ForEachOptions<T = unknown> {
   maxRetries?: number
 
   /**
-   * Delay between retries in ms (default: 1000)
-   * Can be a number or function for exponential backoff
+   * Delay between retries in ms, or function for backoff (default: 1000)
    */
   retryDelay?: number | ((attempt: number) => number)
 
   /**
-   * Progress callback - called after each item completes
+   * Progress callback
    */
   onProgress?: (progress: ForEachProgress) => void
 
   /**
-   * Error handler - determines what to do on failure
-   * - 'continue': Skip item and continue (default)
-   * - 'retry': Retry the item (up to maxRetries)
-   * - 'skip': Mark as skipped and continue
-   * - 'stop': Stop processing immediately
+   * Error handling: 'continue' | 'retry' | 'skip' | 'stop' (default: 'continue')
    */
   onError?: ForEachErrorAction | ((error: Error, item: T, attempt: number) => ForEachErrorAction | Promise<ForEachErrorAction>)
 
   /**
-   * Called when an item completes successfully
+   * Called when an item completes
    */
   onComplete?: (item: T, result: unknown, index: number) => void | Promise<void>
 
   /**
-   * AbortController signal for cancellation
+   * AbortController signal
    */
   signal?: AbortSignal
 
   /**
-   * Timeout per item in ms (default: none)
+   * Timeout per item in ms
    */
   timeout?: number
 
   /**
-   * Persist progress to actions for durability and resume capability
-   *
-   * @example
-   * ```ts
-   * const { db, actions } = DB(schema)
-   *
-   * // Start new action
-   * const result = await db.Lead.forEach(processLead, {
-   *   persist: {
-   *     actions,
-   *     actionType: 'process-leads',
-   *     getItemId: lead => lead.$id,
-   *   },
-   * })
-   *
-   * // Resume after crash
-   * const result = await db.Lead.forEach(processLead, {
-   *   persist: {
-   *     actions,
-   *     actionId: 'action-123',  // Resume from this action
-   *     getItemId: lead => lead.$id,
-   *   },
-   * })
-   * ```
+   * Persist progress to actions (survives crashes)
+   * - `true`: Auto-name action as "{Entity}.forEach"
+   * - `string`: Custom action name
    */
-  persist?: ForEachPersistOptions<T>
+  persist?: boolean | string
+
+  /**
+   * Resume from existing action ID (skips already-processed items)
+   */
+  resume?: string
 }
 
 /**
@@ -542,6 +493,7 @@ export class DBPromise<T> implements PromiseLike<T> {
       signal,
       timeout,
       persist,
+      resume,
     } = options
 
     const startTime = Date.now()
@@ -555,29 +507,35 @@ export class DBPromise<T> implements PromiseLike<T> {
     // Persistence state
     let processedIds = new Set<string>()
     let persistCounter = 0
-    const persistInterval = persist?.persistInterval ?? 1
-    const getItemId = persist?.getItemId ?? ((item: any) => item?.$id ?? item?.id ?? String(item))
+    const getItemId = (item: any) => item?.$id ?? item?.id ?? String(item)
+
+    // Get actions API from options (injected by wrapEntityOperations)
+    const actionsAPI = this._options.actionsAPI
 
     // Initialize persistence if enabled
-    if (persist) {
-      const { actions, actionId: resumeActionId, actionType = 'forEach', data = {} } = persist
+    if (persist || resume) {
+      if (!actionsAPI) {
+        throw new Error('Persistence requires actions API - use db.Entity.forEach instead of db.Entity.list().forEach')
+      }
 
-      if (resumeActionId) {
+      // Auto-generate action type from entity name
+      const actionType = typeof persist === 'string' ? persist : `${this._options.type ?? 'unknown'}.forEach`
+
+      if (resume) {
         // Resume from existing action
-        const existingAction = await actions.get(resumeActionId)
+        const existingAction = await actionsAPI.get(resume)
         if (existingAction) {
           actionId = existingAction.id
           processedIds = new Set(existingAction.data?.processedIds ?? [])
-          // Update status to active
-          await actions.update(actionId, { status: 'active' })
+          await actionsAPI.update(actionId, { status: 'active' })
         } else {
-          throw new Error(`Action ${resumeActionId} not found`)
+          throw new Error(`Action ${resume} not found`)
         }
       } else {
-        // Create new action - items not resolved yet, so we'll update total later
-        const action = await actions.create({
+        // Create new action
+        const action = await actionsAPI.create({
           type: actionType,
-          data: { ...data, processedIds: [] },
+          data: { processedIds: [] },
         })
         actionId = action.id
       }
@@ -592,8 +550,8 @@ export class DBPromise<T> implements PromiseLike<T> {
     const total = items.length
 
     // Update action with total if persistence is enabled
-    if (persist && actionId) {
-      await persist.actions.update(actionId, { total, status: 'active' })
+    if ((persist || resume) && actionId && actionsAPI) {
+      await actionsAPI.update(actionId, { total, status: 'active' })
     }
 
     // Helper to calculate progress
@@ -618,19 +576,16 @@ export class DBPromise<T> implements PromiseLike<T> {
 
     // Helper to persist progress
     const persistProgress = async (itemId: string): Promise<void> => {
-      if (!persist || !actionId) return
+      if ((!persist && !resume) || !actionId || !actionsAPI) return
 
       processedIds.add(itemId)
       persistCounter++
 
-      // Only persist at intervals to reduce overhead
-      if (persistCounter % persistInterval === 0) {
-        await persist.actions.update(actionId, {
+      // Persist every 10 items to reduce overhead
+      if (persistCounter % 10 === 0) {
+        await actionsAPI.update(actionId, {
           progress: completed + failed + skipped,
-          data: {
-            ...persist.data,
-            processedIds: Array.from(processedIds),
-          },
+          data: { processedIds: Array.from(processedIds) },
         })
       }
     }
@@ -771,7 +726,7 @@ export class DBPromise<T> implements PromiseLike<T> {
       }
     } finally {
       // Final persistence update
-      if (persist && actionId) {
+      if ((persist || resume) && actionId && actionsAPI) {
         const finalResult: ForEachResult = {
           total,
           completed,
@@ -783,13 +738,10 @@ export class DBPromise<T> implements PromiseLike<T> {
           actionId,
         }
 
-        await persist.actions.update(actionId, {
-          status: cancelled ? 'failed' : failed > 0 ? 'completed' : 'completed',
+        await actionsAPI.update(actionId, {
+          status: cancelled ? 'failed' : 'completed',
           progress: completed + failed + skipped,
-          data: {
-            ...persist.data,
-            processedIds: Array.from(processedIds),
-          },
+          data: { processedIds: Array.from(processedIds) },
           result: finalResult,
           error: cancelled ? 'Cancelled' : errors.length > 0 ? `${errors.length} items failed` : undefined,
         })
@@ -1177,7 +1129,8 @@ export function wrapEntityOperations<T>(
     upsert: (id: string, data: any) => Promise<T>
     delete: (id: string) => Promise<boolean>
     forEach: (...args: any[]) => Promise<void>
-  }
+  },
+  actionsAPI?: ForEachActionsAPI
 ): {
   get: (id: string) => DBPromise<T | null>
   list: (options?: any) => DBPromise<T[]>
@@ -1195,6 +1148,7 @@ export function wrapEntityOperations<T>(
       return new DBPromise({
         type: typeName,
         executor: () => operations.get(id),
+        actionsAPI,
       })
     },
 
@@ -1202,6 +1156,7 @@ export function wrapEntityOperations<T>(
       return new DBPromise({
         type: typeName,
         executor: () => operations.list(options),
+        actionsAPI,
       })
     },
 
@@ -1209,6 +1164,7 @@ export function wrapEntityOperations<T>(
       return new DBPromise({
         type: typeName,
         executor: () => operations.find(where),
+        actionsAPI,
       })
     },
 
@@ -1216,6 +1172,7 @@ export function wrapEntityOperations<T>(
       return new DBPromise({
         type: typeName,
         executor: () => operations.search(query, options),
+        actionsAPI,
       })
     },
 
@@ -1226,37 +1183,34 @@ export function wrapEntityOperations<T>(
           const items = await operations.list({ limit: 1 })
           return items[0] ?? null
         },
+        actionsAPI,
       })
     },
 
     /**
-     * Process all entities with concurrency control, progress tracking, and error handling
+     * Process all entities with concurrency, progress, and optional persistence
      *
      * @example
      * ```ts
-     * // Simple iteration
      * await db.Lead.forEach(lead => console.log(lead.name))
-     *
-     * // With AI and concurrency
-     * const result = await db.Lead.forEach(async lead => {
-     *   const analysis = await ai`analyze ${lead}`
-     *   await db.Lead.update(lead.$id, { analysis })
-     * }, { concurrency: 10, onProgress: p => console.log(p) })
+     * await db.Lead.forEach(processLead, { concurrency: 10 })
+     * await db.Lead.forEach(processLead, { persist: true })
+     * await db.Lead.forEach(processLead, { resume: 'action-123' })
      * ```
      */
     async forEach<U>(
       callback: (item: T, index: number) => U | Promise<U>,
       options: ForEachOptions<T> = {}
     ): Promise<ForEachResult> {
-      // Create a DBPromise for list and use its forEach
       const listPromise = new DBPromise<T[]>({
         type: typeName,
         executor: () => operations.list(),
+        actionsAPI,
       })
       return listPromise.forEach(callback as any, options as any)
     },
 
-    // These don't need wrapping - they're mutations
+    // Mutations don't need wrapping
     create: operations.create,
     update: operations.update,
     upsert: operations.upsert,

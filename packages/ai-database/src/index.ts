@@ -130,7 +130,4 @@ export type {
   ForEachResult,
   ForEachProgress,
   ForEachErrorAction,
-  ForEachPersistOptions,
-  ForEachActionsAPI,
-  ForEachActionState,
 } from './ai-promise-db.js'

@@ -269,53 +269,41 @@ console.log(`Completed: ${result.completed}, Failed: ${result.failed}`)
 |--------|------|-------------|
 | `concurrency` | `number` | Max parallel operations (default: 1) |
 | `maxRetries` | `number` | Retries per item (default: 0) |
-| `retryDelay` | `number \| (attempt) => number` | Delay between retries |
-| `onProgress` | `(progress) => void` | Progress callback |
+| `retryDelay` | `number \| fn` | Delay between retries |
+| `onProgress` | `fn` | Progress callback |
 | `onError` | `'continue' \| 'retry' \| 'skip' \| 'stop' \| fn` | Error handling |
 | `timeout` | `number` | Timeout per item in ms |
-| `signal` | `AbortSignal` | Cancellation signal |
-| `persist` | `ForEachPersistOptions` | Enable durability & resume |
+| `persist` | `boolean \| string` | Enable durability (string = custom action name) |
+| `resume` | `string` | Resume from action ID |
 
-### Durable forEach (Resumable)
+### Durable forEach
 
-Persist progress to survive crashes and resume where you left off:
+Persist progress to survive crashes:
 
 ```typescript
-const { db, actions } = DB(schema)
-
-// Start a durable operation
-const result = await db.Lead.forEach(async lead => {
-  const analysis = await ai`analyze ${lead}`
-  await db.Lead.update(lead.$id, { analysis })
-}, {
+// Enable persistence - auto-names action as "Lead.forEach"
+const result = await db.Lead.forEach(processLead, {
   concurrency: 10,
-  persist: {
-    actions,
-    actionType: 'analyze-leads',
-    getItemId: lead => lead.$id,
-  },
+  persist: true,
 })
 
 console.log(`Action ID: ${result.actionId}`)
 ```
 
+Custom action name:
+
+```typescript
+await db.Lead.forEach(processLead, {
+  persist: 'analyze-leads',  // Custom action name
+})
+```
+
 Resume after a crash:
 
 ```typescript
-// Get the action ID from before the crash
-const actionId = 'action-123'
-
-// Resume - automatically skips already-processed items
-const result = await db.Lead.forEach(processLead, {
-  concurrency: 10,
-  persist: {
-    actions,
-    actionId,  // Resume from this action
-    getItemId: lead => lead.$id,
-  },
+await db.Lead.forEach(processLead, {
+  resume: 'action-123',  // Skips already-processed items
 })
-
-console.log(`Resumed: ${result.skipped} already done, ${result.completed} new`)
 ```
 
 ---
