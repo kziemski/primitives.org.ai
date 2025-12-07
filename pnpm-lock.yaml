@@ -33,6 +33,8 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@20.19.25)(lightningcss@1.30.2)(terser@5.16.9)
 
+  examples: {}
+
   packages/ai-database:
     dependencies:
       ai-functions:
@@ -44,6 +46,9 @@ importers:
       rpc.do:
         specifier: ^0.1.0
         version: 0.1.1
+      vitest:
+        specifier: ^2.0.0
+        version: 2.1.9(@types/node@24.10.1)(lightningcss@1.30.2)(terser@5.16.9)
 
   packages/ai-experiments:
     dependencies:
@@ -209,6 +214,9 @@ importers:
 
   packages/business-as-code:
     dependencies:
+      ai-database:
+        specifier: workspace:*
+        version: link:../ai-database
       ai-functions:
         specifier: workspace:*
         version: link:../ai-functions
