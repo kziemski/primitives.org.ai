@@ -2,11 +2,11 @@
   "extends": "@dotdo/config/typescript/library",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "src",
+    "rootDir": ".",
     "skipLibCheck": true,
     "noImplicitAny": false,
     "strictNullChecks": false
   },
-  "include": ["src/**/*.ts"],
+  "include": ["**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }
