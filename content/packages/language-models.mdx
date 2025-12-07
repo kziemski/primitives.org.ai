@@ -10,7 +10,7 @@ npm install language-models
 Provider-agnostic interface for text generation and embeddings.
 
 ```typescript
-import { llm } from 'language-models'
+import { llm, models } from 'language-models'
 
 const response = await llm.generate({
   model: 'claude-sonnet-4-20250514',
@@ -23,13 +23,35 @@ const embedding = await llm.embed({
 })
 ```
 
+## Model Resolution
+
+```typescript
+import { resolve } from 'language-models'
+
+// Resolve model by capability
+const model = resolve({ capability: 'fast' })    // Gets fastest model
+const model = resolve({ capability: 'smart' })   // Gets smartest model
+const model = resolve({ capability: 'vision' })  // Gets vision model
+```
+
 ## Supported Providers
 
-- Anthropic (Claude)
-- OpenAI (GPT)
-- Google (Gemini)
-- Cloudflare Workers AI
-- Ollama (local)
+| Provider | Models | Embeddings |
+|----------|--------|------------|
+| Anthropic | Claude 4, Sonnet, Haiku | — |
+| OpenAI | GPT-4, GPT-3.5 | text-embedding-3 |
+| Google | Gemini Pro, Flash | — |
+| Cloudflare | Workers AI | bge-* |
+| Ollama | Local models | Local |
+
+## Exports
+
+| Export | Description |
+|--------|-------------|
+| `llm` | Unified LLM interface |
+| `models` | Model registry |
+| `resolve` | Resolve by capability |
+| `embed` | Generate embeddings |
 
 ## Related
 

@@ -10,7 +10,7 @@ npm install autonomous-agents
 Create agents that are long-term members of your organization with real identity.
 
 ```typescript
-import { agent } from 'autonomous-agents'
+import { agent, team } from 'autonomous-agents'
 
 const reviewer = agent({
   name: 'code-reviewer',
@@ -25,6 +25,18 @@ const reviewer = agent({
 await reviewer.assign(pullRequest)
 ```
 
+## Teams
+
+```typescript
+const engineering = team({
+  name: 'engineering',
+  agents: [reviewer, deployer, tester],
+  lead: seniorDev,
+})
+
+await engineering.assign(project)
+```
+
 ## Features
 
 - Real identity (email, Slack, calendar)
@@ -32,6 +44,17 @@ await reviewer.assign(pullRequest)
 - Capability-based permissions
 - Autonomous goal pursuit
 - Human escalation paths
+- Team coordination
+
+## Exports
+
+| Export | Description |
+|--------|-------------|
+| `agent` | Create an autonomous agent |
+| `team` | Create agent teams |
+| `role` | Define agent roles |
+| `memory` | Persistent memory store |
+| `capability` | Define capabilities |
 
 ## Related
 

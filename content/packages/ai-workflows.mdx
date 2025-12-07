@@ -1,32 +1,61 @@
 ---
 title: ai-workflows
-description: Durable execution and state machines
+description: Event-driven workflows with the $ context
 ---
 
 ```bash
 npm install ai-workflows
 ```
 
-Orchestrate complex processes with automatic persistence, retries, and recovery.
+Handle events, schedule tasks, and orchestrate processes through the unified `$` context.
 
 ```typescript
-import { workflow, step } from 'ai-workflows'
+import { Workflow } from 'ai-workflows'
 
-const processOrder = workflow('process-order', async (ctx, order) => {
-  const validated = await ctx.run('validate', () => validateOrder(order))
-  const payment = await ctx.run('charge', () => chargeCard(validated))
-  await ctx.run('fulfill', () => fulfillOrder(payment))
-  return { success: true }
+const workflow = Workflow($ => {
+  $.on.Customer.created(async (customer, $) => {
+    $.log('New customer:', customer.name)
+    await $.send('Email.welcome', { to: customer.email })
+  })
+
+  $.every.Monday.at9am(async ($) => {
+    $.log('Weekly standup reminder')
+  })
 })
+
+await workflow.start()
 ```
 
-## Features
+## Event Handling
 
-- Durable execution with automatic checkpointing
-- State machines for explicit state management
-- Parallel execution with `Promise.all`
-- Human-in-the-loop integration
-- Timers and scheduled execution
+Events follow the `Noun.verb` pattern:
+
+```typescript
+$.on.Order.placed(handler)
+$.on.Payment.completed(handler)
+$.on.Customer.upgraded(handler)
+```
+
+## Scheduling
+
+Natural language scheduling:
+
+```typescript
+$.every.hour(handler)
+$.every.Monday.at9am(handler)
+$.every.minutes(30)(handler)
+$.every('first Monday of the month', handler)
+```
+
+## Exports
+
+| Export | Description |
+|--------|-------------|
+| `Workflow` | Create workflow with $ context |
+| `on` | Standalone event registration |
+| `every` | Standalone scheduling |
+| `send` | Emit events |
+| `createTestContext` | Testing utilities |
 
 ## Related
 
