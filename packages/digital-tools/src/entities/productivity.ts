@@ -1238,6 +1238,142 @@ export const Bookmark: Noun = {
 }
 
 // =============================================================================
+// Availability
+// =============================================================================
+
+/**
+ * Availability entity
+ *
+ * Represents a user's available time windows for scheduling meetings.
+ * Used by scheduling tools like Calendly, Cal.com, etc.
+ */
+export const Availability: Noun = {
+  singular: 'availability',
+  plural: 'availabilities',
+  description: "A user's available time windows for scheduling",
+
+  properties: {
+    // Identity
+    name: {
+      type: 'string',
+      description: 'Availability schedule name',
+    },
+    description: {
+      type: 'string',
+      optional: true,
+      description: 'Description of this availability schedule',
+    },
+
+    // Timezone
+    timezone: {
+      type: 'string',
+      description: 'Timezone for availability windows',
+    },
+
+    // Weekly recurring schedule
+    schedule: {
+      type: 'json',
+      description: 'Weekly recurring availability (day -> time ranges)',
+    },
+
+    // Exceptions
+    dateOverrides: {
+      type: 'json',
+      optional: true,
+      description: 'Specific date overrides to the regular schedule',
+    },
+    blockedDates: {
+      type: 'datetime',
+      array: true,
+      optional: true,
+      description: 'Dates when unavailable',
+    },
+
+    // Buffer settings
+    bufferBefore: {
+      type: 'number',
+      optional: true,
+      description: 'Buffer time before meetings in minutes',
+    },
+    bufferAfter: {
+      type: 'number',
+      optional: true,
+      description: 'Buffer time after meetings in minutes',
+    },
+    minimumNotice: {
+      type: 'number',
+      optional: true,
+      description: 'Minimum advance notice required in hours',
+    },
+
+    // Scheduling window
+    daysInAdvance: {
+      type: 'number',
+      optional: true,
+      description: 'How many days in advance can be booked',
+    },
+    startDate: {
+      type: 'datetime',
+      optional: true,
+      description: 'Date when availability starts',
+    },
+    endDate: {
+      type: 'datetime',
+      optional: true,
+      description: 'Date when availability ends',
+    },
+
+    // Status
+    isDefault: {
+      type: 'boolean',
+      optional: true,
+      description: 'Whether this is the default availability',
+    },
+    active: {
+      type: 'boolean',
+      description: 'Whether this availability is active',
+    },
+  },
+
+  relationships: {
+    calendar: {
+      type: 'Calendar',
+      required: false,
+      description: 'Associated calendar for conflict checking',
+    },
+    user: {
+      type: 'User',
+      description: 'User this availability belongs to',
+    },
+  },
+
+  actions: [
+    'create',
+    'update',
+    'delete',
+    'activate',
+    'deactivate',
+    'setDefault',
+    'addOverride',
+    'removeOverride',
+    'blockDate',
+    'unblockDate',
+  ],
+
+  events: [
+    'created',
+    'updated',
+    'deleted',
+    'activated',
+    'deactivated',
+    'overrideAdded',
+    'overrideRemoved',
+    'dateBlocked',
+    'dateUnblocked',
+  ],
+}
+
+// =============================================================================
 // Export all entities as a schema
 // =============================================================================
 
@@ -1245,9 +1381,10 @@ export const Bookmark: Noun = {
  * All productivity tool entity types
  */
 export const ProductivityEntities = {
-  // Calendar
+  // Calendar & Scheduling
   Calendar,
   Event,
+  Availability,
 
   // Task Management
   Task,
@@ -1266,7 +1403,7 @@ export const ProductivityEntities = {
  * Entity categories for organization
  */
 export const ProductivityCategories = {
-  calendar: ['Calendar', 'Event'],
+  calendar: ['Calendar', 'Event', 'Availability'],
   tasks: ['Task', 'Checklist'],
   notes: ['Note', 'Notebook'],
   reminders: ['Reminder'],

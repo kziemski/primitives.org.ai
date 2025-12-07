@@ -1576,6 +1576,769 @@ export const WorkflowRun: Noun = {
 }
 
 // =============================================================================
+// Discussion
+// =============================================================================
+
+/**
+ * Discussion entity
+ *
+ * Represents a GitHub-style discussion thread
+ */
+export const Discussion: Noun = {
+  singular: 'discussion',
+  plural: 'discussions',
+  description: 'A discussion thread for community conversations',
+
+  properties: {
+    // Identity
+    number: {
+      type: 'number',
+      description: 'Discussion number',
+    },
+    title: {
+      type: 'string',
+      description: 'Discussion title',
+    },
+    body: {
+      type: 'string',
+      description: 'Discussion body content',
+    },
+
+    // Category
+    category: {
+      type: 'string',
+      optional: true,
+      description: 'Discussion category',
+    },
+    categoryEmoji: {
+      type: 'string',
+      optional: true,
+      description: 'Category emoji icon',
+    },
+
+    // Status
+    answered: {
+      type: 'boolean',
+      optional: true,
+      description: 'Whether discussion has an accepted answer',
+    },
+    locked: {
+      type: 'boolean',
+      optional: true,
+      description: 'Whether discussion is locked',
+    },
+    pinned: {
+      type: 'boolean',
+      optional: true,
+      description: 'Whether discussion is pinned',
+    },
+
+    // Engagement
+    upvoteCount: {
+      type: 'number',
+      optional: true,
+      description: 'Number of upvotes',
+    },
+    commentCount: {
+      type: 'number',
+      optional: true,
+      description: 'Number of comments',
+    },
+
+    // URLs
+    url: {
+      type: 'url',
+      optional: true,
+      description: 'Discussion URL',
+    },
+  },
+
+  relationships: {
+    repository: {
+      type: 'Repository',
+      description: 'Repository this discussion belongs to',
+    },
+    author: {
+      type: 'Contact',
+      description: 'Discussion author',
+    },
+    answer: {
+      type: 'Comment',
+      required: false,
+      description: 'Accepted answer comment',
+    },
+    comments: {
+      type: 'Comment[]',
+      description: 'Discussion comments',
+    },
+  },
+
+  actions: [
+    'create',
+    'update',
+    'delete',
+    'lock',
+    'unlock',
+    'pin',
+    'unpin',
+    'upvote',
+    'removeUpvote',
+    'markAnswer',
+    'unmarkAnswer',
+    'transfer',
+  ],
+
+  events: [
+    'created',
+    'updated',
+    'deleted',
+    'locked',
+    'unlocked',
+    'pinned',
+    'unpinned',
+    'upvoted',
+    'answered',
+    'transferred',
+    'commented',
+  ],
+}
+
+// =============================================================================
+// Package
+// =============================================================================
+
+/**
+ * Package entity
+ *
+ * Represents a package in a package registry (npm, containers, etc.)
+ */
+export const Package: Noun = {
+  singular: 'package',
+  plural: 'packages',
+  description: 'A package in a package registry',
+
+  properties: {
+    // Identity
+    name: {
+      type: 'string',
+      description: 'Package name',
+    },
+    namespace: {
+      type: 'string',
+      optional: true,
+      description: 'Package namespace/scope',
+    },
+    packageType: {
+      type: 'string',
+      description: 'Package type: npm, maven, docker, nuget, rubygems',
+      examples: ['npm', 'maven', 'docker', 'nuget', 'rubygems', 'container'],
+    },
+
+    // Version
+    latestVersion: {
+      type: 'string',
+      optional: true,
+      description: 'Latest version tag',
+    },
+    versionCount: {
+      type: 'number',
+      optional: true,
+      description: 'Number of versions published',
+    },
+
+    // Visibility
+    visibility: {
+      type: 'string',
+      description: 'Package visibility: public, private',
+      examples: ['public', 'private'],
+    },
+
+    // Metadata
+    description: {
+      type: 'string',
+      optional: true,
+      description: 'Package description',
+    },
+    license: {
+      type: 'string',
+      optional: true,
+      description: 'Package license',
+    },
+    homepage: {
+      type: 'url',
+      optional: true,
+      description: 'Package homepage',
+    },
+    repository: {
+      type: 'url',
+      optional: true,
+      description: 'Source repository URL',
+    },
+
+    // Stats
+    downloadCount: {
+      type: 'number',
+      optional: true,
+      description: 'Total downloads',
+    },
+    size: {
+      type: 'number',
+      optional: true,
+      description: 'Package size in bytes',
+    },
+  },
+
+  relationships: {
+    owner: {
+      type: 'Contact',
+      description: 'Package owner',
+    },
+    versions: {
+      type: 'PackageVersion[]',
+      description: 'Package versions',
+    },
+    repository: {
+      type: 'Repository',
+      required: false,
+      description: 'Source repository',
+    },
+  },
+
+  actions: [
+    'create',
+    'publish',
+    'unpublish',
+    'deprecate',
+    'undeprecate',
+    'delete',
+    'transfer',
+    'setVisibility',
+    'addCollaborator',
+    'removeCollaborator',
+  ],
+
+  events: [
+    'created',
+    'published',
+    'unpublished',
+    'deprecated',
+    'deleted',
+    'transferred',
+    'visibilityChanged',
+    'collaboratorAdded',
+    'collaboratorRemoved',
+    'downloaded',
+  ],
+}
+
+/**
+ * Package version entity
+ */
+export const PackageVersion: Noun = {
+  singular: 'package version',
+  plural: 'package versions',
+  description: 'A specific version of a package',
+
+  properties: {
+    version: {
+      type: 'string',
+      description: 'Version string (semver)',
+    },
+    tag: {
+      type: 'string',
+      optional: true,
+      description: 'Version tag (latest, beta, etc.)',
+    },
+    digest: {
+      type: 'string',
+      optional: true,
+      description: 'Content digest/hash',
+    },
+    size: {
+      type: 'number',
+      optional: true,
+      description: 'Version size in bytes',
+    },
+    deprecated: {
+      type: 'boolean',
+      optional: true,
+      description: 'Whether version is deprecated',
+    },
+    deprecationMessage: {
+      type: 'string',
+      optional: true,
+      description: 'Deprecation message',
+    },
+    publishedAt: {
+      type: 'datetime',
+      optional: true,
+      description: 'Publication timestamp',
+    },
+  },
+
+  relationships: {
+    package: {
+      type: 'Package',
+      backref: 'versions',
+      description: 'Parent package',
+    },
+    publisher: {
+      type: 'Contact',
+      description: 'Who published this version',
+    },
+  },
+
+  actions: ['publish', 'deprecate', 'undeprecate', 'delete', 'download'],
+
+  events: ['published', 'deprecated', 'deleted', 'downloaded'],
+}
+
+// =============================================================================
+// Gist
+// =============================================================================
+
+/**
+ * Gist entity
+ *
+ * Represents a code snippet or file sharing gist
+ */
+export const Gist: Noun = {
+  singular: 'gist',
+  plural: 'gists',
+  description: 'A code snippet or file sharing gist',
+
+  properties: {
+    // Content
+    description: {
+      type: 'string',
+      optional: true,
+      description: 'Gist description',
+    },
+    files: {
+      type: 'json',
+      description: 'Files in the gist (filename -> content)',
+    },
+    fileCount: {
+      type: 'number',
+      optional: true,
+      description: 'Number of files',
+    },
+
+    // Visibility
+    public: {
+      type: 'boolean',
+      description: 'Whether gist is public',
+    },
+
+    // Stats
+    forkCount: {
+      type: 'number',
+      optional: true,
+      description: 'Number of forks',
+    },
+    starCount: {
+      type: 'number',
+      optional: true,
+      description: 'Number of stars',
+    },
+    commentCount: {
+      type: 'number',
+      optional: true,
+      description: 'Number of comments',
+    },
+
+    // URLs
+    url: {
+      type: 'url',
+      optional: true,
+      description: 'Gist web URL',
+    },
+    rawUrl: {
+      type: 'url',
+      optional: true,
+      description: 'Raw content URL',
+    },
+    embedUrl: {
+      type: 'url',
+      optional: true,
+      description: 'Embed script URL',
+    },
+  },
+
+  relationships: {
+    owner: {
+      type: 'Contact',
+      description: 'Gist owner',
+    },
+    forks: {
+      type: 'Gist[]',
+      description: 'Forked gists',
+    },
+    comments: {
+      type: 'Comment[]',
+      description: 'Gist comments',
+    },
+  },
+
+  actions: [
+    'create',
+    'update',
+    'delete',
+    'fork',
+    'star',
+    'unstar',
+    'comment',
+    'embed',
+    'share',
+  ],
+
+  events: [
+    'created',
+    'updated',
+    'deleted',
+    'forked',
+    'starred',
+    'unstarred',
+    'commented',
+  ],
+}
+
+// =============================================================================
+// Secret
+// =============================================================================
+
+/**
+ * Secret entity
+ *
+ * Represents a secret or credential stored securely
+ */
+export const Secret: Noun = {
+  singular: 'secret',
+  plural: 'secrets',
+  description: 'A secret or credential stored securely',
+
+  properties: {
+    // Identity
+    name: {
+      type: 'string',
+      description: 'Secret name (typically uppercase with underscores)',
+    },
+
+    // Scope
+    scope: {
+      type: 'string',
+      description: 'Secret scope: repository, environment, organization',
+      examples: ['repository', 'environment', 'organization'],
+    },
+    environment: {
+      type: 'string',
+      optional: true,
+      description: 'Environment name if environment-scoped',
+    },
+
+    // Metadata
+    visibility: {
+      type: 'string',
+      optional: true,
+      description: 'Visibility for org secrets: all, private, selected',
+      examples: ['all', 'private', 'selected'],
+    },
+    selectedRepositories: {
+      type: 'string',
+      array: true,
+      optional: true,
+      description: 'Selected repositories for org secrets',
+    },
+
+    // Audit
+    lastUpdatedAt: {
+      type: 'datetime',
+      optional: true,
+      description: 'When the secret was last updated',
+    },
+    updatedBy: {
+      type: 'string',
+      optional: true,
+      description: 'Who last updated the secret',
+    },
+  },
+
+  relationships: {
+    repository: {
+      type: 'Repository',
+      required: false,
+      description: 'Repository if repo-scoped',
+    },
+    environment: {
+      type: 'Environment',
+      required: false,
+      description: 'Environment if environment-scoped',
+    },
+  },
+
+  actions: [
+    'create',
+    'update',
+    'delete',
+    'rotate',
+    'setVisibility',
+    'addRepository',
+    'removeRepository',
+  ],
+
+  events: [
+    'created',
+    'updated',
+    'deleted',
+    'rotated',
+    'visibilityChanged',
+    'accessed',
+  ],
+}
+
+// =============================================================================
+// Webhook
+// =============================================================================
+
+/**
+ * Webhook entity (development context)
+ *
+ * Represents a webhook for receiving event notifications
+ */
+export const Webhook: Noun = {
+  singular: 'webhook',
+  plural: 'webhooks',
+  description: 'A webhook for receiving event notifications',
+
+  properties: {
+    // Configuration
+    url: {
+      type: 'url',
+      description: 'Webhook delivery URL',
+    },
+    contentType: {
+      type: 'string',
+      description: 'Content type: json, form',
+      examples: ['json', 'form'],
+    },
+    secret: {
+      type: 'string',
+      optional: true,
+      description: 'Webhook secret for signature verification',
+    },
+
+    // Events
+    events: {
+      type: 'string',
+      array: true,
+      description: 'Events to trigger webhook',
+    },
+
+    // Status
+    active: {
+      type: 'boolean',
+      description: 'Whether webhook is active',
+    },
+    insecureSsl: {
+      type: 'boolean',
+      optional: true,
+      description: 'Whether to skip SSL verification',
+    },
+
+    // Delivery stats
+    lastDeliveredAt: {
+      type: 'datetime',
+      optional: true,
+      description: 'Timestamp of last delivery',
+    },
+    lastStatus: {
+      type: 'string',
+      optional: true,
+      description: 'Status of last delivery',
+    },
+    deliveryCount: {
+      type: 'number',
+      optional: true,
+      description: 'Total deliveries',
+    },
+    failureCount: {
+      type: 'number',
+      optional: true,
+      description: 'Failed deliveries',
+    },
+  },
+
+  relationships: {
+    repository: {
+      type: 'Repository',
+      required: false,
+      description: 'Repository if repo webhook',
+    },
+    deliveries: {
+      type: 'WebhookDelivery[]',
+      description: 'Delivery history',
+    },
+  },
+
+  actions: [
+    'create',
+    'update',
+    'delete',
+    'enable',
+    'disable',
+    'test',
+    'redeliver',
+  ],
+
+  events: [
+    'created',
+    'updated',
+    'deleted',
+    'enabled',
+    'disabled',
+    'delivered',
+    'failed',
+  ],
+}
+
+/**
+ * Webhook delivery entity
+ */
+export const WebhookDelivery: Noun = {
+  singular: 'webhook delivery',
+  plural: 'webhook deliveries',
+  description: 'A webhook delivery attempt',
+
+  properties: {
+    event: {
+      type: 'string',
+      description: 'Event type that triggered delivery',
+    },
+    action: {
+      type: 'string',
+      optional: true,
+      description: 'Event action',
+    },
+    status: {
+      type: 'string',
+      description: 'Delivery status: pending, success, failed',
+      examples: ['pending', 'success', 'failed'],
+    },
+    statusCode: {
+      type: 'number',
+      optional: true,
+      description: 'HTTP response status code',
+    },
+    duration: {
+      type: 'number',
+      optional: true,
+      description: 'Delivery duration in ms',
+    },
+    requestHeaders: {
+      type: 'json',
+      optional: true,
+      description: 'Request headers sent',
+    },
+    requestPayload: {
+      type: 'json',
+      optional: true,
+      description: 'Request payload sent',
+    },
+    responseHeaders: {
+      type: 'json',
+      optional: true,
+      description: 'Response headers received',
+    },
+    responseBody: {
+      type: 'string',
+      optional: true,
+      description: 'Response body received',
+    },
+    deliveredAt: {
+      type: 'datetime',
+      description: 'Delivery timestamp',
+    },
+  },
+
+  relationships: {
+    webhook: {
+      type: 'Webhook',
+      backref: 'deliveries',
+      description: 'Parent webhook',
+    },
+  },
+
+  actions: ['redeliver', 'view'],
+
+  events: ['delivered', 'failed', 'redelivered'],
+}
+
+// =============================================================================
+// DeployKey
+// =============================================================================
+
+/**
+ * Deploy key entity
+ *
+ * Represents a deploy key for repository access
+ */
+export const DeployKey: Noun = {
+  singular: 'deploy key',
+  plural: 'deploy keys',
+  description: 'A deploy key for repository access',
+
+  properties: {
+    // Identity
+    title: {
+      type: 'string',
+      description: 'Deploy key title',
+    },
+    key: {
+      type: 'string',
+      description: 'Public SSH key',
+    },
+    fingerprint: {
+      type: 'string',
+      optional: true,
+      description: 'Key fingerprint',
+    },
+
+    // Permissions
+    readOnly: {
+      type: 'boolean',
+      description: 'Whether key has read-only access',
+    },
+
+    // Status
+    verified: {
+      type: 'boolean',
+      optional: true,
+      description: 'Whether key has been verified',
+    },
+    lastUsedAt: {
+      type: 'datetime',
+      optional: true,
+      description: 'Last time key was used',
+    },
+  },
+
+  relationships: {
+    repository: {
+      type: 'Repository',
+      description: 'Repository this key grants access to',
+    },
+    addedBy: {
+      type: 'Contact',
+      description: 'Who added the key',
+    },
+  },
+
+  actions: ['create', 'delete', 'rotate'],
+
+  events: ['created', 'deleted', 'used'],
+}
+
+// =============================================================================
 // Export all entities as a schema
 // =============================================================================
 
@@ -1583,15 +2346,36 @@ export const WorkflowRun: Noun = {
  * All development tool entity types
  */
 export const DevelopmentEntities = {
+  // Version Control
   Repository,
   Branch,
   Commit,
+
+  // Code Review
   PullRequest,
   CodeReview,
+
+  // Issues & Discussions
   CodeIssue,
+  Discussion,
+
+  // Releases & Packages
   Release,
+  Package,
+  PackageVersion,
+
+  // CI/CD
   Workflow,
   WorkflowRun,
+
+  // Sharing
+  Gist,
+
+  // Security & Access
+  Secret,
+  Webhook,
+  WebhookDelivery,
+  DeployKey,
 }
 
 /**
@@ -1600,7 +2384,9 @@ export const DevelopmentEntities = {
 export const DevelopmentCategories = {
   versionControl: ['Repository', 'Branch', 'Commit'],
   codeReview: ['PullRequest', 'CodeReview'],
-  issueTracking: ['CodeIssue'],
-  releases: ['Release'],
+  issueTracking: ['CodeIssue', 'Discussion'],
+  releases: ['Release', 'Package', 'PackageVersion'],
   cicd: ['Workflow', 'WorkflowRun'],
+  sharing: ['Gist'],
+  security: ['Secret', 'Webhook', 'WebhookDelivery', 'DeployKey'],
 } as const

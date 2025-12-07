@@ -1066,179 +1066,6 @@ export const StorageQuota: Noun = {
 }
 
 // =============================================================================
-// Sync
-// =============================================================================
-
-/**
- * Sync operation entity
- *
- * Represents a sync operation between local and cloud storage
- */
-export const Sync: Noun = {
-  singular: 'sync',
-  plural: 'syncs',
-  description: 'A synchronization operation between local and cloud storage',
-
-  properties: {
-    // Identity
-    syncId: {
-      type: 'string',
-      description: 'Unique sync operation ID',
-    },
-
-    // Direction
-    direction: {
-      type: 'string',
-      description: 'Sync direction: upload, download, bidirectional',
-      examples: ['upload', 'download', 'bidirectional'],
-    },
-
-    // Status
-    status: {
-      type: 'string',
-      description: 'Sync status: pending, in-progress, completed, paused, failed, canceled',
-      examples: ['pending', 'in-progress', 'completed', 'paused', 'failed', 'canceled'],
-    },
-
-    // Progress
-    totalItems: {
-      type: 'number',
-      optional: true,
-      description: 'Total number of items to sync',
-    },
-    syncedItems: {
-      type: 'number',
-      optional: true,
-      description: 'Number of items synced so far',
-    },
-    totalBytes: {
-      type: 'number',
-      optional: true,
-      description: 'Total bytes to sync',
-    },
-    syncedBytes: {
-      type: 'number',
-      optional: true,
-      description: 'Number of bytes synced so far',
-    },
-    percentComplete: {
-      type: 'number',
-      optional: true,
-      description: 'Percentage complete (0-100)',
-    },
-
-    // Paths
-    sourcePath: {
-      type: 'string',
-      description: 'Source path (local or cloud)',
-    },
-    destinationPath: {
-      type: 'string',
-      description: 'Destination path (cloud or local)',
-    },
-
-    // Configuration
-    syncType: {
-      type: 'string',
-      optional: true,
-      description: 'Sync type: full, incremental, selective',
-      examples: ['full', 'incremental', 'selective'],
-    },
-    conflictResolution: {
-      type: 'string',
-      optional: true,
-      description: 'How to handle conflicts: newest, largest, manual',
-      examples: ['newest', 'largest', 'manual'],
-    },
-    deleteOnSource: {
-      type: 'boolean',
-      optional: true,
-      description: 'Whether to delete items from source after sync',
-    },
-
-    // Errors
-    errors: {
-      type: 'json',
-      array: true,
-      optional: true,
-      description: 'Array of sync errors encountered',
-    },
-    errorCount: {
-      type: 'number',
-      optional: true,
-      description: 'Number of errors encountered',
-    },
-
-    // Performance
-    transferRate: {
-      type: 'number',
-      optional: true,
-      description: 'Current transfer rate in bytes per second',
-    },
-    estimatedTimeRemaining: {
-      type: 'number',
-      optional: true,
-      description: 'Estimated time remaining in seconds',
-    },
-
-    // Dates
-    startedAt: {
-      type: 'datetime',
-      optional: true,
-      description: 'When sync started',
-    },
-    completedAt: {
-      type: 'datetime',
-      optional: true,
-      description: 'When sync completed',
-    },
-    lastSyncAt: {
-      type: 'datetime',
-      optional: true,
-      description: 'When last successful sync occurred',
-    },
-  },
-
-  relationships: {
-    drive: {
-      type: 'Drive',
-      backref: 'syncs',
-      description: 'Drive being synced',
-    },
-    files: {
-      type: 'File[]',
-      description: 'Files involved in this sync',
-    },
-    folders: {
-      type: 'Folder[]',
-      description: 'Folders involved in this sync',
-    },
-  },
-
-  actions: [
-    'start',
-    'pause',
-    'resume',
-    'cancel',
-    'retry',
-    'configure',
-    'resolveConflict',
-  ],
-
-  events: [
-    'started',
-    'progressed',
-    'paused',
-    'resumed',
-    'completed',
-    'failed',
-    'canceled',
-    'conflictDetected',
-    'conflictResolved',
-  ],
-}
-
-// =============================================================================
 // Backup
 // =============================================================================
 
@@ -1449,7 +1276,6 @@ export const StorageEntities = {
   SharedLink,
   FileVersion,
   StorageQuota,
-  Sync,
   Backup,
 }
 
@@ -1460,5 +1286,5 @@ export const StorageCategories = {
   files: ['File', 'Folder', 'FileVersion'],
   drives: ['Drive', 'StorageQuota'],
   sharing: ['SharedLink'],
-  operations: ['Sync', 'Backup'],
+  operations: ['Backup'],
 } as const

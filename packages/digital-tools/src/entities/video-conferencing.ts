@@ -1391,6 +1391,456 @@ export const MeetingChat: Noun = {
 }
 
 // =============================================================================
+// Meeting Type (Template)
+// =============================================================================
+
+/**
+ * MeetingType - A template for scheduling meetings
+ *
+ * Represents a reusable meeting configuration (like Calendly event types).
+ * Defines duration, location, availability, and booking settings.
+ */
+export const MeetingType: Noun = {
+  singular: 'meeting type',
+  plural: 'meeting types',
+  description: 'A template for scheduling meetings with predefined settings',
+
+  properties: {
+    name: {
+      type: 'string',
+      description: 'Meeting type name',
+    },
+    slug: {
+      type: 'string',
+      description: 'URL-friendly identifier',
+    },
+    description: {
+      type: 'string',
+      optional: true,
+      description: 'Description shown to invitees',
+    },
+    duration: {
+      type: 'number',
+      description: 'Default duration in minutes',
+    },
+    bufferBefore: {
+      type: 'number',
+      optional: true,
+      description: 'Buffer time before meeting (minutes)',
+    },
+    bufferAfter: {
+      type: 'number',
+      optional: true,
+      description: 'Buffer time after meeting (minutes)',
+    },
+    locationType: {
+      type: 'string',
+      description: 'Meeting location type',
+      examples: ['video', 'phone', 'in-person'],
+    },
+    locationDetails: {
+      type: 'string',
+      optional: true,
+      description: 'Location details or address',
+    },
+    videoProvider: {
+      type: 'string',
+      optional: true,
+      description: 'Video provider: zoom, google-meet, teams',
+      examples: ['zoom', 'google-meet', 'teams'],
+    },
+    minimumNotice: {
+      type: 'number',
+      optional: true,
+      description: 'Minimum notice required (minutes)',
+    },
+    maximumAdvance: {
+      type: 'number',
+      optional: true,
+      description: 'Maximum advance booking (days)',
+    },
+    requiresConfirmation: {
+      type: 'boolean',
+      optional: true,
+      description: 'Whether host must confirm bookings',
+    },
+    allowReschedule: {
+      type: 'boolean',
+      optional: true,
+      description: 'Whether invitees can reschedule',
+    },
+    allowCancel: {
+      type: 'boolean',
+      optional: true,
+      description: 'Whether invitees can cancel',
+    },
+    customQuestions: {
+      type: 'json',
+      optional: true,
+      description: 'Custom intake questions for invitees',
+    },
+    confirmationMessage: {
+      type: 'string',
+      optional: true,
+      description: 'Message shown after booking',
+    },
+    color: {
+      type: 'string',
+      optional: true,
+      description: 'Display color for calendar',
+    },
+    isActive: {
+      type: 'boolean',
+      optional: true,
+      description: 'Whether this meeting type is active',
+    },
+    isPublic: {
+      type: 'boolean',
+      optional: true,
+      description: 'Whether publicly visible',
+    },
+  },
+
+  relationships: {
+    host: {
+      type: 'Contact',
+      description: 'Host who owns this meeting type',
+    },
+    meetings: {
+      type: 'Meeting[]',
+      backref: 'meetingType',
+      description: 'Meetings created from this type',
+    },
+  },
+
+  actions: [
+    'create',
+    'update',
+    'activate',
+    'deactivate',
+    'duplicate',
+    'archive',
+  ],
+
+  events: [
+    'created',
+    'updated',
+    'activated',
+    'deactivated',
+    'archived',
+  ],
+}
+
+// =============================================================================
+// Resource (Room/Equipment)
+// =============================================================================
+
+/**
+ * Resource - A bookable physical resource
+ *
+ * Represents a room, equipment, desk, or other physical resource
+ * that can be reserved for meetings or other purposes.
+ */
+export const Resource: Noun = {
+  singular: 'resource',
+  plural: 'resources',
+  description: 'A bookable physical resource like a room or equipment',
+
+  properties: {
+    name: {
+      type: 'string',
+      description: 'Resource name',
+    },
+    description: {
+      type: 'string',
+      optional: true,
+      description: 'Resource description',
+    },
+    type: {
+      type: 'string',
+      description: 'Resource type',
+      examples: ['room', 'equipment', 'vehicle', 'desk'],
+    },
+    location: {
+      type: 'string',
+      optional: true,
+      description: 'Physical location',
+    },
+    capacity: {
+      type: 'number',
+      optional: true,
+      description: 'Capacity (for rooms)',
+    },
+    amenities: {
+      type: 'string',
+      array: true,
+      optional: true,
+      description: 'Available amenities',
+    },
+    images: {
+      type: 'url',
+      array: true,
+      optional: true,
+      description: 'Resource images',
+    },
+    hourlyRate: {
+      type: 'number',
+      optional: true,
+      description: 'Hourly rate',
+    },
+    currency: {
+      type: 'string',
+      optional: true,
+      description: 'Rate currency',
+    },
+    requiresApproval: {
+      type: 'boolean',
+      optional: true,
+      description: 'Whether reservations require approval',
+    },
+    isActive: {
+      type: 'boolean',
+      optional: true,
+      description: 'Whether resource is available',
+    },
+    maintenanceMode: {
+      type: 'boolean',
+      optional: true,
+      description: 'Whether in maintenance mode',
+    },
+    rules: {
+      type: 'string',
+      optional: true,
+      description: 'Usage rules and guidelines',
+    },
+  },
+
+  relationships: {
+    reservations: {
+      type: 'Reservation[]',
+      backref: 'resource',
+      description: 'Reservations for this resource',
+    },
+  },
+
+  actions: [
+    'create',
+    'update',
+    'activate',
+    'deactivate',
+    'setMaintenance',
+    'clearMaintenance',
+  ],
+
+  events: [
+    'created',
+    'updated',
+    'activated',
+    'deactivated',
+    'maintenanceStarted',
+    'maintenanceEnded',
+  ],
+}
+
+// =============================================================================
+// Reservation
+// =============================================================================
+
+/**
+ * Reservation - A booking for a resource
+ *
+ * Represents a time-bound reservation of a physical resource.
+ */
+export const Reservation: Noun = {
+  singular: 'reservation',
+  plural: 'reservations',
+  description: 'A time-bound reservation of a physical resource',
+
+  properties: {
+    title: {
+      type: 'string',
+      optional: true,
+      description: 'Reservation title',
+    },
+    purpose: {
+      type: 'string',
+      optional: true,
+      description: 'Purpose of the reservation',
+    },
+    status: {
+      type: 'string',
+      description: 'Reservation status',
+      examples: ['pending', 'approved', 'rejected', 'cancelled', 'checked-in', 'completed'],
+    },
+    startTime: {
+      type: 'datetime',
+      description: 'Start date and time',
+    },
+    endTime: {
+      type: 'datetime',
+      description: 'End date and time',
+    },
+    timezone: {
+      type: 'string',
+      description: 'Timezone',
+    },
+    attendeeCount: {
+      type: 'number',
+      optional: true,
+      description: 'Expected attendees',
+    },
+    notes: {
+      type: 'string',
+      optional: true,
+      description: 'Additional notes',
+    },
+    approvedAt: {
+      type: 'datetime',
+      optional: true,
+      description: 'Approval timestamp',
+    },
+    rejectionReason: {
+      type: 'string',
+      optional: true,
+      description: 'Reason for rejection',
+    },
+    checkedInAt: {
+      type: 'datetime',
+      optional: true,
+      description: 'Check-in timestamp',
+    },
+    checkedOutAt: {
+      type: 'datetime',
+      optional: true,
+      description: 'Check-out timestamp',
+    },
+  },
+
+  relationships: {
+    resource: {
+      type: 'Resource',
+      backref: 'reservations',
+      description: 'Reserved resource',
+    },
+    requestedBy: {
+      type: 'Contact',
+      description: 'Who made the reservation',
+    },
+    approvedBy: {
+      type: 'Contact',
+      required: false,
+      description: 'Who approved the reservation',
+    },
+    meeting: {
+      type: 'Meeting',
+      required: false,
+      description: 'Associated meeting if applicable',
+    },
+  },
+
+  actions: [
+    'create',
+    'approve',
+    'reject',
+    'cancel',
+    'checkIn',
+    'checkOut',
+    'extend',
+  ],
+
+  events: [
+    'created',
+    'approved',
+    'rejected',
+    'cancelled',
+    'checkedIn',
+    'checkedOut',
+    'extended',
+  ],
+}
+
+// =============================================================================
+// Waitlist
+// =============================================================================
+
+/**
+ * Waitlist - Entry on a waitlist for a meeting or resource
+ *
+ * Represents someone waiting for availability.
+ */
+export const Waitlist: Noun = {
+  singular: 'waitlist',
+  plural: 'waitlists',
+  description: 'An entry on a waitlist for availability',
+
+  properties: {
+    status: {
+      type: 'string',
+      description: 'Waitlist status',
+      examples: ['waiting', 'notified', 'booked', 'expired', 'cancelled'],
+    },
+    position: {
+      type: 'number',
+      optional: true,
+      description: 'Position in the waitlist',
+    },
+    preferredTimes: {
+      type: 'string',
+      array: true,
+      optional: true,
+      description: 'Preferred time slots',
+    },
+    notes: {
+      type: 'string',
+      optional: true,
+      description: 'Additional notes',
+    },
+    notifiedAt: {
+      type: 'datetime',
+      optional: true,
+      description: 'When notified of availability',
+    },
+    expiresAt: {
+      type: 'datetime',
+      optional: true,
+      description: 'When the offer expires',
+    },
+  },
+
+  relationships: {
+    contact: {
+      type: 'Contact',
+      description: 'Person on the waitlist',
+    },
+    meetingType: {
+      type: 'MeetingType',
+      required: false,
+      description: 'Meeting type waiting for',
+    },
+    resource: {
+      type: 'Resource',
+      required: false,
+      description: 'Resource waiting for',
+    },
+  },
+
+  actions: [
+    'join',
+    'leave',
+    'notify',
+    'book',
+  ],
+
+  events: [
+    'joined',
+    'left',
+    'notified',
+    'booked',
+    'expired',
+  ],
+}
+
+// =============================================================================
 // Export all entities
 // =============================================================================
 
@@ -1407,13 +1857,18 @@ export const VideoConferencingEntities = {
   BreakoutRoom,
   MeetingPoll,
   MeetingChat,
+  MeetingType,
+  Resource,
+  Reservation,
+  Waitlist,
 }
 
 /**
  * Entity categories for organization
  */
 export const VideoConferencingCategories = {
-  meeting: ['Meeting', 'MeetingParticipant', 'MeetingRecording', 'MeetingRoom'],
+  meeting: ['Meeting', 'MeetingParticipant', 'MeetingRecording', 'MeetingRoom', 'MeetingType'],
   webinar: ['Webinar', 'WebinarRegistrant'],
   interaction: ['BreakoutRoom', 'MeetingPoll', 'MeetingChat'],
+  resource: ['Resource', 'Reservation', 'Waitlist'],
 } as const
