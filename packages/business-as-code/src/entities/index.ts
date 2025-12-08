@@ -11,6 +11,16 @@
  * - offerings: Products & services (Product, Service, Feature, PricingPlan, RoadmapItem)
  * - operations: Processes & workflows (Process, ProcessStep, Workflow, WorkflowAction, WorkflowRun, Policy)
  * - financials: Financial entities (Budget, Revenue, Expense, Investment, FinancialPeriod, Forecast)
+ * - customers: Customer management (Customer, Account, Contact, Segment, Persona, Interaction)
+ * - sales: Sales & revenue (Deal, Pipeline, Stage, Contract, Subscription, Quote, Order, Invoice)
+ * - marketing: Marketing & demand gen (Campaign, Lead, Audience, Content, Funnel, FunnelStage, MarketingEvent)
+ * - partnerships: Partners & vendors (Partner, Vendor, Affiliate, Partnership, Integration, Reseller)
+ * - legal: Legal & compliance (Agreement, License, IntellectualProperty, Compliance, LegalPolicy, Trademark)
+ * - risk: Risk management (Risk, Mitigation, Incident, Control, Assessment, Issue)
+ * - projects: Project management (Project, Task, Milestone, Sprint, Deliverable, Epic, Story, Resource)
+ * - communication: Communication (Meeting, Decision, ActionItem, Announcement, Feedback, Discussion)
+ * - assets: Assets & inventory (Asset, Inventory, Equipment, Facility, Software, DataAsset)
+ * - market: Market intelligence (Market, Competitor, Trend, Opportunity, SWOT, Industry)
  *
  * @packageDocumentation
  */
@@ -102,6 +112,151 @@ export {
 } from './financials.js'
 
 // =============================================================================
+// Customers (Customer management)
+// =============================================================================
+
+export {
+  Customer,
+  Account,
+  Contact,
+  Segment,
+  Persona,
+  Interaction,
+  CustomerEntities,
+} from './customers.js'
+
+// =============================================================================
+// Sales (Sales & revenue)
+// =============================================================================
+
+export {
+  Deal,
+  Pipeline,
+  Stage,
+  Contract,
+  Subscription,
+  Quote,
+  Order,
+  Invoice,
+  SalesEntities,
+} from './sales.js'
+
+// =============================================================================
+// Marketing (Marketing & demand gen)
+// =============================================================================
+
+export {
+  Campaign,
+  Lead,
+  Audience,
+  Content,
+  Funnel,
+  FunnelStage,
+  MarketingEvent,
+  MarketingEntities,
+} from './marketing.js'
+
+// =============================================================================
+// Partnerships (Partners & vendors)
+// =============================================================================
+
+export {
+  Partner,
+  Vendor,
+  Affiliate,
+  Partnership,
+  Integration,
+  Reseller,
+  PartnershipEntities,
+} from './partnerships.js'
+
+// =============================================================================
+// Legal (Legal & compliance)
+// =============================================================================
+
+export {
+  Agreement,
+  License,
+  IntellectualProperty,
+  Compliance,
+  LegalPolicy,
+  Trademark,
+  LegalEntities,
+} from './legal.js'
+
+// =============================================================================
+// Risk (Risk management)
+// =============================================================================
+
+export {
+  Risk,
+  Mitigation,
+  Incident,
+  Control,
+  Assessment,
+  Issue,
+  RiskEntities,
+} from './risk.js'
+
+// =============================================================================
+// Projects (Project management)
+// =============================================================================
+
+export {
+  Project,
+  Task,
+  Milestone,
+  Sprint,
+  Deliverable,
+  Epic,
+  Story,
+  Resource,
+  ProjectEntities,
+} from './projects.js'
+
+// =============================================================================
+// Communication (Communication & collaboration)
+// =============================================================================
+
+export {
+  Meeting,
+  Decision,
+  ActionItem,
+  Announcement,
+  Feedback,
+  Discussion,
+  CommunicationEntities,
+} from './communication.js'
+
+// =============================================================================
+// Assets (Assets & inventory)
+// =============================================================================
+
+export {
+  Asset,
+  Inventory,
+  Equipment,
+  Facility,
+  Software,
+  DataAsset,
+  AssetEntities,
+} from './assets.js'
+
+// =============================================================================
+// Market (Market intelligence)
+// =============================================================================
+
+export {
+  Market,
+  Competitor,
+  Trend,
+  Opportunity,
+  SWOT,
+  Industry,
+  MarketEntities,
+} from './market.js'
+
+// =============================================================================
 // All Entities Collection
 // =============================================================================
 
@@ -111,6 +266,16 @@ import { GoalEntities } from './goals.js'
 import { OfferingEntities } from './offerings.js'
 import { OperationsEntities } from './operations.js'
 import { FinancialEntities } from './financials.js'
+import { CustomerEntities } from './customers.js'
+import { SalesEntities } from './sales.js'
+import { MarketingEntities } from './marketing.js'
+import { PartnershipEntities } from './partnerships.js'
+import { LegalEntities } from './legal.js'
+import { RiskEntities } from './risk.js'
+import { ProjectEntities } from './projects.js'
+import { CommunicationEntities } from './communication.js'
+import { AssetEntities } from './assets.js'
+import { MarketEntities } from './market.js'
 
 /**
  * All business entities organized by category
@@ -122,6 +287,16 @@ export const AllBusinessEntities = {
   offerings: OfferingEntities,
   operations: OperationsEntities,
   financials: FinancialEntities,
+  customers: CustomerEntities,
+  sales: SalesEntities,
+  marketing: MarketingEntities,
+  partnerships: PartnershipEntities,
+  legal: LegalEntities,
+  risk: RiskEntities,
+  projects: ProjectEntities,
+  communication: CommunicationEntities,
+  assets: AssetEntities,
+  market: MarketEntities,
 } as const
 
 /**
@@ -134,6 +309,16 @@ export const BusinessEntityCategories = [
   'offerings',
   'operations',
   'financials',
+  'customers',
+  'sales',
+  'marketing',
+  'partnerships',
+  'legal',
+  'risk',
+  'projects',
+  'communication',
+  'assets',
+  'market',
 ] as const
 
 export type BusinessEntityCategory = (typeof BusinessEntityCategories)[number]
@@ -154,4 +339,24 @@ export const Entities = {
   ...OperationsEntities,
   // Financials
   ...FinancialEntities,
+  // Customers
+  ...CustomerEntities,
+  // Sales
+  ...SalesEntities,
+  // Marketing
+  ...MarketingEntities,
+  // Partnerships
+  ...PartnershipEntities,
+  // Legal
+  ...LegalEntities,
+  // Risk
+  ...RiskEntities,
+  // Projects
+  ...ProjectEntities,
+  // Communication
+  ...CommunicationEntities,
+  // Assets
+  ...AssetEntities,
+  // Market
+  ...MarketEntities,
 } as const

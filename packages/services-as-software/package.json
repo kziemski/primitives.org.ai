@@ -20,6 +20,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "ai-database": "workspace:*",
     "ai-functions": "workspace:*",
     "digital-workers": "workspace:*",
     "rpc.do": "^0.1.0"

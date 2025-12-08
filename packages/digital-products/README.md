@@ -416,6 +416,66 @@ Software development kits with:
 - Installation instructions
 - Documentation and examples
 
+## Entity Definitions (Nouns)
+
+This package also provides comprehensive entity definitions following the Noun pattern from `ai-database`. Each entity includes properties, relationships, actions, and events.
+
+### Entity Categories
+
+| Category | Entities |
+|----------|----------|
+| **Products** | DigitalProduct, SaaSProduct, App, Platform, Marketplace |
+| **Interfaces** | API, Endpoint, SDK, MCP, Plugin, Integration, Webhook |
+| **Content** | ContentProduct, DataProduct, Dataset, Documentation, Template |
+| **Web** | Site, Component, Widget, Theme |
+| **AI** | AIProduct, Model, Agent, Prompt, Tool |
+| **Lifecycle** | Version, Release, Deployment, Environment, Feature |
+
+### Using Entity Definitions
+
+```typescript
+import { Nouns, ProductEntities, AIEntities } from 'digital-products'
+
+// Access entities through the Nouns namespace
+const appEntity = Nouns.App
+console.log(appEntity.singular)  // 'app'
+console.log(appEntity.actions)   // ['create', 'update', 'deploy', ...]
+console.log(appEntity.events)    // ['created', 'updated', 'deployed', ...]
+
+// Or access category collections directly
+const allProducts = ProductEntities
+const allAI = AIEntities
+```
+
+### Entity Structure
+
+Each entity follows the Noun pattern:
+
+```typescript
+const App: Noun = {
+  singular: 'app',
+  plural: 'apps',
+  description: 'An interactive user-facing application',
+
+  properties: {
+    name: { type: 'string', description: 'App name' },
+    type: { type: 'string', examples: ['web', 'mobile', 'desktop', 'cli', 'pwa'] },
+    framework: { type: 'string', examples: ['react', 'vue', 'svelte', 'solid'] },
+    status: { type: 'string', examples: ['draft', 'development', 'beta', 'production'] },
+    // ... more properties
+  },
+
+  relationships: {
+    product: { type: 'DigitalProduct', description: 'Parent product' },
+    features: { type: 'Feature[]', description: 'App features' },
+    deployments: { type: 'Deployment[]', description: 'Active deployments' },
+  },
+
+  actions: ['create', 'update', 'build', 'test', 'deploy', 'release', 'rollback', 'pause', 'deprecate'],
+  events: ['created', 'updated', 'built', 'tested', 'deployed', 'released', 'rolledBack', 'paused', 'deprecated'],
+}
+```
+
 ## TypeScript Support
 
 All product definitions are fully typed with TypeScript. The package exports comprehensive type definitions for all product types and their configurations.

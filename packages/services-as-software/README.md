@@ -183,6 +183,119 @@ const result = await translate.do('translate', { text: 'Hello', to: 'es' })
 - **Scheduled Tasks** - Cron-based recurring task support
 - **Multi-Provider** - Connect to AWS, GCP, Azure, and custom providers
 
+## Entity Definitions (Nouns)
+
+This package provides comprehensive entity definitions for AI-delivered productized services, following the Noun pattern from `ai-database`. Each entity includes properties, relationships, actions, and events.
+
+### Entity Categories
+
+| Category | Entities |
+|----------|----------|
+| **Services** | ProductizedService, ServiceOffering, ServicePlan, ServiceInstance, ServiceExecution |
+| **Delivery** | AgentDelivery, AutonomyLevel, EscalationRule, ConfidenceThreshold, HumanHandoff, QualityGate |
+| **Billing** | ServiceQuote, ServiceOrder, ServiceSubscription, Usage, Invoice, Payment |
+| **Operations** | SLA, SLO, ServiceIncident, SupportTicket, ServiceFeedback, ServiceMetric |
+| **Customers** | ServiceCustomer, ServiceEntitlement, CustomerUsage, CustomerSegment |
+| **Orchestration** | ServiceWorkflow, WorkflowStep, ServiceTask, ServiceQueue, ServiceWorker |
+
+### Using Entity Definitions
+
+```typescript
+import {
+  ProductizedService,
+  AgentDelivery,
+  EscalationRule,
+  ServiceEntities,
+  DeliveryEntities,
+} from 'services-as-software'
+
+// Access individual entities
+console.log(ProductizedService.singular)  // 'productized-service'
+console.log(ProductizedService.actions)   // ['create', 'update', 'publish', 'execute', ...]
+
+// Access entity collections
+const allServices = ServiceEntities
+const allDelivery = DeliveryEntities
+```
+
+### AI Delivery Entities
+
+The delivery entities capture the key semantics of AI-delivered services:
+
+```typescript
+const AgentDelivery: Noun = {
+  singular: 'agent-delivery',
+  plural: 'agent-deliveries',
+  description: 'AI agent configuration for autonomous service delivery',
+
+  properties: {
+    name: { type: 'string', description: 'Agent name' },
+    model: { type: 'string', description: 'AI model identifier' },
+    autonomyLevel: {
+      type: 'string',
+      examples: ['full', 'supervised', 'assisted', 'advisory']
+    },
+    confidenceThreshold: {
+      type: 'number',
+      description: 'Min confidence for autonomous action (0-1)'
+    },
+    escalationTriggers: {
+      type: 'string',
+      array: true,
+      description: 'Conditions that trigger escalation'
+    },
+    // ... more properties
+  },
+
+  relationships: {
+    service: { type: 'ProductizedService', description: 'Parent service' },
+    escalationRules: { type: 'EscalationRule[]', description: 'Escalation rules' },
+    qualityGates: { type: 'QualityGate[]', description: 'Quality gates' },
+  },
+
+  actions: ['create', 'update', 'activate', 'pause', 'train', 'evaluate', 'escalate'],
+  events: ['created', 'updated', 'activated', 'paused', 'trained', 'evaluated', 'escalated'],
+}
+```
+
+### Productized Service Entity
+
+```typescript
+const ProductizedService: Noun = {
+  singular: 'productized-service',
+  plural: 'productized-services',
+  description: 'A service packaged and delivered as software',
+
+  properties: {
+    name: { type: 'string', description: 'Service name' },
+    deliveryModel: {
+      type: 'string',
+      examples: ['autonomous', 'assisted', 'supervised', 'manual']
+    },
+    autonomyLevel: { type: 'number', description: 'AI autonomy level (1-5)' },
+    confidenceThreshold: {
+      type: 'number',
+      description: 'Min confidence for auto-completion'
+    },
+    escalationPolicy: {
+      type: 'string',
+      examples: ['immediate', 'queue', 'scheduled', 'manual']
+    },
+    // ... more properties
+  },
+
+  relationships: {
+    plans: { type: 'ServicePlan[]', description: 'Pricing plans' },
+    agent: { type: 'AgentDelivery', description: 'AI agent for delivery' },
+    sla: { type: 'SLA', description: 'Service level agreement' },
+    workflows: { type: 'ServiceWorkflow[]', description: 'Service workflows' },
+  },
+
+  actions: ['create', 'update', 'publish', 'execute', 'escalate', 'complete'],
+  events: ['created', 'updated', 'published', 'executed', 'escalated', 'completed'],
+}
+```
+
 ## Architecture
 
 Services-as-software provides a complete framework for building and consuming services:

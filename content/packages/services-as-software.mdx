@@ -1,42 +1,81 @@
 ---
 title: services-as-software
-description: AI delivering work traditionally performed by humans
+description: AI-powered services that operate as software
 ---
 
 ```bash
 npm install services-as-software
 ```
 
-Package AI capabilities as callable services with SLAs and pricing.
+Primitives for building AI-powered services that cross business boundaries with pricing, SLAs, and autonomous delivery.
 
 ```typescript
-import { service, sla, pricing } from 'services-as-software'
+import { Service, POST, Client } from 'services-as-software'
 
-const taxPrep = service({
-  name: 'tax-preparation',
-  description: 'AI-powered tax preparation service',
-  implementation: taxPrepWorkflow,
-  sla: sla({
-    responseTime: '24h',
-    accuracy: 0.99,
-  }),
-  pricing: pricing({
-    base: 49,
-    perComplexity: 10,
-  }),
+const translationService = Service({
+  name: 'translation-service',
+  version: '1.0.0',
+  pricing: {
+    model: 'per-use',
+    pricePerUnit: 0.01,
+    currency: 'USD',
+  },
+  endpoints: [
+    POST({
+      name: 'translate',
+      path: '/translate',
+      handler: async (input) => ({
+        translatedText: `Translated: ${input.text}`,
+        confidence: 0.95,
+      }),
+    }),
+  ],
+})
+
+// Use the service
+const result = await translationService.call('translate', {
+  text: 'Hello, world!',
+  to: 'es',
 })
 ```
 
-## Features
+## Core Primitives
 
-- SLA definitions and monitoring
-- Usage-based pricing
-- Quality guarantees
-- Human escalation
-- Audit trails
+- **`Service()`** — Define services with endpoints, pricing, and business logic
+- **`Client()`** — Connect to remote services
+- **`Provider()`** — Manage multiple services
+- **`POST()`, `GET()`, `PUT()`, `DELETE()`** — HTTP method helpers
+
+## Service Operations
+
+- **`ask()`**, **`do()`**, **`generate()`** — Execute tasks
+- **`quote()`**, **`order()`**, **`subscribe()`** — Commerce operations
+- **`on()`**, **`every()`** — Events and scheduling
+- **`kpis()`**, **`okrs()`**, **`entitlements()`** — Business metrics
+
+## Entity Definitions (Nouns)
+
+Comprehensive entities for AI-delivered productized services:
+
+| Category | Entities |
+|----------|----------|
+| **Services** | ProductizedService, ServiceOffering, ServicePlan, ServiceInstance, ServiceExecution |
+| **Delivery** | AgentDelivery, AutonomyLevel, EscalationRule, ConfidenceThreshold, HumanHandoff, QualityGate |
+| **Billing** | ServiceQuote, ServiceOrder, ServiceSubscription, Usage, Invoice, Payment |
+| **Operations** | SLA, SLO, ServiceIncident, SupportTicket, ServiceFeedback, ServiceMetric |
+| **Customers** | ServiceCustomer, ServiceEntitlement, CustomerUsage, CustomerSegment |
+| **Orchestration** | ServiceWorkflow, WorkflowStep, ServiceTask, ServiceQueue, ServiceWorker |
+
+```typescript
+import { AgentDelivery, ProductizedService } from 'services-as-software'
+
+console.log(AgentDelivery.properties.autonomyLevel)
+// { type: 'string', examples: ['full', 'supervised', 'assisted', 'advisory'] }
+```
 
 ## Related
 
 - [Service Primitive](/service) — Full documentation
 - [ai-workflows](/packages/ai-workflows) — Service implementations
 - [business-as-code](/packages/business-as-code) — Business integration
+- [digital-workers](/packages/digital-workers) — Worker primitives

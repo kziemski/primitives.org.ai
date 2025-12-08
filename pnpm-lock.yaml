@@ -238,6 +238,9 @@ importers:
 
   packages/digital-products:
     dependencies:
+      ai-database:
+        specifier: workspace:*
+        version: link:../ai-database
       ai-functions:
         specifier: workspace:*
         version: link:../ai-functions
@@ -287,8 +290,6 @@ importers:
         specifier: ^0.1.0
         version: 0.1.1
 
-  packages/examples: {}
-
   packages/human-in-the-loop:
     dependencies:
       ai-functions:
@@ -309,6 +310,9 @@ importers:
 
   packages/services-as-software:
     dependencies:
+      ai-database:
+        specifier: workspace:*
+        version: link:../ai-database
       ai-functions:
         specifier: workspace:*
         version: link:../ai-functions

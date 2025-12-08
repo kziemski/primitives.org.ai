@@ -17,6 +17,29 @@
 // Export all types
 export * from './types.js'
 
+// Export entity definitions (Nouns) as namespace to avoid conflicts with types
+export * as Nouns from './entities/index.js'
+
+// Also export individual entity collections for convenience
+export {
+  AllDigitalProductEntities,
+  DigitalProductEntityCategories,
+  Entities,
+  // Category exports
+  ProductEntities,
+  ProductCategories,
+  InterfaceEntities,
+  InterfaceCategories,
+  ContentEntities,
+  ContentCategories,
+  WebEntities,
+  WebCategories,
+  AIEntities,
+  AICategories,
+  LifecycleEntities,
+  LifecycleCategories,
+} from './entities/index.js'
+
 // Export registry
 export { registry } from './registry.js'
 

@@ -1,42 +1,74 @@
 ---
 title: digital-products
-description: Compose primitives into complete products
+description: Primitives for defining and building digital products
 ---
 
 ```bash
 npm install digital-products
 ```
 
-Define complete products with capabilities, APIs, and interfaces.
+Declarative API for defining digital products - apps, APIs, content, data, sites, MCP servers, and SDKs.
 
 ```typescript
-import { product, api, ui } from 'digital-products'
+import { App, Route, State, Auth, API, Endpoint } from 'digital-products'
 
-const app = product({
-  name: 'document-processor',
-  capabilities: [
-    uploadDocument,
-    extractData,
-    generateSummary,
+const myApp = App({
+  id: 'my-app',
+  name: 'My App',
+  version: '1.0.0',
+  framework: 'react',
+  routes: [
+    Route('/', 'Home'),
+    Route('/dashboard', 'Dashboard'),
   ],
-  api: api({
-    routes: ['/upload', '/process', '/status'],
-  }),
-  ui: ui({
-    pages: ['upload', 'results'],
-  }),
+  state: State({ library: 'zustand' }),
+  auth: Auth({ provider: 'clerk' }),
+})
+
+const myAPI = API({
+  id: 'my-api',
+  name: 'My API',
+  style: 'rest',
+  endpoints: [
+    Endpoint('GET', '/users', 'List users'),
+    Endpoint('POST', '/users', 'Create user'),
+  ],
 })
 ```
 
-## Features
+## Core Functions
 
-- Declarative capability definitions
-- API generation from capabilities
-- UI scaffolding
-- Versioning and deployment
+- **`App()`** — Interactive applications with routes, state, auth
+- **`API()`** — RESTful, GraphQL, or RPC interfaces
+- **`Content()`** — Text/media with schemas and workflows
+- **`Data()`** — Structured data with validation
+- **`Dataset()`** — Curated data collections
+- **`Site()`** — Websites with SEO and analytics
+- **`MCP()`** — Model Context Protocol servers
+- **`SDK()`** — Software development kits
+
+## Entity Definitions (Nouns)
+
+Comprehensive semantic entities following the Noun pattern with properties, relationships, actions, and events:
+
+| Category | Entities |
+|----------|----------|
+| **Products** | DigitalProduct, SaaSProduct, App, Platform, Marketplace |
+| **Interfaces** | API, Endpoint, SDK, MCP, Plugin, Integration, Webhook |
+| **Content** | ContentProduct, DataProduct, Dataset, Documentation, Template |
+| **Web** | Site, Component, Widget, Theme |
+| **AI** | AIProduct, Model, Agent, Prompt, Tool |
+| **Lifecycle** | Version, Release, Deployment, Environment, Feature |
+
+```typescript
+import { Nouns, ProductEntities } from 'digital-products'
+
+console.log(Nouns.App.actions)  // ['create', 'update', 'deploy', ...]
+```
 
 ## Related
 
 - [Product Primitive](/product) — Full documentation
 - [ai-functions](/packages/ai-functions) — Product capabilities
 - [services-as-software](/packages/services-as-software) — Service packaging
+- [ai-database](/packages/ai-database) — Noun pattern

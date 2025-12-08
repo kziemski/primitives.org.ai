@@ -7,6 +7,9 @@
  * @packageDocumentation
  */
 
+// Export entity definitions (Nouns)
+export * from './entities/index.js'
+
 // Core service primitives
 export { Service } from './service.js'
 export { Endpoint, GET, POST, PUT, DELETE, PATCH } from './endpoint.js'
