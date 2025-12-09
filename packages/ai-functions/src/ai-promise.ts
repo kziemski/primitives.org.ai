@@ -33,6 +33,14 @@
 import { generateObject } from './generate.js'
 import type { SimpleSchema } from './schema.js'
 import type { FunctionOptions } from './template.js'
+import {
+  isInRecordingMode,
+  getCurrentItemPlaceholder,
+  captureOperation,
+  createBatchMap,
+  BatchMapPromise,
+} from './batch-map.js'
+import { getModel } from './context.js'
 
 // ============================================================================
 // Types
@@ -300,14 +308,21 @@ export class AIPromise<T> implements PromiseLike<T> {
   }
 
   /**
-   * Map over array results - executes in a single LLM call!
+   * Map over array results - automatically batches operations!
    *
-   * Uses record-replay: records what you do with a stub, then
-   * replays it for each element on the server side.
+   * When you map over a list, the operations are captured and
+   * automatically batched when resolved. Uses provider batch APIs
+   * for cost savings (50% discount) when beneficial.
    *
    * @example
    * ```ts
-   * const ideas = list`startup ideas`
+   * // Simple map - each title becomes a blog post
+   * const titles = await list`10 blog post titles`
+   * const posts = titles.map(title => write`blog post: # ${title}`)
+   * console.log(await posts) // 10 blog posts via batch API
+   *
+   * // Complex map - multiple operations per item
+   * const ideas = await list`startup ideas`
    * const evaluated = await ideas.map(idea => ({
    *   idea,
    *   viable: is`${idea} is viable`,
@@ -316,50 +331,85 @@ export class AIPromise<T> implements PromiseLike<T> {
    * ```
    */
   map<U>(
-    callback: (item: AIPromise<T extends (infer I)[] ? I : T>) => U
-  ): AIPromise<U[]> {
-    // Create a recording context
-    const recording: MapRecording = {
-      operations: [],
-      capturedStubs: [],
-    }
+    callback: (item: T extends (infer I)[] ? I : T, index: number) => U
+  ): BatchMapPromise<U> {
+    // Create a wrapper that resolves this promise first, then maps
+    const mapPromise = new BatchMapPromise<U>([], [], {})
 
-    // Enter recording mode
-    const previousRecording = currentRecording
-    currentRecording = recording
+    // Override the resolve to first get the list items
+    const originalResolve = mapPromise.resolve.bind(mapPromise)
+    ;(mapPromise as any).resolve = async () => {
+      // First, resolve the list
+      const items = await this.resolve()
 
-    try {
-      // Create a recording stub
-      const recordingStub = new AIPromise<T extends (infer I)[] ? I : T>(
-        '__RECORDING_ITEM__',
-        { ...this._options, parent: this, propertyPath: ['__item__'] }
-      )
-      ;(recordingStub as any)._isRecording = true
+      if (!Array.isArray(items)) {
+        throw new Error('Cannot map over non-array result')
+      }
 
-      // Execute the callback to record operations
-      const result = callback(recordingStub)
-
-      // Analyze the result to build the batch schema
-      const batchSchema = analyzeRecordingResult(result, recording)
-
-      // Create a new AIPromise that will execute the batch
-      const batchPromise = new AIPromise<U[]>(
-        `For each item in the following list, ${this._prompt}, generate: ${JSON.stringify(batchSchema)}`,
-        {
-          ...this._options,
-          type: 'object',
-          baseSchema: { items: [batchSchema] },
-        }
+      // Now create the actual batch map with the resolved items
+      const actualBatchMap = createBatchMap(
+        items as (T extends (infer I)[] ? I : T)[],
+        callback
       )
 
-      // Add this promise as a dependency
-      batchPromise.addDependency(this as AIPromise<unknown>)
-
-      return batchPromise
-    } finally {
-      // Exit recording mode
-      currentRecording = previousRecording
+      return actualBatchMap.resolve()
     }
+
+    return mapPromise
+  }
+
+  /**
+   * Map with explicit batch options
+   *
+   * @example
+   * ```ts
+   * // Force immediate execution (no batch API)
+   * const posts = titles.mapImmediate(title => write`blog post: ${title}`)
+   *
+   * // Force batch API (even for small lists)
+   * const posts = titles.mapDeferred(title => write`blog post: ${title}`)
+   * ```
+   */
+  mapImmediate<U>(
+    callback: (item: T extends (infer I)[] ? I : T, index: number) => U
+  ): BatchMapPromise<U> {
+    const mapPromise = new BatchMapPromise<U>([], [], { immediate: true })
+
+    ;(mapPromise as any).resolve = async () => {
+      const items = await this.resolve()
+      if (!Array.isArray(items)) {
+        throw new Error('Cannot map over non-array result')
+      }
+      const actualBatchMap = createBatchMap(
+        items as (T extends (infer I)[] ? I : T)[],
+        callback,
+        { immediate: true }
+      )
+      return actualBatchMap.resolve()
+    }
+
+    return mapPromise
+  }
+
+  mapDeferred<U>(
+    callback: (item: T extends (infer I)[] ? I : T, index: number) => U
+  ): BatchMapPromise<U> {
+    const mapPromise = new BatchMapPromise<U>([], [], { deferred: true })
+
+    ;(mapPromise as any).resolve = async () => {
+      const items = await this.resolve()
+      if (!Array.isArray(items)) {
+        throw new Error('Cannot map over non-array result')
+      }
+      const actualBatchMap = createBatchMap(
+        items as (T extends (infer I)[] ? I : T)[],
+        callback,
+        { deferred: true }
+      )
+      return actualBatchMap.resolve()
+    }
+
+    return mapPromise
   }
 
   /**
@@ -712,6 +762,12 @@ export function createAITemplateFunction<T>(
       if (args.length > 0 && typeof args[0] === 'object') {
         options = { ...options, ...(args[0] as FunctionOptions) }
       }
+    }
+
+    // If we're in recording mode (inside a .map() callback), capture this operation
+    if (isInRecordingMode()) {
+      const batchType = type === 'text' ? 'text' : type === 'boolean' ? 'boolean' : type === 'list' ? 'list' : 'object'
+      captureOperation(prompt, batchType, (options as any).baseSchema, options.system)
     }
 
     const promise = new AIPromise<T>(prompt, { ...options, type })

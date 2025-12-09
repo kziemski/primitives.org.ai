@@ -104,3 +104,51 @@ export {
   type HumanOptions,
   type HumanResult,
 } from './primitives.js'
+
+// Export batch processing
+export {
+  BatchQueue,
+  createBatch,
+  withBatch as withBatchQueue,
+  registerBatchAdapter,
+  getBatchAdapter,
+  isBatchMode,
+  deferToBatch,
+  BATCH_MODE_SYMBOL,
+  type BatchMode as BatchQueueMode,
+  type BatchProvider,
+  type BatchStatus,
+  type BatchItem,
+  type BatchJob,
+  type BatchResult,
+  type BatchSubmitResult,
+  type BatchAdapter,
+  type BatchQueueOptions,
+  type DeferredOptions,
+} from './batch-queue.js'
+
+// Export batch map for automatic batching
+export {
+  BatchMapPromise,
+  createBatchMap,
+  isBatchMapPromise,
+  BATCH_MAP_SYMBOL,
+  type CapturedOperation,
+  type BatchMapOptions,
+} from './batch-map.js'
+
+// Export execution context
+export {
+  configure,
+  getContext,
+  withContext,
+  getGlobalContext,
+  resetContext,
+  getModel,
+  getProvider,
+  getBatchMode,
+  getBatchThreshold,
+  shouldUseBatchAPI,
+  type ExecutionContext,
+  type BatchMode,
+} from './context.js'
