@@ -210,6 +210,11 @@ export interface ForEachOptions<T = unknown> {
    * Resume from existing action ID (skips already-processed items)
    */
   resume?: string
+
+  /**
+   * Filter entities before processing
+   */
+  where?: Record<string, unknown>
 }
 
 /**
@@ -1190,21 +1195,40 @@ export function wrapEntityOperations<T>(
     /**
      * Process all entities with concurrency, progress, and optional persistence
      *
+     * Supports two calling styles:
+     * - forEach(callback, options?) - callback first
+     * - forEach(options, callback) - options first (with where filter)
+     *
      * @example
      * ```ts
      * await db.Lead.forEach(lead => console.log(lead.name))
      * await db.Lead.forEach(processLead, { concurrency: 10 })
+     * await db.Lead.forEach({ where: { status: 'active' } }, processLead)
      * await db.Lead.forEach(processLead, { persist: true })
      * await db.Lead.forEach(processLead, { resume: 'action-123' })
      * ```
      */
     async forEach<U>(
-      callback: (item: T, index: number) => U | Promise<U>,
-      options: ForEachOptions<T> = {}
+      callbackOrOptions: ((item: T, index: number) => U | Promise<U>) | ForEachOptions<T>,
+      callbackOrOpts?: ((item: T, index: number) => U | Promise<U>) | ForEachOptions<T>
     ): Promise<ForEachResult> {
+      // Detect which calling style is being used
+      const isOptionsFirst = typeof callbackOrOptions === 'object' && callbackOrOptions !== null && !('call' in callbackOrOptions)
+
+      const callback = isOptionsFirst
+        ? (callbackOrOpts as (item: T, index: number) => U | Promise<U>)
+        : (callbackOrOptions as (item: T, index: number) => U | Promise<U>)
+
+      const options = isOptionsFirst
+        ? (callbackOrOptions as ForEachOptions<T>)
+        : ((callbackOrOpts ?? {}) as ForEachOptions<T>)
+
+      // Extract where filter and pass to list
+      const listOptions = options.where ? { where: options.where } : undefined
+
       const listPromise = new DBPromise<T[]>({
         type: typeName,
-        executor: () => operations.list(),
+        executor: () => operations.list(listOptions),
         actionsAPI,
       })
       return listPromise.forEach(callback as any, options as any)

@@ -346,7 +346,82 @@ DATABASE_URL=:memory:          # in-memory
 - [Schema Types](https://primitives.org.ai/database/schema)
 - [Events](https://primitives.org.ai/database/events)
 
+## Document Database Interface
+
+In addition to the schema-first graph model, `ai-database` also exports environment-agnostic types for document-based storage (MDX files with frontmatter). These types are used by `@mdxdb/*` adapters and work in any JavaScript runtime (Node.js, Bun, Deno, Workers, Browser).
+
+```typescript
+import type {
+  DocumentDatabase,
+  DocListOptions,
+  DocSearchOptions,
+  Document,
+} from 'ai-database'
+
+// The DocumentDatabase interface
+interface DocumentDatabase<TData> {
+  list(options?: DocListOptions): Promise<DocListResult<TData>>
+  search(options: DocSearchOptions): Promise<DocSearchResult<TData>>
+  get(id: string, options?: DocGetOptions): Promise<Document<TData> | null>
+  set(id: string, doc: Document<TData>, options?: DocSetOptions): Promise<DocSetResult>
+  delete(id: string, options?: DocDeleteOptions): Promise<DocDeleteResult>
+  close?(): Promise<void>
+}
+```
+
+### Document Types
+
+| Type | Description |
+|------|-------------|
+| `Document<TData>` | MDX document with id, type, context, data, and content |
+| `DocumentDatabase<TData>` | Interface for document storage adapters |
+| `DocListOptions` | Options for listing documents (limit, offset, sortBy, type, prefix) |
+| `DocListResult<TData>` | List result with documents, total, hasMore |
+| `DocSearchOptions` | Search options (query, fields, semantic) |
+| `DocSearchResult<TData>` | Search result with scores |
+| `DocGetOptions` | Get options (includeAst, includeCode) |
+| `DocSetOptions` | Set options (createOnly, updateOnly, version) |
+| `DocSetResult` | Set result (id, version, created) |
+| `DocDeleteOptions` | Delete options (soft, version) |
+| `DocDeleteResult` | Delete result (id, deleted) |
+
+### View Types
+
+For bi-directional relationship rendering:
+
+| Type | Description |
+|------|-------------|
+| `ViewManager` | Interface for managing views |
+| `ViewDocument` | View template definition |
+| `ViewContext` | Context for rendering a view |
+| `ViewRenderResult` | Rendered markdown and entities |
+| `ViewSyncResult` | Mutations from extracting edited markdown |
+| `DocumentDatabaseWithViews` | Database with view support |
+
+### Usage with @mdxdb adapters
+
+```typescript
+// Filesystem adapter
+import { createFsDatabase } from '@mdxdb/fs'
+const db = createFsDatabase({ root: './content' })
+
+// API adapter
+import { createApiDatabase } from '@mdxdb/api'
+const db = createApiDatabase({ baseUrl: 'https://api.example.com' })
+
+// SQLite adapter
+import { createSqliteDatabase } from '@mdxdb/sqlite'
+const db = createSqliteDatabase({ path: './data.db' })
+
+// Same DocumentDatabase interface regardless of backend
+const doc = await db.get('posts/hello-world')
+await db.set('posts/new', { data: { title: 'New Post' }, content: '# Hello' })
+```
+
 ## Related
 
-- [ai-functions](../ai-functions) - AI-powered functions
-- [ai-workflows](../ai-workflows) - Event-driven workflows
+- [ai-functions](https://github.com/ai-primitives/ai-primitives/tree/main/packages/ai-functions) - AI-powered functions
+- [ai-workflows](https://github.com/ai-primitives/ai-primitives/tree/main/packages/ai-workflows) - Event-driven workflows
+- [@mdxdb/fs](https://github.com/ai-primitives/mdx.org.ai/tree/main/packages/@mdxdb/fs) - Filesystem adapter
+- [@mdxdb/sqlite](https://github.com/ai-primitives/mdx.org.ai/tree/main/packages/@mdxdb/sqlite) - SQLite adapter
+- [@mdxdb/api](https://github.com/ai-primitives/mdx.org.ai/tree/main/packages/@mdxdb/api) - HTTP API client

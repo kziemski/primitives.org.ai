@@ -247,3 +247,91 @@ export {
   PermissionNoun,
   AuthorizationNouns,
 } from './authorization.js'
+
+// Document Database Types (for @mdxdb adapters)
+// These are environment-agnostic types that work in any runtime
+export type {
+  // Document types
+  Document,
+  DocWithScore,
+  // List/Search options and results
+  DocListOptions,
+  DocListResult,
+  DocSearchOptions,
+  DocSearchResult,
+  // CRUD options and results
+  DocGetOptions,
+  DocSetOptions,
+  DocSetResult,
+  DocDeleteOptions,
+  DocDeleteResult,
+  // Database interfaces
+  DocumentDatabase,
+  DocumentDatabaseConfig,
+  CreateDocumentDatabase,
+  DocumentDatabaseWithViews,
+  // View types
+  ViewEntityItem,
+  ViewComponent,
+  ViewDocument,
+  ViewContext,
+  ViewRenderResult,
+  ViewRelationshipMutation,
+  ViewSyncResult,
+  ViewManager,
+} from './types.js'
+
+// =============================================================================
+// Durable Promise - Time-agnostic execution
+// =============================================================================
+
+// Core durable promise exports
+export {
+  DurablePromise,
+  isDurablePromise,
+  durable,
+  DURABLE_PROMISE_SYMBOL,
+  // Context management
+  getCurrentContext,
+  withContext,
+  setDefaultContext,
+  // Batch scheduler
+  getBatchScheduler,
+  setBatchScheduler,
+} from './durable-promise.js'
+
+export type {
+  ExecutionPriority,
+  DurablePromiseOptions,
+  DurablePromiseResult,
+  BatchScheduler,
+} from './durable-promise.js'
+
+// Execution queue for priority-based scheduling
+export {
+  ExecutionQueue,
+  createExecutionQueue,
+  getDefaultQueue,
+  setDefaultQueue,
+} from './execution-queue.js'
+
+export type {
+  ExecutionQueueOptions,
+  QueueStats,
+  BatchSubmission,
+  BatchProvider,
+  BatchRequest,
+  BatchStatus,
+  BatchResult,
+} from './execution-queue.js'
+
+// ClickHouse-backed durable provider
+export {
+  ClickHouseDurableProvider,
+  createClickHouseDurableProvider,
+} from './durable-clickhouse.js'
+
+export type {
+  ClickHouseExecutor,
+  ClickHouseDurableConfig,
+} from './durable-clickhouse.js'

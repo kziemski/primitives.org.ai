@@ -843,3 +843,335 @@ export interface DBClientExtended<TData extends Record<string, unknown> = Record
   deleteArtifact(key: string): Promise<boolean>
   cleanExpiredArtifacts(): Promise<number>
 }
+
+// =============================================================================
+// Document Database Types (for @mdxdb adapters)
+// =============================================================================
+// These types are for document-based storage (MDX files with frontmatter)
+// as opposed to the graph-based DBClient types above.
+
+/**
+ * Query options for listing documents
+ */
+export interface DocListOptions {
+  /** Maximum number of documents to return */
+  limit?: number
+  /** Number of documents to skip */
+  offset?: number
+  /** Field to sort by */
+  sortBy?: string
+  /** Sort order */
+  sortOrder?: 'asc' | 'desc'
+  /** Filter by type */
+  type?: string | string[]
+  /** Filter by path prefix */
+  prefix?: string
+}
+
+/**
+ * Document with optional score for search results
+ */
+export interface DocWithScore<TData = Record<string, unknown>> {
+  /** Document ID/path */
+  id?: string
+  /** Document type */
+  type?: string
+  /** JSON-LD context */
+  context?: string | Record<string, unknown>
+  /** Document data (frontmatter) */
+  data: TData
+  /** Document content (markdown body) */
+  content: string
+  /** Relevance score (for search results) */
+  score?: number
+}
+
+/**
+ * Query result with pagination info
+ */
+export interface DocListResult<TData = Record<string, unknown>> {
+  /** List of documents */
+  documents: DocWithScore<TData>[]
+  /** Total count of matching documents */
+  total: number
+  /** Whether there are more results */
+  hasMore: boolean
+}
+
+/**
+ * Search options for querying documents
+ */
+export interface DocSearchOptions extends DocListOptions {
+  /** Search query string */
+  query: string
+  /** Fields to search in */
+  fields?: string[]
+  /** Enable semantic/vector search */
+  semantic?: boolean
+}
+
+/**
+ * Search result with relevance info
+ */
+export interface DocSearchResult<TData = Record<string, unknown>> extends DocListResult<TData> {
+  /** Documents with relevance scores */
+  documents: Array<DocWithScore<TData> & { score?: number }>
+}
+
+/**
+ * Get options for retrieving a document
+ */
+export interface DocGetOptions {
+  /** Include AST in response */
+  includeAst?: boolean
+  /** Include compiled code in response */
+  includeCode?: boolean
+}
+
+/**
+ * Set options for storing a document
+ */
+export interface DocSetOptions {
+  /** Create only if document doesn't exist */
+  createOnly?: boolean
+  /** Update only if document exists */
+  updateOnly?: boolean
+  /** Expected version for optimistic locking */
+  version?: string
+}
+
+/**
+ * Set result with metadata
+ */
+export interface DocSetResult {
+  /** Document ID/path */
+  id: string
+  /** New version after update */
+  version?: string
+  /** Whether document was created (vs updated) */
+  created: boolean
+}
+
+/**
+ * Delete options
+ */
+export interface DocDeleteOptions {
+  /** Soft delete (mark as deleted) */
+  soft?: boolean
+  /** Expected version for optimistic locking */
+  version?: string
+}
+
+/**
+ * Delete result
+ */
+export interface DocDeleteResult {
+  /** Document ID/path that was deleted */
+  id: string
+  /** Whether document was found and deleted */
+  deleted: boolean
+}
+
+/**
+ * Document interface for MDX document storage
+ *
+ * Generic document type for CRUD operations on MDX content.
+ * Used as input/output for DocumentDatabase operations.
+ */
+export interface Document<TData = Record<string, unknown>> {
+  /** Document ID/path */
+  id?: string
+  /** Document type ($type) */
+  type?: string
+  /** JSON-LD context ($context) */
+  context?: string | Record<string, unknown>
+  /** Document data (frontmatter fields) */
+  data: TData
+  /** Document content (markdown body) */
+  content: string
+}
+
+/**
+ * Database interface for MDX document storage
+ *
+ * All backend adapters (fs, sqlite, postgres, api, etc.) implement this interface.
+ * Works in any JavaScript runtime (Node.js, Bun, Deno, Workers, Browser).
+ *
+ * @example
+ * ```ts
+ * // Using filesystem adapter
+ * import { createFsDatabase } from '@mdxdb/fs'
+ * const db = createFsDatabase({ root: './content' })
+ *
+ * // Using API adapter
+ * import { createApiDatabase } from '@mdxdb/api'
+ * const db = createApiDatabase({ baseUrl: 'https://api.example.com' })
+ *
+ * // Same interface regardless of backend
+ * const doc = await db.get('posts/hello-world')
+ * ```
+ */
+export interface DocumentDatabase<TData = Record<string, unknown>> {
+  /**
+   * List documents with optional filtering and pagination
+   */
+  list(options?: DocListOptions): Promise<DocListResult<TData>>
+
+  /**
+   * Search documents by query
+   */
+  search(options: DocSearchOptions): Promise<DocSearchResult<TData>>
+
+  /**
+   * Get a document by ID/path
+   */
+  get(id: string, options?: DocGetOptions): Promise<Document<TData> | null>
+
+  /**
+   * Set/create a document
+   */
+  set(id: string, document: Document<TData>, options?: DocSetOptions): Promise<DocSetResult>
+
+  /**
+   * Delete a document
+   */
+  delete(id: string, options?: DocDeleteOptions): Promise<DocDeleteResult>
+
+  /**
+   * Close database connection (for cleanup)
+   */
+  close?(): Promise<void>
+}
+
+/**
+ * Database configuration base
+ */
+export interface DocumentDatabaseConfig {
+  /** Optional namespace/prefix for all operations */
+  namespace?: string
+}
+
+/**
+ * Factory function type for creating database instances
+ */
+export type CreateDocumentDatabase<
+  TConfig extends DocumentDatabaseConfig = DocumentDatabaseConfig,
+  TData = Record<string, unknown>
+> = (config: TConfig) => DocumentDatabase<TData>
+
+// =============================================================================
+// View Types - For bi-directional relationship rendering/extraction
+// =============================================================================
+
+/**
+ * Entity item with standard fields (for views)
+ */
+export interface ViewEntityItem {
+  /** Entity ID (URL or slug) */
+  $id: string
+  /** Entity type */
+  $type?: string
+  /** Entity data fields */
+  [key: string]: unknown
+}
+
+/**
+ * View component definition
+ */
+export interface ViewComponent {
+  /** Component name (e.g., 'Tags', 'Posts') */
+  name: string
+  /** Entity type this component renders */
+  entityType?: string
+  /** Relationship predicate */
+  relationship?: string
+  /** Default columns to render */
+  columns?: string[]
+  /** Render format */
+  format?: 'table' | 'list' | 'cards'
+}
+
+/**
+ * A View document is a template that renders related entities
+ */
+export interface ViewDocument {
+  /** View template ID */
+  id: string
+  /** Entity type this view is for */
+  entityType: string
+  /** The template content */
+  template: string
+  /** Components discovered in the template */
+  components: ViewComponent[]
+}
+
+/**
+ * Context for rendering a view
+ */
+export interface ViewContext {
+  /** The entity URL this view is being rendered for */
+  entityUrl: string
+  /** Optional filters to apply */
+  filters?: Record<string, unknown>
+}
+
+/**
+ * Result of rendering a view
+ */
+export interface ViewRenderResult {
+  /** The rendered markdown */
+  markdown: string
+  /** Entities that were rendered */
+  entities: Record<string, ViewEntityItem[]>
+}
+
+/**
+ * Relationship mutation from view extraction
+ */
+export interface ViewRelationshipMutation {
+  /** Mutation type */
+  type: 'add' | 'remove' | 'update'
+  /** Relationship predicate */
+  predicate: string
+  /** Source entity URL */
+  from: string
+  /** Target entity URL */
+  to: string
+  /** Entity data */
+  data?: Record<string, unknown>
+  /** Previous entity data */
+  previousData?: Record<string, unknown>
+}
+
+/**
+ * Result of syncing changes from an edited view
+ */
+export interface ViewSyncResult {
+  /** Relationship mutations to apply */
+  mutations: ViewRelationshipMutation[]
+  /** Entities that were created */
+  created: ViewEntityItem[]
+  /** Entities that were updated */
+  updated: ViewEntityItem[]
+}
+
+/**
+ * View manager interface
+ */
+export interface ViewManager {
+  discoverViews(): Promise<ViewDocument[]>
+  getView(viewId: string): Promise<ViewDocument | null>
+  render(viewId: string, context: ViewContext): Promise<ViewRenderResult>
+  sync(viewId: string, context: ViewContext, editedMarkdown: string): Promise<ViewSyncResult>
+  inferRelationship(
+    contextType: string,
+    componentName: string
+  ): Promise<{ predicate: string; direction: 'forward' | 'reverse' } | null>
+}
+
+/**
+ * Extended DocumentDatabase interface with view support
+ */
+export interface DocumentDatabaseWithViews<TData = Record<string, unknown>> extends DocumentDatabase<TData> {
+  views: ViewManager
+}

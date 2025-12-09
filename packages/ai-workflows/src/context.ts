@@ -64,6 +64,23 @@ export function createWorkflowContext(eventBus: EventBusLike): WorkflowContext {
 
     state: workflowState.context,
 
+    getState(): WorkflowState {
+      // Return a deep copy to prevent mutation
+      return {
+        current: workflowState.current,
+        context: { ...workflowState.context },
+        history: [...workflowState.history],
+      }
+    },
+
+    set<T = unknown>(key: string, value: T): void {
+      workflowState.context[key] = value
+    },
+
+    get<T = unknown>(key: string): T | undefined {
+      return workflowState.context[key] as T | undefined
+    },
+
     log(message: string, data?: unknown): void {
       addHistory({ type: 'action', name: 'log', data: { message, data } })
       console.log(`[workflow] ${message}`, data ?? '')

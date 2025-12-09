@@ -73,7 +73,7 @@ export {
   type GenerateOptions,
 
   // Generative functions
-  ai,
+  ai as aiPrompt, // Renamed to avoid conflict with AIProxy from ai.ts
   write,
   code,
   list,

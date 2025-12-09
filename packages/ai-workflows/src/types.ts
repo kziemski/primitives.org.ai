@@ -65,6 +65,24 @@ export interface WorkflowContext {
    */
   state: Record<string, unknown>
 
+  /**
+   * Get the full workflow state (context + history)
+   * Returns a copy to prevent mutation
+   */
+  getState: () => WorkflowState
+
+  /**
+   * Set a value in the context
+   * Alternative to $.state.key = value
+   */
+  set: <T = unknown>(key: string, value: T) => void
+
+  /**
+   * Get a value from the context
+   * Alternative to $.state.key
+   */
+  get: <T = unknown>(key: string) => T | undefined
+
   /** Log message */
   log: (message: string, data?: unknown) => void
 

@@ -390,6 +390,23 @@ export function Workflow(
     // Direct access to state context
     state: state.context,
 
+    getState(): WorkflowState {
+      // Return a deep copy to prevent mutation
+      return {
+        current: state.current,
+        context: { ...state.context },
+        history: [...state.history],
+      }
+    },
+
+    set<T = unknown>(key: string, value: T): void {
+      state.context[key] = value
+    },
+
+    get<T = unknown>(key: string): T | undefined {
+      return state.context[key] as T | undefined
+    },
+
     log(message: string, data?: unknown): void {
       addHistory({ type: 'action', name: 'log', data: { message, data } })
       console.log(`[workflow] ${message}`, data ?? '')
@@ -487,6 +504,7 @@ export function Workflow(
 export function createTestContext(): WorkflowContext & { emittedEvents: Array<{ event: string; data: unknown }> } {
   const emittedEvents: Array<{ event: string; data: unknown }> = []
   const stateContext: Record<string, unknown> = {}
+  const history: WorkflowHistoryEntry[] = []
 
   const $: WorkflowContext & { emittedEvents: Array<{ event: string; data: unknown }> } = {
     emittedEvents,
@@ -521,6 +539,21 @@ export function createTestContext(): WorkflowContext & { emittedEvents: Array<{ 
     }),
 
     state: stateContext,
+
+    getState(): WorkflowState {
+      return {
+        context: { ...stateContext },
+        history: [...history],
+      }
+    },
+
+    set<T = unknown>(key: string, value: T): void {
+      stateContext[key] = value
+    },
+
+    get<T = unknown>(key: string): T | undefined {
+      return stateContext[key] as T | undefined
+    },
 
     log(message: string, data?: unknown) {
       console.log(`[test] ${message}`, data ?? '')
