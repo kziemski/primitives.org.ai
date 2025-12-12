@@ -1,10 +1,52 @@
 # digital-workers
 
-Common abstract interface for AI Agents and Humans within ai-primitives.
+Abstract interface for organizing digital work, independent of whether AI or humans perform individual tasks.
 
 ## Overview
 
-Digital workers represent execution entities (AI agents or humans) that can perform tasks within a company/business boundary. They communicate through **Worker Actions** that integrate with `ai-workflows` as durable, traceable operations.
+**Digital workers** provides the foundational abstraction for structuring and organizing work in the digital enterprise. It defines a unified interface that both AI agents and humans implement, enabling you to design workflows without coupling them to specific execution strategies.
+
+### Why This Abstraction Matters
+
+When building AI-powered systems, you face a fundamental question: *who should do this task?* Sometimes it's an AI agent operating autonomously. Sometimes it requires human judgment. Often it's a mix of both.
+
+`digital-workers` lets you define work in terms of **what** needs to happen, not **who** does it:
+
+```typescript
+// This workflow doesn't care if alice is an AI agent or a human
+await worker$.approve('Deploy v2.0 to production', alice, { via: 'slack' })
+```
+
+The same Worker interface works whether `alice` is:
+- A human product manager who gets a Slack notification
+- An AI agent that evaluates deployment criteria autonomously
+- A supervised AI that escalates to humans for high-risk decisions
+
+### Package Relationships
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    ai-workflows                         │
+│              (orchestrates work execution)              │
+└────────────────────────┬────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────┐
+│                  digital-workers                        │
+│         (abstract interface for work & workers)         │
+└────────────────────────┬────────────────────────────────┘
+                         │
+           ┌─────────────┴─────────────┐
+           ▼                           ▼
+┌─────────────────────┐   ┌─────────────────────────────┐
+│  autonomous-agents  │   │     human-in-the-loop       │
+│  (AI implementation)│   │   (human implementation)    │
+└─────────────────────┘   └─────────────────────────────┘
+```
+
+- **digital-workers**: Defines the abstract `Worker` interface, action types, and communication patterns
+- **autonomous-agents**: Implements `Worker` for AI agents with autonomous decision-making
+- **human-in-the-loop**: Implements `Worker` for humans with approval workflows and notifications
 
 ## Installation
 
@@ -13,6 +55,15 @@ pnpm add digital-workers
 ```
 
 ## Core Concepts
+
+### The Worker Abstraction
+
+A **Worker** is the unified interface for any entity that can perform work—whether AI or human. This abstraction enables you to:
+
+1. **Design workflows once** - Define your business logic without hardcoding execution strategy
+2. **Swap implementations** - Start with humans, transition to AI agents as they prove reliable
+3. **Mix freely** - Teams can include both AI agents and humans working together
+4. **Route dynamically** - Assign tasks based on availability, capability, or risk level
 
 ### Worker
 
@@ -280,7 +331,7 @@ Key types exported:
 
 ## Related Packages
 
-- `ai-workflows` - Event-driven workflow engine
-- `autonomous-agents` - AI agent implementations
-- `human-in-the-loop` - Human approval patterns
-- `services-as-software` - External service integration
+- `autonomous-agents` - **Implements** `Worker` for AI agents with autonomous decision-making, goals, and metrics
+- `human-in-the-loop` - **Implements** `Worker` for humans with approval workflows, notifications, and escalation
+- `ai-workflows` - **Uses** `digital-workers` to orchestrate work execution with durable, event-driven workflows
+- `services-as-software` - External service integration (crosses company boundaries, unlike workers)

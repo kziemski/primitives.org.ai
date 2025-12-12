@@ -1,12 +1,17 @@
 /**
- * digital-workers - Common abstract interface over AI Agents and Humans
+ * digital-workers - Abstract interface for organizing digital work
  *
- * Digital workers operate within a company/business boundary and share
- * interfaces with Services, which can cross company boundaries.
+ * This package provides the foundational abstraction for structuring work
+ * independent of whether AI agents or humans perform individual tasks. It
+ * defines a unified Worker interface that enables workflows to be designed
+ * once and executed by any combination of AI and human workers.
  *
- * This is a FOUNDATIONAL package that provides primitives for AI workers
- * that can perform tasks. Other packages (autonomous-agents, human-in-the-loop,
- * services-as-software) depend on it.
+ * Package relationships:
+ * - `autonomous-agents` - Implements Worker for AI agents
+ * - `human-in-the-loop` - Implements Worker for humans
+ * - `ai-workflows` - Uses digital-workers to orchestrate execution
+ *
+ * The key insight: define WHAT work needs to happen, not WHO does it.
  *
  * ## Worker Actions
  *
