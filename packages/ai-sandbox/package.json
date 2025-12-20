@@ -1,6 +1,6 @@
 {
   "name": "ai-sandbox",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Secure code execution in sandboxed environments",
   "type": "module",
   "main": "dist/index.js",
