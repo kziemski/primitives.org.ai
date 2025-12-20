@@ -1,5 +1,5 @@
 {
-  "name": "ai-sandbox",
+  "name": "ai-evaluate",
   "version": "0.1.0",
   "description": "Secure code execution in sandboxed environments",
   "type": "module",

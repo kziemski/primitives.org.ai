@@ -1,17 +1,17 @@
-# ai-sandbox
+# ai-evaluate
 
 Secure code execution in sandboxed environments. Run untrusted code safely using Cloudflare Workers or Miniflare.
 
 ## Installation
 
 ```bash
-pnpm add ai-sandbox
+pnpm add ai-evaluate
 ```
 
 ## Quick Start
 
 ```typescript
-import { evaluate } from 'ai-sandbox'
+import { evaluate } from 'ai-evaluate'
 
 // Run a simple script
 const result = await evaluate({
@@ -89,7 +89,7 @@ interface EvaluateResult {
 Create an evaluate function bound to a specific environment. Useful for Cloudflare Workers.
 
 ```typescript
-import { createEvaluator } from 'ai-sandbox'
+import { createEvaluator } from 'ai-evaluate'
 
 export default {
   async fetch(request, env) {
@@ -318,7 +318,7 @@ binding = "LOADER"
 ### Worker Code
 
 ```typescript
-import { createEvaluator } from 'ai-sandbox'
+import { createEvaluator } from 'ai-evaluate'
 
 export interface Env {
   LOADER: unknown
@@ -345,7 +345,7 @@ export default {
 In Node.js or during development, the evaluate function automatically uses Miniflare:
 
 ```typescript
-import { evaluate } from 'ai-sandbox'
+import { evaluate } from 'ai-evaluate'
 
 // Miniflare is used automatically when LOADER binding is not present
 const result = await evaluate({
@@ -372,7 +372,7 @@ The sandbox provides several security features:
 ## Example: Code Evaluation API
 
 ```typescript
-import { evaluate } from 'ai-sandbox'
+import { evaluate } from 'ai-evaluate'
 import { Hono } from 'hono'
 
 const app = new Hono()
