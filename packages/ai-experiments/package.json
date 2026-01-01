@@ -9,6 +9,10 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./storage": {
+      "import": "./dist/chdb-storage.js",
+      "types": "./dist/chdb-storage.d.ts"
     }
   },
   "scripts": {
@@ -21,11 +25,14 @@
   },
   "dependencies": {
     "ai-functions": "workspace:*",
+    "chdb": "^3.0.0",
     "rpc.do": "^0.1.0"
   },
   "keywords": [
     "ai",
     "experiments",
+    "clickhouse",
+    "analytics",
     "primitives"
   ],
   "license": "MIT"

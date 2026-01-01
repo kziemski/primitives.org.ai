@@ -42,3 +42,7 @@ export {
   createBatchBackend,
   createFileBackend,
 } from './tracking.js'
+
+// Export ClickHouse storage backend
+export { ChdbStorage, createChdbBackend } from './chdb-storage.js'
+export type { ChdbStorageOptions } from './chdb-storage.js'
