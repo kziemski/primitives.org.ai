@@ -1,6 +1,6 @@
 {
   "name": "digital-tools",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "description": "Tools that can be used by both humans and AI agents",
   "type": "module",
   "main": "dist/index.js",
@@ -30,7 +30,7 @@
   "dependencies": {
     "ai-database": "workspace:*",
     "ai-functions": "workspace:*",
-    "rpc.do": "^0.1.0",
+    "rpc.do": "workspace:*",
     "zod": "^3.23.0"
   },
   "keywords": [

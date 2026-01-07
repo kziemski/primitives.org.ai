@@ -1,0 +1,53 @@
+/**
+ * ai-functions - Core AI primitives for building intelligent applications
+ *
+ * This is the foundational package that all other primitives depend on.
+ * It provides:
+ * - RPC primitives via rpc.do
+ * - AI function types and interfaces
+ * - Core AI() and ai() constructors
+ * - Embedding utilities from AI SDK
+ * - Cloudflare Workers AI provider (default for embeddings)
+ * - Tagged template literal support for all functions
+ * - Async iterator support for list/extract
+ *
+ * @packageDocumentation
+ */
+// Re-export RPC primitives from rpc.do
+export * from 'rpc.do';
+// Export AI function types and interfaces
+export * from './types.js';
+export * from './ai.js';
+// Export embedding utilities
+export * from './embeddings.js';
+// Export generation functions with smart model routing
+export { generateObject, generateText, streamObject, streamText } from './generate.js';
+// Export simplified schema helper
+export { schema } from './schema.js';
+// Export providers
+export * from './providers/index.js';
+// Export template utilities
+export { parseTemplate, createTemplateFunction, createChainablePromise, createStreamableList, withBatch, } from './template.js';
+// Export AIPromise utilities for promise pipelining
+export { AIPromise, isAIPromise, getRawPromise, createTextPromise, createObjectPromise, createListPromise, createListsPromise, createBooleanPromise, createExtractPromise, createAITemplateFunction, parseTemplateWithDependencies, AI_PROMISE_SYMBOL, RAW_PROMISE_SYMBOL, } from './ai-promise.js';
+// Export AI primitives
+export { 
+// Core generate primitive
+generate, 
+// Generative functions
+ai as aiPrompt, // Renamed to avoid conflict with AIProxy from ai.ts
+write, code, list, lists, extract, summarize, is, diagram, slides, image, video, 
+// Agentic functions
+do, research, 
+// Web functions
+read, browse, 
+// Decision functions
+decide, 
+// Human-in-the-loop functions
+ask, approve, review, } from './primitives.js';
+// Export batch processing
+export { BatchQueue, createBatch, withBatch as withBatchQueue, registerBatchAdapter, getBatchAdapter, isBatchMode, deferToBatch, BATCH_MODE_SYMBOL, } from './batch-queue.js';
+// Export batch map for automatic batching
+export { BatchMapPromise, createBatchMap, isBatchMapPromise, BATCH_MAP_SYMBOL, } from './batch-map.js';
+// Export execution context
+export { configure, getContext, withContext, getGlobalContext, resetContext, getModel, getProvider, getBatchMode, getBatchThreshold, shouldUseBatchAPI, } from './context.js';

@@ -1,6 +1,6 @@
 {
   "name": "ai-database",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "description": "AI-powered database interface primitives with mdxld conventions",
   "type": "module",
   "main": "dist/index.js",
@@ -26,7 +26,7 @@
   "dependencies": {
     "ai-functions": "workspace:*",
     "mdxld": "^1.0.1",
-    "rpc.do": "^0.1.0"
+    "rpc.do": "workspace:*"
   },
   "peerDependencies": {
     "vitest": "^2.0.0"

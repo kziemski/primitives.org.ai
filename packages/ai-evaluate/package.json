@@ -1,6 +1,6 @@
 {
   "name": "ai-evaluate",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "description": "Secure code execution in sandboxed environments",
   "type": "module",
   "main": "dist/index.js",
@@ -23,7 +23,7 @@
     "ai-functions": "workspace:*",
     "ai-tests": "workspace:*",
     "capnweb": "^0.2.0",
-    "rpc.do": "^0.1.0"
+    "rpc.do": "workspace:*"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^2.1.0",

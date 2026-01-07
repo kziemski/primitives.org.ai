@@ -1,6 +1,6 @@
 {
   "name": "ai-providers",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "description": "Unified AI provider registry with Cloudflare AI Gateway support",
   "type": "module",
   "main": "dist/index.js",
@@ -26,7 +26,7 @@
   "dependencies": {
     "ai": "^5.0.0",
     "language-models": "workspace:*",
-    "rpc.do": "^0.1.0"
+    "rpc.do": "workspace:*"
   },
   "optionalDependencies": {
     "@ai-sdk/amazon-bedrock": "^3.0.0",

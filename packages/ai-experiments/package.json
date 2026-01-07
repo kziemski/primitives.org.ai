@@ -1,6 +1,6 @@
 {
   "name": "ai-experiments",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "description": "AI-powered experimentation primitives for testing and evaluating models",
   "type": "module",
   "main": "dist/index.js",
@@ -25,8 +25,8 @@
   },
   "dependencies": {
     "ai-functions": "workspace:*",
-    "chdb": "^3.0.0",
-    "rpc.do": "^0.1.0"
+    "chdb": "^1.6.0",
+    "rpc.do": "workspace:*"
   },
   "keywords": [
     "ai",
