@@ -610,7 +610,8 @@ describe('DB factory', () => {
 
     const { db } = DB(schema)
 
-    expect(db.$schema.entities.size).toBe(2)
+    // Expect 3 entities: User, Post, and Edge (system entity)
+    expect(db.$schema.entities.size).toBe(3)
     const user = db.$schema.entities.get('User')
     expect(user!.fields.size).toBe(2)
   })
@@ -1183,6 +1184,8 @@ describe('AI Auto-Generation', () => {
         to: 'Author',
         backref: 'posts',
         cardinality: 'many-to-one',
+        direction: 'forward',
+        matchMode: 'exact',
       })
     })
 
@@ -1220,7 +1223,8 @@ describe('AI Auto-Generation', () => {
 
       expect(edges).toHaveLength(1)
       expect(edges[0]?.backref).toBeUndefined()
-      expect(edges[0]?.cardinality).toBe('one-to-one')
+      // Single forward relation = many-to-one (many posts can point to same category)
+      expect(edges[0]?.cardinality).toBe('many-to-one')
     })
 
     it('returns empty array for schemas without relationships', () => {

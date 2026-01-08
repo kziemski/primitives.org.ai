@@ -19,7 +19,9 @@ describe('edge cases', () => {
 
       const { db } = DB(schema)
 
-      expect(db.$schema.entities.size).toBe(0)
+      // Empty user schema still has Edge system entity
+      expect(db.$schema.entities.size).toBe(1)
+      expect(db.$schema.entities.has('Edge')).toBe(true)
       expect(typeof db.get).toBe('function')
       expect(typeof db.search).toBe('function')
     })

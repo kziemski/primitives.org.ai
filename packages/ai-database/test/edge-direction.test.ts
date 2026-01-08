@@ -155,8 +155,9 @@ describe('Edge Direction Tracking', () => {
       })
 
       const user = await db.User.create({ name: 'John' })
-      await db.Post.create({ title: 'My Post', author: user.$id })
-      await db.Comment.create({ text: 'A comment', author: user.$id })
+      // Use 'user' as field name to match backward edge lookup (entity name in lowercase)
+      await db.Post.create({ title: 'My Post', user: user.$id })
+      await db.Comment.create({ text: 'A comment', user: user.$id })
 
       const userWithRelations = await db.User.get(user.$id)
       const posts = await userWithRelations.posts

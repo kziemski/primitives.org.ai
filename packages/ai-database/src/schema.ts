@@ -336,6 +336,8 @@ export const EdgeSchema: EntitySchema = {
   to: 'string',             // Target type: 'Author'
   backref: 'string?',       // Inverse field: 'posts'
   cardinality: 'string',    // 'one-to-one', 'one-to-many', 'many-to-one', 'many-to-many'
+  direction: 'string',      // 'forward' | 'backward'
+  matchMode: 'string?',     // 'exact' | 'fuzzy'
   required: 'boolean?',     // Is this relationship required?
   description: 'string?',   // Human description
 }
@@ -360,6 +362,13 @@ export const SystemSchema: DatabaseSchema = {
  * Create Edge records from schema relationships
  *
  * @internal Used by DB() to auto-populate Edge records
+ *
+ * For backward edges (direction === 'backward'), the from/to are inverted:
+ * - Forward: from = typeName, to = relatedType
+ * - Backward: from = relatedType, to = typeName
+ *
+ * This enables proper graph traversal where backward edges represent
+ * "pointing to" relationships (e.g., Post.comments -> Comments that point TO Post)
  */
 export function createEdgeRecords(
   typeName: string,
@@ -370,16 +379,35 @@ export function createEdgeRecords(
 
   for (const [fieldName, field] of parsedEntity.fields) {
     if (field.isRelation && field.relatedType) {
-      const cardinality = field.isArray
-        ? field.backref ? 'many-to-many' : 'one-to-many'
-        : field.backref ? 'many-to-one' : 'one-to-one'
+      const direction = field.direction ?? 'forward'
+      const matchMode = field.matchMode ?? 'exact'
+
+      // For backward edges, invert from/to and adjust cardinality
+      const isBackward = direction === 'backward'
+      const from = isBackward ? field.relatedType : typeName
+      const to = isBackward ? typeName : field.relatedType
+
+      // Cardinality from the perspective of the field definition
+      // - Array with backref = many-to-many (Post.tags <-> Tag.posts)
+      // - Array without backref = one-to-many (one source points to many targets)
+      // - Single = many-to-one (many sources point to one target)
+      // The 'one-to-one' case is rare and typically requires explicit constraint
+      let cardinality: string
+      if (field.isArray) {
+        cardinality = field.backref ? 'many-to-many' : 'one-to-many'
+      } else {
+        // Single reference: by default many-to-one (many posts -> one author)
+        cardinality = 'many-to-one'
+      }
 
       edges.push({
-        from: typeName,
+        from,
         name: fieldName,
-        to: field.relatedType,
+        to,
         backref: field.backref,
         cardinality,
+        direction,
+        matchMode,
       })
     }
   }
@@ -2023,6 +2051,111 @@ async function checkFileCountThreshold(root: string): Promise<void> {
 }
 
 // =============================================================================
+// Edge Entity Operations
+// =============================================================================
+
+/**
+ * Create entity operations for the Edge system type
+ *
+ * Edge records are stored in memory from the schema parsing,
+ * not in the provider. This ensures edges are immediately queryable.
+ */
+function createEdgeEntityOperations(
+  edgeRecords: Array<Record<string, unknown>>
+): EntityOperations<Record<string, unknown>> {
+  return {
+    async get(id: string) {
+      // ID format is "from:name"
+      return edgeRecords.find(e => `${e.from}:${e.name}` === id) ?? null
+    },
+
+    async list(options?: ListOptions) {
+      let results = [...edgeRecords]
+
+      // Apply where filter
+      if (options?.where) {
+        for (const [key, value] of Object.entries(options.where)) {
+          results = results.filter(e => e[key] === value)
+        }
+      }
+
+      // Add $id and $type
+      return results.map(e => ({
+        ...e,
+        $id: `${e.from}:${e.name}`,
+        $type: 'Edge',
+      }))
+    },
+
+    async find(where: Record<string, unknown>) {
+      let results = [...edgeRecords]
+
+      for (const [key, value] of Object.entries(where)) {
+        results = results.filter(e => e[key] === value)
+      }
+
+      return results.map(e => ({
+        ...e,
+        $id: `${e.from}:${e.name}`,
+        $type: 'Edge',
+      }))
+    },
+
+    async search(query: string) {
+      const queryLower = query.toLowerCase()
+      return edgeRecords
+        .filter(e =>
+          String(e.from).toLowerCase().includes(queryLower) ||
+          String(e.name).toLowerCase().includes(queryLower) ||
+          String(e.to).toLowerCase().includes(queryLower)
+        )
+        .map(e => ({
+          ...e,
+          $id: `${e.from}:${e.name}`,
+          $type: 'Edge',
+        }))
+    },
+
+    async create() {
+      throw new Error('Cannot create Edge records - they are auto-generated from schema')
+    },
+
+    async update() {
+      throw new Error('Cannot update Edge records - they are auto-generated from schema')
+    },
+
+    async upsert() {
+      throw new Error('Cannot upsert Edge records - they are auto-generated from schema')
+    },
+
+    async delete() {
+      throw new Error('Cannot delete Edge records - they are auto-generated from schema')
+    },
+
+    async forEach(
+      optionsOrCallback: ListOptions | ((entity: Record<string, unknown>) => void | Promise<void>),
+      maybeCallback?: (entity: Record<string, unknown>) => void | Promise<void>
+    ) {
+      const options = typeof optionsOrCallback === 'function' ? undefined : optionsOrCallback
+      const callback = typeof optionsOrCallback === 'function' ? optionsOrCallback : maybeCallback!
+
+      const items = await this.list(options)
+      for (const item of items) {
+        await callback(item)
+      }
+    },
+
+    async semanticSearch() {
+      return []
+    },
+
+    async hybridSearch() {
+      return []
+    },
+  }
+}
+
+// =============================================================================
 // DB Factory
 // =============================================================================
 
@@ -2070,6 +2203,21 @@ export function DB<TSchema extends DatabaseSchema>(
 ): DBResult<TSchema> {
   const parsedSchema = parseSchema(schema)
 
+  // Add Edge entity to the parsed schema for querying edge metadata
+  const edgeEntity: ParsedEntity = {
+    name: 'Edge',
+    fields: new Map([
+      ['from', { name: 'from', type: 'string', isArray: false, isOptional: false, isRelation: false }],
+      ['name', { name: 'name', type: 'string', isArray: false, isOptional: false, isRelation: false }],
+      ['to', { name: 'to', type: 'string', isArray: false, isOptional: false, isRelation: false }],
+      ['backref', { name: 'backref', type: 'string', isArray: false, isOptional: true, isRelation: false }],
+      ['cardinality', { name: 'cardinality', type: 'string', isArray: false, isOptional: false, isRelation: false }],
+      ['direction', { name: 'direction', type: 'string', isArray: false, isOptional: false, isRelation: false }],
+      ['matchMode', { name: 'matchMode', type: 'string', isArray: false, isOptional: true, isRelation: false }],
+    ]),
+  }
+  parsedSchema.entities.set('Edge', edgeEntity)
+
   // Configure provider with embeddings settings if provided
   if (options?.embeddings) {
     resolveProvider().then(provider => {
@@ -2077,6 +2225,15 @@ export function DB<TSchema extends DatabaseSchema>(
         (provider as any).setEmbeddingsConfig(options.embeddings)
       }
     })
+  }
+
+  // Collect all edge records from the schema
+  const allEdgeRecords: Array<Record<string, unknown>> = []
+  for (const [entityName, entity] of parsedSchema.entities) {
+    if (entityName !== 'Edge') {
+      const edgeRecords = createEdgeRecords(entityName, schema[entityName] ?? {}, entity)
+      allEdgeRecords.push(...edgeRecords)
+    }
   }
 
   // Create Actions API early so it can be injected into entity operations
@@ -2109,9 +2266,15 @@ export function DB<TSchema extends DatabaseSchema>(
   const entityOperations: Record<string, any> = {}
 
   for (const [entityName, entity] of parsedSchema.entities) {
-    const baseOps = createEntityOperations(entityName, entity, parsedSchema)
-    // Wrap with DBPromise for chainable queries, inject actions for forEach persistence
-    entityOperations[entityName] = wrapEntityOperations(entityName, baseOps, actionsAPI)
+    if (entityName === 'Edge') {
+      // Special handling for Edge entity - query from in-memory edge records
+      const edgeOps = createEdgeEntityOperations(allEdgeRecords)
+      entityOperations[entityName] = wrapEntityOperations(entityName, edgeOps, actionsAPI)
+    } else {
+      const baseOps = createEntityOperations(entityName, entity, parsedSchema)
+      // Wrap with DBPromise for chainable queries, inject actions for forEach persistence
+      entityOperations[entityName] = wrapEntityOperations(entityName, baseOps, actionsAPI)
+    }
   }
 
   // Noun definitions cache
@@ -2570,6 +2733,10 @@ function createEntityOperations<T>(
 
 /**
  * Hydrate an entity with lazy-loaded relations
+ *
+ * For backward edges (direction === 'backward'), we query for entities
+ * of the related type that have a reference pointing TO this entity.
+ * This enables reverse lookups like "get all comments for a post".
  */
 function hydrateEntity(
   data: Record<string, unknown>,
@@ -2590,8 +2757,26 @@ function hydrateEntity(
         get: async () => {
           const provider = await resolveProvider()
 
-          if (field.isArray) {
-            // Array relation - get related entities
+          // Check if this is a backward edge
+          const isBackward = field.direction === 'backward'
+
+          if (isBackward) {
+            // Backward edge: find entities that point TO this entity
+            // For Post.comments <- Comment, find Comments where comment.post = post.$id
+            // The backref field is either explicitly specified (field.backref) or
+            // we infer it from the entity name (e.g., 'post' for Post)
+            const backrefField = field.backref || entity.name.toLowerCase()
+
+            // Query the related type for entities that reference this entity
+            const results = await provider.list(field.relatedType!, {
+              where: { [backrefField]: id },
+            })
+
+            return Promise.all(
+              results.map((r) => hydrateEntity(r, relatedEntity, schema))
+            )
+          } else if (field.isArray) {
+            // Forward array relation - get related entities via relationship
             const results = await provider.related(
               entity.name,
               id,
@@ -2601,7 +2786,7 @@ function hydrateEntity(
               results.map((r) => hydrateEntity(r, relatedEntity, schema))
             )
           } else {
-            // Single relation - get the stored ID and fetch
+            // Forward single relation - get the stored ID and fetch
             const relatedId = data[fieldName] as string | undefined
             if (!relatedId) return null
             const result = await provider.get(field.relatedType!, relatedId)
