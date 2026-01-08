@@ -1145,12 +1145,14 @@ export function wrapEntityOperations<T>(
   search: (query: string, options?: any) => DBPromise<T[]>
   semanticSearch: (query: string, options?: any) => Promise<Array<T & { $score: number }>>
   hybridSearch: (query: string, options?: any) => Promise<Array<T & { $rrfScore: number; $ftsRank: number; $semanticRank: number; $score: number }>>
-  create: (...args: any[]) => Promise<T>
+  create: (...args: any[]) => Promise<T | unknown>
   update: (id: string, data: any) => Promise<T>
   upsert: (id: string, data: any) => Promise<T>
   delete: (id: string) => Promise<boolean>
   forEach: <U>(callback: (item: T, index: number) => U | Promise<U>, options?: ForEachOptions<T>) => Promise<ForEachResult>
   first: () => DBPromise<T | null>
+  draft?: (data: any, options?: any) => Promise<unknown>
+  resolve?: (draft: unknown, options?: any) => Promise<unknown>
 } {
   return {
     get(id: string): DBPromise<T | null> {

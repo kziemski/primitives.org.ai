@@ -181,7 +181,10 @@ describe('Two-Phase Draft/Resolve Generation Pipeline', () => {
 
       const customer = await db.Customer.get(resolved.customer)
       expect(customer).toBeDefined()
-      expect(customer.address).toMatch(/^[a-z0-9-]+$/)
+      // The address field is a thenable reference; await to get the full entity
+      const address = await customer.address
+      expect(address).toBeDefined()
+      expect(address.$id).toMatch(/^[a-z0-9-]+$/)
     })
   })
 
