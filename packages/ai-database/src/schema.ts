@@ -2571,17 +2571,8 @@ export function DB<TSchema extends DatabaseSchema>(
           return draft
         }
 
-        // Run draft phase first
-        const draft = await draftFn(data) as Record<string, unknown>
-        // Then resolve
-        const resolved = await resolveFn(draft) as Record<string, unknown>
-        // Create the final entity (without phase markers)
-        const finalData = { ...(resolved || {}) }
-        delete finalData.$phase
-        delete finalData.$refs
-        delete finalData.$errors
-        delete finalData.$type
-
+        // Direct create - originalCreate handles relation resolution (forward exact/fuzzy)
+        // The draft/resolve flow is only used when explicitly calling draft() then resolve()
         return originalCreate.call(wrappedOps, ...args)
       }
 
@@ -3366,6 +3357,7 @@ async function resolveForwardFuzzy(
         // Array fuzzy field - can contain both matched and generated
         const hints = Array.isArray(hintValue) ? hintValue : [hintValue].filter(Boolean)
         const resultIds: string[] = []
+        const usedEntityIds = new Set<string>() // Track already-matched entities to avoid duplicates
 
         for (const hint of hints) {
           const hintStr = String(hint || fieldName)
@@ -3376,22 +3368,33 @@ async function resolveForwardFuzzy(
             const matches = await (provider as any).semanticSearch(
               field.relatedType!,
               hintStr,
-              { minScore: threshold, limit: 5 }
+              { minScore: threshold, limit: 10 } // Get more results to find unused matches
             )
 
-            if (matches.length > 0 && matches[0].$score >= threshold) {
-              resultIds.push(matches[0].$id as string)
-              pendingRelations.push({
-                fieldName,
-                targetType: field.relatedType!,
-                targetId: matches[0].$id as string,
-                similarity: matches[0].$score
-              })
-              matched = true
+            // Find the best match that hasn't been used yet
+            for (const match of matches) {
+              const matchId = match.$id as string
+              if (match.$score >= threshold && !usedEntityIds.has(matchId)) {
+                resultIds.push(matchId)
+                usedEntityIds.add(matchId)
+                pendingRelations.push({
+                  fieldName,
+                  targetType: field.relatedType!,
+                  targetId: matchId,
+                  similarity: match.$score
+                })
+                // Update the matched entity with $generated: false and similarity metadata
+                await provider.update(field.relatedType!, matchId, {
+                  $generated: false,
+                  $similarity: match.$score
+                })
+                matched = true
+                break
+              }
             }
           }
 
-          // Generate if no match found
+          // Generate if no match found (or all matches were already used)
           if (!matched) {
             const generated = await generateEntity(
               field.relatedType!,
@@ -3407,7 +3410,7 @@ async function resolveForwardFuzzy(
               const created = await provider.create(field.relatedType!, undefined, {
                 ...resolvedGenerated,
                 $generated: true,
-                $generatedBy: 'fuzzy-resolution',
+                $generatedBy: parentId,
                 $sourceField: fieldName
               })
               resultIds.push(created.$id as string)
@@ -3434,14 +3437,20 @@ async function resolveForwardFuzzy(
           )
 
           if (matches.length > 0 && matches[0].$score >= threshold) {
-            resolved[fieldName] = matches[0].$id
+            const matchedId = matches[0].$id as string
+            resolved[fieldName] = matchedId
             resolved[`${fieldName}$matched`] = true
             resolved[`${fieldName}$score`] = matches[0].$score
             pendingRelations.push({
               fieldName,
               targetType: field.relatedType!,
-              targetId: matches[0].$id as string,
+              targetId: matchedId,
               similarity: matches[0].$score
+            })
+            // Update the matched entity with $generated: false and similarity metadata
+            await provider.update(field.relatedType!, matchedId, {
+              $generated: false,
+              $similarity: matches[0].$score
             })
             matched = true
           }
@@ -3451,7 +3460,7 @@ async function resolveForwardFuzzy(
         if (!matched) {
           const generated = await generateEntity(
             field.relatedType!,
-            field.prompt || searchQuery,
+            searchQuery,  // Use searchQuery which prioritizes hint over field.prompt
             { parent: typeName, parentData: data, parentId },
             schema
           )
@@ -3463,7 +3472,7 @@ async function resolveForwardFuzzy(
             const created = await provider.create(field.relatedType!, undefined, {
               ...resolvedGenerated,
               $generated: true,
-              $generatedBy: 'fuzzy-resolution',
+              $generatedBy: parentId,
               $sourceField: fieldName
             })
             resolved[fieldName] = created.$id
@@ -3629,11 +3638,21 @@ async function resolveReferenceSpec(
   // Create a new entity
   const generatedData: Record<string, unknown> = {}
 
+  // Build context for generation
+  const hint = spec.generatedText || spec.prompt || spec.field
+  const parentContextFields: string[] = []
+  for (const [key, value] of Object.entries(contextData)) {
+    if (!key.startsWith('$') && !key.startsWith('_') && typeof value === 'string' && value) {
+      parentContextFields.push(`${key}: ${value}`)
+    }
+  }
+  const fullContext = [hint, ...parentContextFields].filter(Boolean).join(' | ')
+
   // Generate default values for the target entity's fields
   for (const [fieldName, field] of targetEntity.fields) {
     if (!field.isRelation && !field.isOptional) {
       if (field.type === 'string') {
-        generatedData[fieldName] = `Generated ${fieldName} for ${spec.type}`
+        generatedData[fieldName] = generateContextAwareValue(fieldName, spec.type, fullContext, hint, contextData)
       } else if (field.type === 'number') {
         generatedData[fieldName] = 0
       } else if (field.type === 'boolean') {
@@ -3656,10 +3675,12 @@ async function resolveReferenceSpec(
     }
   }
 
+  // Use parent ID if available, otherwise use a descriptive string
+  const parentId = contextData.$id as string | undefined
   const created = await provider.create(spec.type, undefined, {
     ...generatedData,
     $generated: true,
-    $generatedBy: spec.matchMode === 'fuzzy' ? 'fuzzy-resolution' : 'reference-resolution',
+    $generatedBy: parentId || (spec.matchMode === 'fuzzy' ? 'fuzzy-resolution' : 'reference-resolution'),
     $sourceField: spec.field,
   })
   return created.$id as string

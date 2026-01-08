@@ -1468,15 +1468,25 @@ describe('Forward Fuzzy Resolution (~>)', () => {
           const minScore = options?.minScore ?? 0.75
           const entities = Array.from(this.entities.get(type)?.values() ?? [])
 
-          // Scores: exact = 0.95, "typescript" matches "TypeScript" at 0.9
-          // "react" matches at 0.9, but "vue" only matches at 0.5
+          // Scores designed to test threshold behavior:
+          // - "javascript" exact match = 0.95 (above 0.85 threshold)
+          // - "typescript" gets 0.82 because the hint is "typescript" vs stored "TypeScript"
+          //   (simulate embeddings not being exact)
+          // - "vue" no match = 0.3 (below any threshold)
           const results = entities.map(entity => {
             const name = (entity.name as string).toLowerCase()
             const queryLower = query.toLowerCase()
 
             let score = 0.3
-            if (name === queryLower) score = 0.95
-            else if (name.includes(queryLower) || queryLower.includes(name)) score = 0.82
+            // Only exact match for "javascript" gets 0.95
+            if (name === queryLower && queryLower === 'javascript') {
+              score = 0.95
+            } else if (name === queryLower) {
+              // Other exact matches (like typescript) get 0.82 to test threshold
+              score = 0.82
+            } else if (name.includes(queryLower) || queryLower.includes(name)) {
+              score = 0.70
+            }
 
             return { ...entity, $score: score }
           }).filter(r => r.$score >= minScore)

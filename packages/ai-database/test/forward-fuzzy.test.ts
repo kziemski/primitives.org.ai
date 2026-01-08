@@ -148,7 +148,7 @@ describe('Forward Fuzzy (~>) Resolution', () => {
       const lead = await project.lead
       // Should generate new person since chef is semantically dissimilar
       expect(lead.$generated).toBe(true)
-      expect(lead.role).toContain(/research|machine learning|AI/i)
+      expect(lead.role).toMatch(/research|machine learning|AI/i)
     })
   })
 
@@ -320,7 +320,8 @@ describe('Forward Fuzzy (~>) Resolution', () => {
 
       const assignee = await request.assignee
       expect(assignee.$generated).toBe(true)
-      expect(assignee.$generatedBy).toBe('fuzzy-resolution')
+      // $generatedBy should link to the parent entity that triggered generation
+      expect(assignee.$generatedBy).toBe(request.$id)
       expect(assignee.$sourceField).toBe('assignee')
     })
   })

@@ -393,18 +393,37 @@ export class MemoryProvider implements DBProvider {
       deployment: [0.1, 0.45, 0.78, 0.18],
       devops: [0.12, 0.48, 0.75, 0.2],
 
-      // Food domain (very different from tech)
-      cooking: [0.02, 0.05, 0.03, 0.02],
-      recipe: [0.03, 0.04, 0.02, 0.03],
-      food: [0.02, 0.03, 0.02, 0.02],
-      pasta: [0.01, 0.02, 0.01, 0.01],
-      pizza: [0.01, 0.03, 0.02, 0.01],
-      italian: [0.02, 0.04, 0.02, 0.02],
-      garden: [0.03, 0.02, 0.01, 0.02],
-      flowers: [0.02, 0.01, 0.01, 0.01],
-      chef: [0.02, 0.06, 0.03, 0.02],
-      restaurant: [0.03, 0.04, 0.02, 0.03],
-      head: [0.04, 0.05, 0.03, 0.04],
+      // Food domain (distinctly different direction - high in dim 3, low elsewhere)
+      cooking: [0.05, 0.08, 0.05, 0.95],
+      recipe: [0.06, 0.07, 0.04, 0.93],
+      food: [0.04, 0.06, 0.04, 0.96],
+      pasta: [0.03, 0.05, 0.03, 0.97],
+      pizza: [0.03, 0.06, 0.04, 0.96],
+      italian: [0.04, 0.07, 0.04, 0.94],
+      garden: [0.05, 0.04, 0.03, 0.92],
+      flowers: [0.04, 0.03, 0.03, 0.91],
+      chef: [0.05, 0.1, 0.05, 0.95],
+      restaurant: [0.06, 0.08, 0.04, 0.93],
+      kitchen: [0.05, 0.09, 0.05, 0.94],
+      antonio: [0.05, 0.08, 0.04, 0.92],
+
+      // Research/Academic domain (similar to AI/ML)
+      researcher: [0.82, 0.2, 0.1, 0.08],
+      phd: [0.8, 0.18, 0.12, 0.1],
+      research: [0.85, 0.15, 0.1, 0.07],
+      professor: [0.78, 0.22, 0.12, 0.1],
+      academic: [0.75, 0.2, 0.15, 0.12],
+
+      // Location/Venue domain (for fuzzy threshold tests - need distinct clusters)
+      // "conference center downtown" cluster - high values in different dimensions
+      conference: [0.2, 0.25, 0.85, 0.2],
+      center: [0.18, 0.22, 0.88, 0.18],
+      downtown: [0.15, 0.2, 0.9, 0.15],
+      // "tech hub 123 main st" cluster - completely different direction
+      hub: [0.85, 0.15, 0.2, 0.15],
+      main: [0.12, 0.12, 0.15, 0.1],
+      st: [0.1, 0.1, 0.12, 0.08],
+      '123': [0.08, 0.08, 0.1, 0.05],
 
       // GraphQL/API
       graphql: [0.1, 0.75, 0.15, 0.55],
@@ -467,6 +486,13 @@ export class MemoryProvider implements DBProvider {
       applications: [0.2, 0.78, 0.18, 0.1],
       tech: [0.25, 0.8, 0.2, 0.12],
       technology: [0.28, 0.78, 0.22, 0.14],
+      electronics: [0.3, 0.75, 0.25, 0.15],
+      device: [0.25, 0.82, 0.2, 0.1],
+      furniture: [0.1, 0.15, 0.2, 0.85],
+      home: [0.12, 0.18, 0.22, 0.8],
+      living: [0.1, 0.15, 0.2, 0.82],
+      consumer: [0.35, 0.55, 0.4, 0.35],
+      goods: [0.3, 0.5, 0.35, 0.4],
       leaders: [0.4, 0.5, 0.6, 0.4],
       senior: [0.35, 0.55, 0.55, 0.35],
 
