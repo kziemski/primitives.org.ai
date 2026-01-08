@@ -442,7 +442,158 @@ function schemaToProperties(schema: EntitySchema): Record<string, NounProperty> 
 // =============================================================================
 
 /**
+ * Result of parsing a relationship operator from a field definition
+ */
+export interface OperatorParseResult {
+  /** Natural language prompt before operator (for AI generation) */
+  prompt?: string
+  /** The relationship operator: ->, ~>, <-, <~ */
+  operator?: '->' | '~>' | '<-' | '<~'
+  /** Direction of the relationship */
+  direction?: 'forward' | 'backward'
+  /** Match mode for resolving the relationship */
+  matchMode?: 'exact' | 'fuzzy'
+  /** The primary target type */
+  targetType: string
+  /** Union types for polymorphic references (e.g., ->A|B|C parses to ['A', 'B', 'C']) */
+  unionTypes?: string[]
+}
+
+/**
+ * Parse relationship operator from field definition
+ *
+ * Extracts operator semantics from a field definition string. Supports
+ * four relationship operators with different semantics:
+ *
+ * ## Operators
+ *
+ * | Operator | Direction | Match Mode | Description |
+ * |----------|-----------|------------|-------------|
+ * | `->`     | forward   | exact      | Strict foreign key reference |
+ * | `~>`     | forward   | fuzzy      | AI-matched semantic reference |
+ * | `<-`     | backward  | exact      | Strict backlink reference |
+ * | `<~`     | backward  | fuzzy      | AI-matched backlink reference |
+ *
+ * ## Supported Formats
+ *
+ * - `'->Type'`           - Forward exact reference to Type
+ * - `'~>Type'`           - Forward fuzzy (semantic search) to Type
+ * - `'<-Type'`           - Backward exact reference from Type
+ * - `'<~Type'`           - Backward fuzzy reference from Type
+ * - `'Prompt text ->Type'` - With generation prompt (text before operator)
+ * - `'->TypeA|TypeB'`    - Union types (polymorphic reference)
+ * - `'->Type.backref'`   - With explicit backref field name
+ * - `'->Type?'`          - Optional reference
+ * - `'->Type[]'`         - Array of references
+ *
+ * @param definition - The field definition string to parse
+ * @returns Parsed operator result, or null if no operator found
+ *
+ * @example Basic usage
+ * ```ts
+ * parseOperator('->Author')
+ * // => { operator: '->', direction: 'forward', matchMode: 'exact', targetType: 'Author' }
+ *
+ * parseOperator('~>Category')
+ * // => { operator: '~>', direction: 'forward', matchMode: 'fuzzy', targetType: 'Category' }
+ *
+ * parseOperator('<-Post')
+ * // => { operator: '<-', direction: 'backward', matchMode: 'exact', targetType: 'Post' }
+ * ```
+ *
+ * @example With prompt
+ * ```ts
+ * parseOperator('What is the main category? ~>Category')
+ * // => {
+ * //   prompt: 'What is the main category?',
+ * //   operator: '~>',
+ * //   direction: 'forward',
+ * //   matchMode: 'fuzzy',
+ * //   targetType: 'Category'
+ * // }
+ * ```
+ *
+ * @example Union types
+ * ```ts
+ * parseOperator('->Person|Company|Organization')
+ * // => {
+ * //   operator: '->',
+ * //   direction: 'forward',
+ * //   matchMode: 'exact',
+ * //   targetType: 'Person',
+ * //   unionTypes: ['Person', 'Company', 'Organization']
+ * // }
+ * ```
+ */
+export function parseOperator(definition: string): OperatorParseResult | null {
+  // Supported operators in order of specificity (longer operators first)
+  const operators = ['~>', '<~', '->', '<-'] as const
+
+  for (const op of operators) {
+    const opIndex = definition.indexOf(op)
+    if (opIndex !== -1) {
+      // Extract prompt (text before operator)
+      const beforeOp = definition.slice(0, opIndex).trim()
+      const prompt = beforeOp || undefined
+
+      // Extract target type (text after operator)
+      let targetType = definition.slice(opIndex + op.length).trim()
+
+      // Determine direction: < = backward, otherwise forward
+      const direction = op.startsWith('<') ? 'backward' : 'forward'
+
+      // Determine match mode: ~ = fuzzy, otherwise exact
+      const matchMode = op.includes('~') ? 'fuzzy' : 'exact'
+
+      // Parse union types (A|B|C syntax)
+      // First, strip off any modifiers (?, [], .backref) to get clean types
+      let cleanType = targetType
+      // Remove optional modifier for union parsing
+      if (cleanType.endsWith('?')) {
+        cleanType = cleanType.slice(0, -1)
+      }
+      // Remove array modifier for union parsing
+      if (cleanType.endsWith('[]')) {
+        cleanType = cleanType.slice(0, -2)
+      }
+      // Remove backref for union parsing (take only part before dot)
+      const dotIndex = cleanType.indexOf('.')
+      if (dotIndex !== -1) {
+        cleanType = cleanType.slice(0, dotIndex)
+      }
+
+      // Check for union types
+      let unionTypes: string[] | undefined
+      if (cleanType.includes('|')) {
+        unionTypes = cleanType.split('|').map(t => t.trim()).filter(Boolean)
+        // The primary targetType is the first union type
+        // But we keep targetType as the full string for backward compatibility
+        // with modifier parsing in parseField
+      }
+
+      return {
+        prompt,
+        operator: op,
+        direction,
+        matchMode,
+        targetType,
+        unionTypes,
+      }
+    }
+  }
+
+  return null
+}
+
+/**
  * Parse a single field definition
+ *
+ * Converts a field definition string into a structured ParsedField object,
+ * handling primitives, relations, arrays, optionals, and operator syntax.
+ *
+ * @param name - The field name
+ * @param definition - The field definition (string or array)
+ * @returns Parsed field information
  */
 function parseField(name: string, definition: FieldDefinition): ParsedField {
   // Handle array literal syntax: ['Author.posts']
@@ -462,26 +613,14 @@ function parseField(name: string, definition: FieldDefinition): ParsedField {
   let matchMode: 'exact' | 'fuzzy' | undefined
   let prompt: string | undefined
 
-  // Check for operators: ->, ~>, <-, <~
-  // Order matters: check longer operators first (those with ~)
-  const operators = ['~>', '<~', '->', '<-'] as const
-  for (const op of operators) {
-    const opIndex = type.indexOf(op)
-    if (opIndex !== -1) {
-      operator = op
-      // Extract prompt (text before operator)
-      const beforeOp = type.slice(0, opIndex).trim()
-      if (beforeOp) {
-        prompt = beforeOp
-      }
-      // Extract target type (text after operator)
-      type = type.slice(opIndex + op.length).trim()
-      // Set direction based on operator (< = backward, otherwise forward)
-      direction = op.startsWith('<') ? 'backward' : 'forward'
-      // Set matchMode based on operator (~ = fuzzy, otherwise exact)
-      matchMode = op.includes('~') ? 'fuzzy' : 'exact'
-      break
-    }
+  // Use the dedicated operator parser
+  const operatorResult = parseOperator(type)
+  if (operatorResult) {
+    operator = operatorResult.operator
+    direction = operatorResult.direction
+    matchMode = operatorResult.matchMode
+    prompt = operatorResult.prompt
+    type = operatorResult.targetType
   }
 
   // Check for optional modifier
