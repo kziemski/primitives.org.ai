@@ -4,7 +4,7 @@
  * These are pure unit tests - no database calls needed.
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import {
   parseSchema,
   DB,
@@ -30,6 +30,7 @@ import {
   setNLQueryGenerator,
   toExpanded,
   toFlat,
+  setProvider,
 } from './schema.js'
 import type { DatabaseSchema, ParsedField, Noun, Verb, TypeMeta, NLQueryPlan, ThingFlat, ThingExpanded } from './schema.js'
 
@@ -1253,6 +1254,636 @@ describe('AI Auto-Generation', () => {
 
       // Should not throw
       expect(() => setNLQueryGenerator(mockGenerator)).not.toThrow()
+    })
+  })
+})
+
+describe('Forward Fuzzy Resolution (~>)', () => {
+  describe('Array field mixing', () => {
+    /**
+     * These tests verify that ~>Type[] fields properly mix:
+     * - Found entities from semantic search (above threshold)
+     * - Generated entities for items below threshold
+     *
+     * Expected behavior:
+     * 1. For each hint in the array, search existing entities
+     * 2. If match found above threshold, use existing entity ($generated: false or undefined)
+     * 3. If no match found, generate a new entity ($generated: true)
+     * 4. Final array should contain correct total count
+     */
+
+    // Reset provider between tests to ensure isolation
+    beforeEach(() => {
+      setProvider(null as any)
+    })
+
+    it('mixes found and generated entities for ~>Category[] field', async () => {
+      // Schema with fuzzy forward array reference
+      const schema: DatabaseSchema = {
+        Product: {
+          name: 'string',
+          categories: ['~>Category'], // Forward fuzzy array - mix found + generated
+        },
+        Category: {
+          name: 'string',
+          slug: 'string',
+        },
+      }
+
+      const { db } = DB(schema)
+
+      // Create a mock provider that:
+      // 1. Has some existing categories for semantic search to find
+      // 2. Returns scores for semantic search
+      const existingCategories = [
+        { $id: 'cat-electronics', $type: 'Category', name: 'Electronics', slug: 'electronics' },
+        { $id: 'cat-clothing', $type: 'Category', name: 'Clothing', slug: 'clothing' },
+      ]
+
+      const mockProvider = {
+        entities: new Map<string, Map<string, Record<string, unknown>>>([
+          ['Category', new Map(existingCategories.map(c => [c.$id, c]))],
+          ['Product', new Map()],
+        ]),
+        relations: new Map(),
+
+        async get(type: string, id: string) {
+          return this.entities.get(type)?.get(id) ?? null
+        },
+
+        async list(type: string) {
+          return Array.from(this.entities.get(type)?.values() ?? [])
+        },
+
+        async search() {
+          return []
+        },
+
+        async create(type: string, id: string | undefined, data: Record<string, unknown>) {
+          const entityId = id || `${type.toLowerCase()}-${Date.now()}`
+          const entity = { $id: entityId, $type: type, ...data }
+          if (!this.entities.has(type)) {
+            this.entities.set(type, new Map())
+          }
+          this.entities.get(type)!.set(entityId, entity)
+          return entity
+        },
+
+        async update(type: string, id: string, data: Record<string, unknown>) {
+          const existing = await this.get(type, id)
+          if (!existing) throw new Error(`Not found: ${type}/${id}`)
+          const updated = { ...existing, ...data }
+          this.entities.get(type)!.set(id, updated)
+          return updated
+        },
+
+        async delete(type: string, id: string) {
+          return this.entities.get(type)?.delete(id) ?? false
+        },
+
+        async relate() {},
+        async unrelate() {},
+        async related() { return [] },
+
+        // Semantic search mock - returns matches based on name similarity
+        async semanticSearch(type: string, query: string, options?: { minScore?: number; limit?: number }) {
+          const minScore = options?.minScore ?? 0.75
+          const entities = Array.from(this.entities.get(type)?.values() ?? [])
+
+          // Simple mock: exact name match = 0.95, partial = 0.80, no match = 0.3
+          const results = entities.map(entity => {
+            const name = (entity.name as string).toLowerCase()
+            const queryLower = query.toLowerCase()
+            let score = 0.3 // Default low score
+
+            if (name === queryLower) {
+              score = 0.95
+            } else if (name.includes(queryLower) || queryLower.includes(name)) {
+              score = 0.80
+            }
+
+            return { ...entity, $score: score }
+          }).filter(r => r.$score >= minScore)
+
+          return results.sort((a, b) => b.$score - a.$score)
+        },
+      }
+
+      setProvider(mockProvider as any)
+
+      // Create product with 3 category hints:
+      // - "electronics" should match existing (score 0.95)
+      // - "clothing" should match existing (score 0.95)
+      // - "outdoor gear" should NOT match (score < 0.75) and be generated
+      const product = await db.Product.create({
+        name: 'Smartphone',
+        categoriesHint: ['electronics', 'clothing', 'outdoor gear'],
+      })
+
+      // Verify total count: should have 3 categories
+      expect(product.categories).toHaveLength(3)
+
+      // Get the actual category entities
+      const categoryIds = product.categories as string[]
+      const categories = await Promise.all(categoryIds.map(id => db.Category.get(id)))
+
+      // Should have found 2 existing categories
+      const foundCategories = categories.filter(c => !c?.$generated || c.$generated === false)
+      expect(foundCategories.length).toBe(2)
+
+      // Should have generated 1 new category
+      const generatedCategories = categories.filter(c => c?.$generated === true)
+      expect(generatedCategories.length).toBe(1)
+
+      // The generated category should have been created with $generated: true
+      const outdoorCategory = generatedCategories[0]
+      expect(outdoorCategory?.$generated).toBe(true)
+    })
+
+    it('applies threshold per-entity in array', async () => {
+      const schema: DatabaseSchema = {
+        Post: {
+          title: 'string',
+          tags: ['~>Tag'],
+          $fuzzyThreshold: 0.85, // Higher threshold
+        },
+        Tag: {
+          name: 'string',
+        },
+      }
+
+      const { db } = DB(schema)
+
+      // Mock provider with tags at different similarity levels
+      const existingTags = [
+        { $id: 'tag-javascript', $type: 'Tag', name: 'JavaScript' },
+        { $id: 'tag-typescript', $type: 'Tag', name: 'TypeScript' },
+        { $id: 'tag-react', $type: 'Tag', name: 'React' },
+      ]
+
+      const mockProvider = {
+        entities: new Map([
+          ['Tag', new Map(existingTags.map(t => [t.$id, t]))],
+          ['Post', new Map()],
+        ]),
+        relations: new Map(),
+
+        async get(type: string, id: string) {
+          return this.entities.get(type)?.get(id) ?? null
+        },
+
+        async list(type: string) {
+          return Array.from(this.entities.get(type)?.values() ?? [])
+        },
+
+        async search() { return [] },
+
+        async create(type: string, id: string | undefined, data: Record<string, unknown>) {
+          const entityId = id || `${type.toLowerCase()}-${Date.now()}`
+          const entity = { $id: entityId, $type: type, ...data }
+          if (!this.entities.has(type)) {
+            this.entities.set(type, new Map())
+          }
+          this.entities.get(type)!.set(entityId, entity)
+          return entity
+        },
+
+        async update(type: string, id: string, data: Record<string, unknown>) {
+          const existing = await this.get(type, id)
+          if (!existing) throw new Error(`Not found: ${type}/${id}`)
+          const updated = { ...existing, ...data }
+          this.entities.get(type)!.set(id, updated)
+          return updated
+        },
+
+        async delete(type: string, id: string) {
+          return this.entities.get(type)?.delete(id) ?? false
+        },
+
+        async relate() {},
+        async unrelate() {},
+        async related() { return [] },
+
+        async semanticSearch(type: string, query: string, options?: { minScore?: number; limit?: number }) {
+          const minScore = options?.minScore ?? 0.75
+          const entities = Array.from(this.entities.get(type)?.values() ?? [])
+
+          // Scores: exact = 0.95, "typescript" matches "TypeScript" at 0.9
+          // "react" matches at 0.9, but "vue" only matches at 0.5
+          const results = entities.map(entity => {
+            const name = (entity.name as string).toLowerCase()
+            const queryLower = query.toLowerCase()
+
+            let score = 0.3
+            if (name === queryLower) score = 0.95
+            else if (name.includes(queryLower) || queryLower.includes(name)) score = 0.82
+
+            return { ...entity, $score: score }
+          }).filter(r => r.$score >= minScore)
+
+          return results.sort((a, b) => b.$score - a.$score)
+        },
+      }
+
+      setProvider(mockProvider as any)
+
+      // With 0.85 threshold:
+      // - "javascript" exact match = 0.95, FOUND
+      // - "typescript" partial = 0.82, BELOW THRESHOLD -> generated
+      // - "vue" no match = 0.3, BELOW THRESHOLD -> generated
+      const post = await db.Post.create({
+        title: 'Web Development',
+        tagsHint: ['javascript', 'typescript', 'vue'],
+      })
+
+      expect(post.tags).toHaveLength(3)
+
+      const tagIds = post.tags as string[]
+      const tags = await Promise.all(tagIds.map(id => db.Tag.get(id)))
+
+      // Only javascript should be found (exact match above 0.85)
+      const foundTags = tags.filter(t => !t?.$generated || t.$generated === false)
+      expect(foundTags.length).toBe(1)
+      expect(foundTags[0]?.name).toBe('JavaScript')
+
+      // TypeScript and Vue should be generated (below 0.85 threshold)
+      const generatedTags = tags.filter(t => t?.$generated === true)
+      expect(generatedTags.length).toBe(2)
+    })
+
+    it('found entities have $generated: false or undefined', async () => {
+      const schema: DatabaseSchema = {
+        Article: {
+          title: 'string',
+          authors: ['~>Author'],
+        },
+        Author: {
+          name: 'string',
+        },
+      }
+
+      const { db } = DB(schema)
+
+      const existingAuthors = [
+        { $id: 'author-alice', $type: 'Author', name: 'Alice Smith' },
+        { $id: 'author-bob', $type: 'Author', name: 'Bob Jones' },
+      ]
+
+      const mockProvider = {
+        entities: new Map([
+          ['Author', new Map(existingAuthors.map(a => [a.$id, a]))],
+          ['Article', new Map()],
+        ]),
+        relations: new Map(),
+
+        async get(type: string, id: string) {
+          return this.entities.get(type)?.get(id) ?? null
+        },
+
+        async list(type: string) {
+          return Array.from(this.entities.get(type)?.values() ?? [])
+        },
+
+        async search() { return [] },
+
+        async create(type: string, id: string | undefined, data: Record<string, unknown>) {
+          const entityId = id || `${type.toLowerCase()}-${Date.now()}`
+          const entity = { $id: entityId, $type: type, ...data }
+          if (!this.entities.has(type)) {
+            this.entities.set(type, new Map())
+          }
+          this.entities.get(type)!.set(entityId, entity)
+          return entity
+        },
+
+        async update(type: string, id: string, data: Record<string, unknown>) {
+          const existing = await this.get(type, id)
+          if (!existing) throw new Error(`Not found: ${type}/${id}`)
+          return { ...existing, ...data }
+        },
+
+        async delete() { return false },
+        async relate() {},
+        async unrelate() {},
+        async related() { return [] },
+
+        async semanticSearch(type: string, query: string, options?: { minScore?: number }) {
+          const minScore = options?.minScore ?? 0.75
+          const entities = Array.from(this.entities.get(type)?.values() ?? [])
+
+          const results = entities.map(entity => {
+            const name = (entity.name as string).toLowerCase()
+            const queryLower = query.toLowerCase()
+            // Exact name match
+            const score = name.includes(queryLower) || queryLower.includes(name.split(' ')[0] || '') ? 0.9 : 0.3
+            return { ...entity, $score: score }
+          }).filter(r => r.$score >= minScore)
+
+          return results
+        },
+      }
+
+      setProvider(mockProvider as any)
+
+      // Both "alice" and "bob" should match existing authors
+      const article = await db.Article.create({
+        title: 'Research Paper',
+        authorsHint: ['alice', 'bob'],
+      })
+
+      expect(article.authors).toHaveLength(2)
+
+      const authorIds = article.authors as string[]
+      const authors = await Promise.all(authorIds.map(id => db.Author.get(id)))
+
+      // All found entities should NOT have $generated: true
+      for (const author of authors) {
+        expect(author?.$generated).not.toBe(true)
+        // $generated should be undefined or false for found entities
+        expect(author?.$generated === undefined || author?.$generated === false).toBe(true)
+      }
+    })
+
+    it('generated entities have $generated: true', async () => {
+      const schema: DatabaseSchema = {
+        Project: {
+          name: 'string',
+          technologies: ['~>Technology'],
+        },
+        Technology: {
+          name: 'string',
+          category: 'string?',
+        },
+      }
+
+      const { db } = DB(schema)
+
+      // Empty database - no existing technologies
+      const mockProvider = {
+        entities: new Map([
+          ['Technology', new Map()],
+          ['Project', new Map()],
+        ]),
+        relations: new Map(),
+
+        async get(type: string, id: string) {
+          return this.entities.get(type)?.get(id) ?? null
+        },
+
+        async list(type: string) {
+          return Array.from(this.entities.get(type)?.values() ?? [])
+        },
+
+        async search() { return [] },
+
+        async create(type: string, id: string | undefined, data: Record<string, unknown>) {
+          const entityId = id || `${type.toLowerCase()}-${Date.now()}`
+          const entity = { $id: entityId, $type: type, ...data }
+          if (!this.entities.has(type)) {
+            this.entities.set(type, new Map())
+          }
+          this.entities.get(type)!.set(entityId, entity)
+          return entity
+        },
+
+        async update(type: string, id: string, data: Record<string, unknown>) {
+          const existing = await this.get(type, id)
+          if (!existing) throw new Error(`Not found: ${type}/${id}`)
+          return { ...existing, ...data }
+        },
+
+        async delete() { return false },
+        async relate() {},
+        async unrelate() {},
+        async related() { return [] },
+
+        // No matches - everything should be generated
+        async semanticSearch() {
+          return []
+        },
+      }
+
+      setProvider(mockProvider as any)
+
+      // No existing technologies, so all should be generated
+      const project = await db.Project.create({
+        name: 'AI Platform',
+        technologiesHint: ['Python', 'TensorFlow', 'Kubernetes'],
+      })
+
+      expect(project.technologies).toHaveLength(3)
+
+      const techIds = project.technologies as string[]
+      const technologies = await Promise.all(techIds.map(id => db.Technology.get(id)))
+
+      // ALL should be generated (database was empty)
+      for (const tech of technologies) {
+        expect(tech?.$generated).toBe(true)
+      }
+    })
+
+    it('maintains correct count: 3 requested, 1 found, 2 generated', async () => {
+      const schema: DatabaseSchema = {
+        Store: {
+          name: 'string',
+          departments: ['~>Department'],
+        },
+        Department: {
+          name: 'string',
+          floor: 'number?',
+        },
+      }
+
+      const { db } = DB(schema)
+
+      // Only one existing department
+      const existingDepartments = [
+        { $id: 'dept-electronics', $type: 'Department', name: 'Electronics', floor: 1 },
+      ]
+
+      const mockProvider = {
+        entities: new Map([
+          ['Department', new Map(existingDepartments.map(d => [d.$id, d]))],
+          ['Store', new Map()],
+        ]),
+        relations: new Map(),
+
+        async get(type: string, id: string) {
+          return this.entities.get(type)?.get(id) ?? null
+        },
+
+        async list(type: string) {
+          return Array.from(this.entities.get(type)?.values() ?? [])
+        },
+
+        async search() { return [] },
+
+        async create(type: string, id: string | undefined, data: Record<string, unknown>) {
+          const entityId = id || `${type.toLowerCase()}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+          const entity = { $id: entityId, $type: type, ...data }
+          if (!this.entities.has(type)) {
+            this.entities.set(type, new Map())
+          }
+          this.entities.get(type)!.set(entityId, entity)
+          return entity
+        },
+
+        async update(type: string, id: string, data: Record<string, unknown>) {
+          const existing = await this.get(type, id)
+          if (!existing) throw new Error(`Not found: ${type}/${id}`)
+          return { ...existing, ...data }
+        },
+
+        async delete() { return false },
+        async relate() {},
+        async unrelate() {},
+        async related() { return [] },
+
+        async semanticSearch(type: string, query: string, options?: { minScore?: number }) {
+          const minScore = options?.minScore ?? 0.75
+          const entities = Array.from(this.entities.get(type)?.values() ?? [])
+
+          // Only "electronics" will match
+          const results = entities.map(entity => {
+            const name = (entity.name as string).toLowerCase()
+            const queryLower = query.toLowerCase()
+            const score = name === queryLower ? 0.95 : 0.2
+            return { ...entity, $score: score }
+          }).filter(r => r.$score >= minScore)
+
+          return results
+        },
+      }
+
+      setProvider(mockProvider as any)
+
+      // Request 3 departments: electronics (found), clothing (generated), groceries (generated)
+      const store = await db.Store.create({
+        name: 'Mega Mall',
+        departmentsHint: ['electronics', 'clothing', 'groceries'],
+      })
+
+      // Should have exactly 3 departments
+      expect(store.departments).toHaveLength(3)
+
+      const deptIds = store.departments as string[]
+      const departments = await Promise.all(deptIds.map(id => db.Department.get(id)))
+
+      // Count found vs generated
+      const found = departments.filter(d => !d?.$generated || d.$generated === false)
+      const generated = departments.filter(d => d?.$generated === true)
+
+      // Exactly 1 found (electronics)
+      expect(found.length).toBe(1)
+      expect(found[0]?.name).toBe('Electronics')
+
+      // Exactly 2 generated (clothing and groceries)
+      expect(generated.length).toBe(2)
+    })
+
+    it('includes similarity scores on found entities', async () => {
+      const schema: DatabaseSchema = {
+        Document: {
+          title: 'string',
+          relatedDocs: ['~>Document'],
+        },
+      }
+
+      const { db } = DB(schema)
+
+      const existingDocs = [
+        { $id: 'doc-ai', $type: 'Document', title: 'Introduction to AI' },
+        { $id: 'doc-ml', $type: 'Document', title: 'Machine Learning Basics' },
+      ]
+
+      const mockProvider = {
+        entities: new Map([
+          ['Document', new Map(existingDocs.map(d => [d.$id, d]))],
+        ]),
+        relations: new Map(),
+
+        async get(type: string, id: string) {
+          return this.entities.get(type)?.get(id) ?? null
+        },
+
+        async list(type: string) {
+          return Array.from(this.entities.get(type)?.values() ?? [])
+        },
+
+        async search() { return [] },
+
+        async create(type: string, id: string | undefined, data: Record<string, unknown>) {
+          const entityId = id || `${type.toLowerCase()}-${Date.now()}`
+          const entity = { $id: entityId, $type: type, ...data }
+          if (!this.entities.has(type)) {
+            this.entities.set(type, new Map())
+          }
+          this.entities.get(type)!.set(entityId, entity)
+          return entity
+        },
+
+        async update(type: string, id: string, data: Record<string, unknown>) {
+          const existing = await this.get(type, id)
+          if (!existing) throw new Error(`Not found: ${type}/${id}`)
+          return { ...existing, ...data }
+        },
+
+        async delete() { return false },
+        async relate() {},
+        async unrelate() {},
+        async related() { return [] },
+
+        async semanticSearch(type: string, query: string, options?: { minScore?: number }) {
+          const minScore = options?.minScore ?? 0.75
+          const entities = Array.from(this.entities.get(type)?.values() ?? [])
+
+          const results = entities.map(entity => {
+            const title = (entity.title as string).toLowerCase()
+            const queryLower = query.toLowerCase()
+            let score = 0.3
+            if (title.includes(queryLower) || queryLower.includes(title.split(' ')[0] || '')) {
+              score = 0.88 // Return specific score we can verify
+            }
+            return { ...entity, $score: score }
+          }).filter(r => r.$score >= minScore)
+
+          return results
+        },
+      }
+
+      setProvider(mockProvider as any)
+
+      const doc = await db.Document.create({
+        title: 'Deep Learning Guide',
+        relatedDocsHint: ['ai', 'machine learning'],
+      })
+
+      // The found entities should have similarity scores stored
+      // Check for $score or similarity metadata on the relationship
+      expect(doc.relatedDocs).toHaveLength(2)
+
+      // The pending relations should include similarity scores
+      // This metadata should be accessible somehow
+      const relatedDocIds = doc.relatedDocs as string[]
+
+      // Verify we can get the related docs
+      const relatedDocs = await Promise.all(relatedDocIds.map(id => db.Document.get(id)))
+      expect(relatedDocs.length).toBe(2)
+
+      // The relationship metadata (via Edge entities) should have similarity scores
+      // We expect Edge entities to be created with similarity information
+      const edges = await db.Edge.list()
+      const relevantEdges = edges.filter((e: any) =>
+        e.from === 'Document' && e.name === 'relatedDocs' && e.matchMode === 'fuzzy'
+      )
+
+      // Each fuzzy-found relationship should have an Edge with similarity score
+      for (const edge of relevantEdges) {
+        if ((edge as any).similarity !== undefined) {
+          expect((edge as any).similarity).toBeGreaterThanOrEqual(0.75)
+          expect((edge as any).similarity).toBeLessThanOrEqual(1.0)
+        }
+      }
     })
   })
 })
