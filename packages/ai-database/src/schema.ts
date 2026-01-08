@@ -544,9 +544,45 @@ export interface ResolveOptions {
 }
 
 /**
+ * Progress tracking for cascade generation
+ */
+export interface CascadeProgress {
+  /** Current phase of cascade generation */
+  phase: 'generating' | 'complete' | 'error'
+  /** Type currently being generated */
+  currentType?: string
+  /** Current recursion depth */
+  currentDepth: number
+  /** Alias for currentDepth for convenience */
+  depth: number
+  /** Total number of entities created during cascade */
+  totalEntitiesCreated: number
+  /** List of types that have been generated */
+  typesGenerated: string[]
+}
+
+/**
+ * Options for cascade generation
+ */
+export interface CascadeOptions {
+  /** Enable cascade generation through relationships */
+  cascade?: boolean
+  /** Maximum depth for cascade recursion (default: 3) */
+  maxDepth?: number
+  /** Limit cascade to specific types */
+  cascadeTypes?: string[]
+  /** Progress callback for tracking cascade generation */
+  onProgress?: (progress: CascadeProgress) => void
+  /** Error callback for handling cascade errors */
+  onError?: (error: Error, context: { type: string; depth: number }) => void
+  /** Stop cascade on first error */
+  stopOnError?: boolean
+}
+
+/**
  * Options for the create() method
  */
-export interface CreateEntityOptions {
+export interface CreateEntityOptions extends CascadeOptions {
   /** Only create a draft, don't resolve references */
   draftOnly?: boolean
 }
@@ -739,6 +775,7 @@ function parseField(name: string, definition: FieldDefinition): ParsedField {
   let direction: 'forward' | 'backward' | undefined
   let matchMode: 'exact' | 'fuzzy' | undefined
   let prompt: string | undefined
+  let unionTypes: string[] | undefined
 
   // Use the dedicated operator parser
   const operatorResult = parseOperator(type)
@@ -748,6 +785,10 @@ function parseField(name: string, definition: FieldDefinition): ParsedField {
     matchMode = operatorResult.matchMode
     prompt = operatorResult.prompt
     type = operatorResult.targetType
+    // Propagate union types if present
+    if (operatorResult.unionTypes && operatorResult.unionTypes.length > 1) {
+      unionTypes = operatorResult.unionTypes
+    }
   }
 
   // Check for optional modifier
@@ -762,8 +803,14 @@ function parseField(name: string, definition: FieldDefinition): ParsedField {
     type = type.slice(0, -2)
   }
 
-  // Check for relation (contains a dot for backref)
-  if (type.includes('.')) {
+  // Handle union types in type string (for relatedType extraction)
+  // If we have union types, use the first one as the primary type
+  if (unionTypes && unionTypes.length > 0) {
+    type = unionTypes[0]!
+    isRelation = true
+    relatedType = unionTypes[0]!
+  } else if (type.includes('.')) {
+    // Check for relation (contains a dot for backref)
     isRelation = true
     const [entityName, backrefName] = type.split('.')
     relatedType = entityName
@@ -772,7 +819,8 @@ function parseField(name: string, definition: FieldDefinition): ParsedField {
   } else if (
     type[0] === type[0]?.toUpperCase() &&
     !isPrimitiveType(type) &&
-    !type.includes(' ')  // Type names don't have spaces - strings with spaces are prompts/descriptions
+    !type.includes(' ') &&  // Type names don't have spaces - strings with spaces are prompts/descriptions
+    !type.includes('|')     // Skip if it looks like a union type (will be handled above)
   ) {
     // PascalCase non-primitive = relation without explicit backref
     isRelation = true
@@ -800,6 +848,10 @@ function parseField(name: string, definition: FieldDefinition): ParsedField {
     }
     if (operatorResult?.threshold !== undefined) {
       result.threshold = operatorResult.threshold
+    }
+    // Add union types if present
+    if (unionTypes) {
+      result.unionTypes = unionTypes
     }
   }
 
@@ -851,6 +903,8 @@ export function parseSchema(schema: DatabaseSchema): ParsedSchema {
 
   // Validation pass: check that all operator-based references (->, ~>, <-, <~) point to existing types
   // For implicit backrefs (Author.posts), we silently skip if the type doesn't exist
+  // Note: Union types are NOT validated here - they are validated in DB() to allow parseSchema()
+  // to be used for pure parsing tests without requiring all union types to be defined
   for (const [entityName, entity] of entities) {
     for (const [fieldName, field] of entity.fields) {
       if (field.isRelation && field.relatedType && field.operator) {
@@ -858,7 +912,12 @@ export function parseSchema(schema: DatabaseSchema): ParsedSchema {
         // Skip self-references (valid)
         if (field.relatedType === entityName) continue
 
-        // Check if referenced type exists
+        // Skip union types - they are validated in DB() instead
+        if (field.unionTypes && field.unionTypes.length > 0) {
+          continue
+        }
+
+        // Check if referenced type exists (non-union case)
         if (!entities.has(field.relatedType)) {
           throw new Error(
             `Invalid schema: ${entityName}.${fieldName} references non-existent type '${field.relatedType}'`
@@ -2442,6 +2501,24 @@ export function DB<TSchema extends DatabaseSchema>(
 ): DBResult<TSchema> {
   const parsedSchema = parseSchema(schema)
 
+  // Validate union types - ensure all union type references point to existing types
+  // This is done here rather than in parseSchema() to allow parseSchema() to be used
+  // for pure parsing tests without requiring all union types to be defined
+  for (const [entityName, entity] of parsedSchema.entities) {
+    for (const [fieldName, field] of entity.fields) {
+      if (field.isRelation && field.operator && field.unionTypes && field.unionTypes.length > 0) {
+        for (const unionType of field.unionTypes) {
+          if (unionType === entityName) continue // Skip self-references
+          if (!parsedSchema.entities.has(unionType)) {
+            throw new Error(
+              `Invalid schema: ${entityName}.${fieldName} references non-existent type '${unionType}'`
+            )
+          }
+        }
+      }
+    }
+  }
+
   // Add Edge entity to the parsed schema for querying edge metadata
   const edgeEntity: ParsedEntity = {
     name: 'Edge',
@@ -3086,6 +3163,180 @@ async function resolveForwardExact(
 }
 
 /**
+ * Generate a simple entity with only scalar fields populated
+ *
+ * This is used by cascade generation to avoid infinite recursion.
+ * Unlike generateEntity, this does NOT recursively generate nested relations.
+ *
+ * @param type - The type of entity to generate
+ * @param prompt - Optional prompt for generation context
+ * @param context - Parent context information
+ * @param entityDef - The parsed entity definition
+ */
+function generateSimpleEntity(
+  type: string,
+  prompt: string | undefined,
+  context: { parent: string; parentData: Record<string, unknown>; parentId?: string },
+  entityDef: ParsedEntity
+): Record<string, unknown> {
+  const data: Record<string, unknown> = {}
+
+  for (const [fieldName, field] of entityDef.fields) {
+    if (!field.isRelation) {
+      // Only generate scalar fields
+      if (field.type === 'string') {
+        data[fieldName] = `Generated ${fieldName} for ${type}`
+      } else if (field.isArray && field.type === 'string') {
+        data[fieldName] = [`Generated ${fieldName} item for ${type}`]
+      }
+    } else if (field.operator === '<-' && field.direction === 'backward') {
+      // Backward relation to parent
+      if (field.relatedType === context.parent && context.parentId) {
+        data[fieldName] = context.parentId
+      }
+    }
+    // Skip forward relations - cascade will handle them
+  }
+
+  return data
+}
+
+/**
+ * Recursively generate related entities through cascade relationships
+ *
+ * This function traverses -> and ~> array relationships and generates
+ * child entities at each level, respecting depth limits and type filters.
+ *
+ * @param entity - The parent entity data
+ * @param entityDef - The parsed entity definition
+ * @param schema - The parsed schema
+ * @param provider - The database provider
+ * @param options - Cascade options including maxDepth and type filters
+ * @param depth - Current recursion depth
+ * @param progress - Progress tracking object (mutated)
+ */
+async function cascadeGenerate(
+  entity: Record<string, unknown>,
+  entityDef: ParsedEntity,
+  schema: ParsedSchema,
+  provider: DBProvider,
+  options: CascadeOptions,
+  depth: number,
+  progress: CascadeProgress
+): Promise<void> {
+  const maxDepth = options.maxDepth ?? 3
+
+  // Stop if we've reached max depth
+  if (depth >= maxDepth) return
+
+  const entityId = (entity.$id || entity.id) as string
+
+  for (const [fieldName, field] of entityDef.fields) {
+    // Only cascade through forward relationships (-> or ~>) that are arrays
+    // or single references that haven't been populated yet
+    const isForwardRelation = field.operator === '->' || field.operator === '~>'
+    const isGeneratableRelation = isForwardRelation && field.relatedType
+
+    if (!isGeneratableRelation) continue
+
+    // Check if this type should be cascaded (if cascadeTypes filter is set)
+    if (options.cascadeTypes && !options.cascadeTypes.includes(field.relatedType!)) {
+      continue
+    }
+
+    // Report progress for this type
+    progress.currentDepth = depth
+    progress.depth = depth
+    progress.currentType = field.relatedType
+    options.onProgress?.({ ...progress, phase: 'generating' })
+
+    try {
+      const relatedEntityDef = schema.entities.get(field.relatedType!)
+      if (!relatedEntityDef) continue
+
+      // Check if field already has values (from existing resolution)
+      const existingValue = entity[fieldName]
+      if (existingValue && Array.isArray(existingValue) && existingValue.length > 0) {
+        // Already has values, cascade into each child
+        for (const childId of existingValue) {
+          const childData = await provider.get(field.relatedType!, childId as string)
+          if (childData) {
+            await cascadeGenerate(childData, relatedEntityDef, schema, provider, options, depth + 1, progress)
+          }
+        }
+        continue
+      } else if (existingValue && typeof existingValue === 'string') {
+        // Single reference already populated, cascade into it
+        const childData = await provider.get(field.relatedType!, existingValue)
+        if (childData) {
+          await cascadeGenerate(childData, relatedEntityDef, schema, provider, options, depth + 1, progress)
+        }
+        continue
+      }
+
+      // Generate new related entities
+      if (field.isArray) {
+        // Generate array of related entities
+        const generated = await generateEntity(
+          field.relatedType!,
+          field.prompt,
+          { parent: entityDef.name, parentData: entity, parentId: entityId },
+          schema
+        )
+
+        // Resolve any pending nested relations
+        const resolvedGenerated = await resolveNestedPending(generated, relatedEntityDef, schema, provider)
+        const created = await provider.create(field.relatedType!, undefined, resolvedGenerated)
+
+        // Update the parent entity with the new relation
+        const existingIds = (entity[fieldName] as string[]) || []
+        const newIds = [...existingIds, created.$id as string]
+        await provider.update(entityDef.name, entityId, { [fieldName]: newIds })
+        entity[fieldName] = newIds
+
+        // Create relationship
+        await provider.relate(entityDef.name, entityId, fieldName, field.relatedType!, created.$id as string)
+
+        progress.totalEntitiesCreated++
+        if (!progress.typesGenerated.includes(field.relatedType!)) {
+          progress.typesGenerated.push(field.relatedType!)
+        }
+
+        // Recursively cascade into the new child
+        await cascadeGenerate(created, relatedEntityDef, schema, provider, options, depth + 1, progress)
+      } else {
+        // Generate single related entity
+        const generated = await generateEntity(
+          field.relatedType!,
+          field.prompt,
+          { parent: entityDef.name, parentData: entity, parentId: entityId },
+          schema
+        )
+
+        // Resolve any pending nested relations
+        const resolvedGenerated = await resolveNestedPending(generated, relatedEntityDef, schema, provider)
+        const created = await provider.create(field.relatedType!, undefined, resolvedGenerated)
+
+        // Update the parent entity with the new relation
+        await provider.update(entityDef.name, entityId, { [fieldName]: created.$id })
+        entity[fieldName] = created.$id
+
+        progress.totalEntitiesCreated++
+        if (!progress.typesGenerated.includes(field.relatedType!)) {
+          progress.typesGenerated.push(field.relatedType!)
+        }
+
+        // Recursively cascade into the new child
+        await cascadeGenerate(created, relatedEntityDef, schema, provider, options, depth + 1, progress)
+      }
+    } catch (error) {
+      options.onError?.(error as Error, { type: field.relatedType!, depth })
+      if (options.stopOnError) throw error
+    }
+  }
+}
+
+/**
  * Resolve backward fuzzy (<~) fields by using semantic search to find existing entities
  *
  * The <~ operator differs from <- in that it uses semantic/fuzzy matching:
@@ -3553,14 +3804,30 @@ function createEntityOperations<T>(
 
     async create(
       idOrData: string | Omit<T, '$id' | '$type'>,
-      maybeData?: Omit<T, '$id' | '$type'>
+      maybeDataOrOptions?: Omit<T, '$id' | '$type'> | CreateEntityOptions,
+      maybeOptions?: CreateEntityOptions
     ): Promise<T> {
       const provider = await resolveProvider()
-      const providedId = typeof idOrData === 'string' ? idOrData : undefined
-      const data =
-        typeof idOrData === 'string'
-          ? (maybeData as Record<string, unknown>)
-          : (idOrData as Record<string, unknown>)
+
+      // Parse arguments: support both (data, options) and (id, data, options) signatures
+      let providedId: string | undefined
+      let data: Record<string, unknown>
+      let options: CreateEntityOptions | undefined
+
+      if (typeof idOrData === 'string') {
+        // First arg is ID
+        providedId = idOrData
+        data = maybeDataOrOptions as Record<string, unknown>
+        options = maybeOptions
+      } else {
+        // First arg is data
+        providedId = undefined
+        data = idOrData as Record<string, unknown>
+        // Check if second arg is options or data
+        if (maybeDataOrOptions && ('cascade' in maybeDataOrOptions || 'maxDepth' in maybeDataOrOptions || 'onProgress' in maybeDataOrOptions || 'onError' in maybeDataOrOptions || 'draftOnly' in maybeDataOrOptions || 'cascadeTypes' in maybeDataOrOptions || 'stopOnError' in maybeDataOrOptions)) {
+          options = maybeDataOrOptions as CreateEntityOptions
+        }
+      }
 
       // Pre-generate entity ID so child entities can reference us
       const entityId = providedId || crypto.randomUUID()
@@ -3630,6 +3897,40 @@ function createEntityOperations<T>(
           } catch {
             // Edge already exists (could happen with duplicate targetIds), ignore
           }
+        }
+      }
+
+      // If cascade is enabled, recursively generate related entities
+      if (options?.cascade) {
+        const progress: CascadeProgress = {
+          phase: 'generating',
+          currentDepth: 0,
+          depth: 0,
+          totalEntitiesCreated: 1, // Count the root entity
+          typesGenerated: [typeName],
+        }
+
+        // Report initial progress
+        options.onProgress?.({ ...progress })
+
+        try {
+          await cascadeGenerate(
+            result,
+            entity,
+            schema,
+            provider,
+            options,
+            0,
+            progress
+          )
+
+          // Report completion
+          progress.phase = 'complete'
+          options.onProgress?.({ ...progress })
+        } catch (error) {
+          progress.phase = 'error'
+          options.onProgress?.({ ...progress })
+          if (options.stopOnError) throw error
         }
       }
 

@@ -155,6 +155,8 @@ export interface ParsedField {
   prompt?: string
   /** Similarity threshold for fuzzy matching (0-1), parsed from ~>Type(0.9) syntax */
   threshold?: number
+  /** Union types for polymorphic references (e.g., ->A|B|C parses to ['A', 'B', 'C']) */
+  unionTypes?: string[]
 }
 
 /**
