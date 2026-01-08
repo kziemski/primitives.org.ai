@@ -769,7 +769,11 @@ function parseField(name: string, definition: FieldDefinition): ParsedField {
     relatedType = entityName
     backref = backrefName
     type = entityName!
-  } else if (type[0] === type[0]?.toUpperCase() && !isPrimitiveType(type)) {
+  } else if (
+    type[0] === type[0]?.toUpperCase() &&
+    !isPrimitiveType(type) &&
+    !type.includes(' ')  // Type names don't have spaces - strings with spaces are prompts/descriptions
+  ) {
     // PascalCase non-primitive = relation without explicit backref
     isRelation = true
     relatedType = type
@@ -830,11 +834,38 @@ export function parseSchema(schema: DatabaseSchema): ParsedSchema {
     const fields = new Map<string, ParsedField>()
 
     for (const [fieldName, fieldDef] of Object.entries(entitySchema)) {
+      // Skip metadata fields (prefixed with $) like $fuzzyThreshold, $instructions
+      if (fieldName.startsWith('$')) {
+        continue
+      }
+      // Skip non-string/array definitions (invalid field types)
+      if (typeof fieldDef !== 'string' && !Array.isArray(fieldDef)) {
+        continue
+      }
       fields.set(fieldName, parseField(fieldName, fieldDef))
     }
 
     // Store raw schema for accessing metadata like $fuzzyThreshold
     entities.set(entityName, { name: entityName, fields, schema: entitySchema })
+  }
+
+  // Validation pass: check that all operator-based references (->, ~>, <-, <~) point to existing types
+  // For implicit backrefs (Author.posts), we silently skip if the type doesn't exist
+  for (const [entityName, entity] of entities) {
+    for (const [fieldName, field] of entity.fields) {
+      if (field.isRelation && field.relatedType && field.operator) {
+        // Only validate fields with explicit operators
+        // Skip self-references (valid)
+        if (field.relatedType === entityName) continue
+
+        // Check if referenced type exists
+        if (!entities.has(field.relatedType)) {
+          throw new Error(
+            `Invalid schema: ${entityName}.${fieldName} references non-existent type '${field.relatedType}'`
+          )
+        }
+      }
+    }
   }
 
   // Second pass: create bi-directional relationships
@@ -947,6 +978,18 @@ export interface EntityOperations<T> {
     options: ListOptions,
     callback: (entity: T) => void | Promise<void>
   ): Promise<void>
+
+  /** Semantic search */
+  semanticSearch?(query: string, options?: SemanticSearchOptions): Promise<Array<T & { $score: number }>>
+
+  /** Hybrid search */
+  hybridSearch?(query: string, options?: HybridSearchOptions): Promise<Array<T & { $rrfScore: number; $ftsRank: number; $semanticRank: number; $score: number }>>
+
+  /** Create draft entity */
+  draft?(data: Partial<Omit<T, '$id' | '$type'>>, options?: DraftOptions): Promise<Draft<T>>
+
+  /** Resolve draft entity */
+  resolve?(draft: Draft<T>, options?: ResolveOptions): Promise<Resolved<T>>
 }
 
 /**
@@ -1254,6 +1297,18 @@ export type TypedDB<TSchema extends DatabaseSchema> = {
    * ```
    */
   semanticSearch(query: string, options?: SemanticSearchOptions): Promise<Array<{ $id: string; $type: string; $score: number; [key: string]: unknown }>>
+
+  /**
+   * Subscribe to database events (draft, resolve, create, update, delete)
+   *
+   * @example
+   * ```ts
+   * db.on('draft', (entity) => console.log('Draft created:', entity.$type))
+   * db.on('resolve', (entity) => console.log('Entity resolved:', entity.$type))
+   * db.on('Post.created', (event) => console.log('Post created'))
+   * ```
+   */
+  on(event: string, handler: (data: unknown) => void): () => void
 }
 
 /**
@@ -2193,18 +2248,67 @@ async function checkFileCountThreshold(root: string): Promise<void> {
  *
  * Edge records are stored in memory from the schema parsing,
  * not in the provider. This ensures edges are immediately queryable.
+ *
+ * Also queries runtime Edge records from the provider for fuzzy match metadata.
  */
 function createEdgeEntityOperations(
-  edgeRecords: Array<Record<string, unknown>>
+  schemaEdgeRecords: Array<Record<string, unknown>>,
+  getProvider: () => Promise<DBProvider>
 ): EntityOperations<Record<string, unknown>> {
+  /**
+   * Get runtime Edge records from the provider
+   */
+  async function getRuntimeEdges(): Promise<Array<Record<string, unknown>>> {
+    try {
+      const provider = await getProvider()
+      const runtimeEdges = await provider.list('Edge')
+      return runtimeEdges
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * Get all edges (schema + runtime), with runtime taking precedence
+   * For fuzzy edges, only return runtime edges (they have similarity scores)
+   */
+  async function getAllEdges(): Promise<Array<Record<string, unknown>>> {
+    const runtimeEdges = await getRuntimeEdges()
+
+    // Create a set of runtime edge keys (from:name) to filter duplicates
+    const runtimeEdgeKeys = new Set(
+      runtimeEdges.map(e => `${e.from}:${e.name}`)
+    )
+
+    // For schema edges, only include those without a runtime counterpart
+    // (runtime edges have more specific info like similarity scores)
+    const filteredSchemaEdges = schemaEdgeRecords.filter(e => {
+      const key = `${e.from}:${e.name}`
+      // If there's a runtime edge with the same from:name, skip the schema edge
+      // unless the schema edge is of type 'exact' and runtime is 'fuzzy'
+      const hasRuntimeVersion = runtimeEdgeKeys.has(key)
+      if (hasRuntimeVersion && e.matchMode === 'fuzzy') {
+        return false // Skip schema fuzzy edge, use runtime version instead
+      }
+      return !hasRuntimeVersion
+    })
+
+    return [...filteredSchemaEdges, ...runtimeEdges]
+  }
+
   return {
     async get(id: string) {
-      // ID format is "from:name"
-      return edgeRecords.find(e => `${e.from}:${e.name}` === id) ?? null
+      // Check runtime edges first (they have more specific info)
+      const runtimeEdges = await getRuntimeEdges()
+      const runtimeMatch = runtimeEdges.find(e => e.$id === id || `${e.from}:${e.name}` === id)
+      if (runtimeMatch) return { ...runtimeMatch, $type: 'Edge' }
+
+      // Fall back to schema edges
+      return schemaEdgeRecords.find(e => `${e.from}:${e.name}` === id) ?? null
     },
 
     async list(options?: ListOptions) {
-      let results = [...edgeRecords]
+      let results = await getAllEdges()
 
       // Apply where filter
       if (options?.where) {
@@ -2216,13 +2320,13 @@ function createEdgeEntityOperations(
       // Add $id and $type
       return results.map(e => ({
         ...e,
-        $id: `${e.from}:${e.name}`,
+        $id: e.$id || `${e.from}:${e.name}`,
         $type: 'Edge',
       }))
     },
 
     async find(where: Record<string, unknown>) {
-      let results = [...edgeRecords]
+      let results = await getAllEdges()
 
       for (const [key, value] of Object.entries(where)) {
         results = results.filter(e => e[key] === value)
@@ -2230,14 +2334,15 @@ function createEdgeEntityOperations(
 
       return results.map(e => ({
         ...e,
-        $id: `${e.from}:${e.name}`,
+        $id: e.$id || `${e.from}:${e.name}`,
         $type: 'Edge',
       }))
     },
 
     async search(query: string) {
+      const allEdges = await getAllEdges()
       const queryLower = query.toLowerCase()
-      return edgeRecords
+      return allEdges
         .filter(e =>
           String(e.from).toLowerCase().includes(queryLower) ||
           String(e.name).toLowerCase().includes(queryLower) ||
@@ -2245,25 +2350,25 @@ function createEdgeEntityOperations(
         )
         .map(e => ({
           ...e,
-          $id: `${e.from}:${e.name}`,
+          $id: e.$id || `${e.from}:${e.name}`,
           $type: 'Edge',
         }))
     },
 
     async create() {
-      throw new Error('Cannot create Edge records - they are auto-generated from schema')
+      throw new Error('Cannot manually create Edge records - they are auto-generated')
     },
 
     async update() {
-      throw new Error('Cannot update Edge records - they are auto-generated from schema')
+      throw new Error('Cannot manually update Edge records - they are auto-generated')
     },
 
     async upsert() {
-      throw new Error('Cannot upsert Edge records - they are auto-generated from schema')
+      throw new Error('Cannot manually upsert Edge records - they are auto-generated')
     },
 
     async delete() {
-      throw new Error('Cannot delete Edge records - they are auto-generated from schema')
+      throw new Error('Cannot manually delete Edge records - they are auto-generated')
     },
 
     async forEach(
@@ -2399,15 +2504,88 @@ export function DB<TSchema extends DatabaseSchema>(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const entityOperations: Record<string, any> = {}
 
+  // Internal event emitter for draft/resolve events (defined early for use in entity operations)
+  const eventHandlersForOps = new Map<string, Set<(data: unknown) => void>>()
+
+  function emitInternalEventForOps(eventType: string, data: unknown): void {
+    const handlers = eventHandlersForOps.get(eventType)
+    if (handlers) {
+      for (const handler of handlers) {
+        try {
+          handler(data)
+        } catch (e) {
+          console.error(`Error in event handler for ${eventType}:`, e)
+        }
+      }
+    }
+  }
+
   for (const [entityName, entity] of parsedSchema.entities) {
     if (entityName === 'Edge') {
-      // Special handling for Edge entity - query from in-memory edge records
-      const edgeOps = createEdgeEntityOperations(allEdgeRecords)
+      // Special handling for Edge entity - query from in-memory edge records + runtime edges
+      const edgeOps = createEdgeEntityOperations(allEdgeRecords, resolveProvider)
       entityOperations[entityName] = wrapEntityOperations(entityName, edgeOps, actionsAPI)
     } else {
       const baseOps = createEntityOperations(entityName, entity, parsedSchema)
       // Wrap with DBPromise for chainable queries, inject actions for forEach persistence
-      entityOperations[entityName] = wrapEntityOperations(entityName, baseOps, actionsAPI)
+      const wrappedOps = wrapEntityOperations(entityName, baseOps, actionsAPI)
+
+      // Add draft and resolve with event emission
+      const draftFn = async (data: Record<string, unknown>, options?: DraftOptions): Promise<unknown> => {
+        const draft = await (baseOps as any).draft(data, options)
+        draft.$type = entityName
+        emitInternalEventForOps('draft', draft)
+        return draft
+      }
+      wrappedOps.draft = draftFn
+
+      const resolveFn = async (draft: unknown, options?: ResolveOptions): Promise<unknown> => {
+        const resolved = await (baseOps as any).resolve(draft, options)
+        if (resolved && typeof resolved === 'object') {
+          (resolved as Record<string, unknown>).$type = entityName
+        }
+        emitInternalEventForOps('resolve', resolved)
+        return resolved
+      }
+      wrappedOps.resolve = resolveFn
+
+      // Update create to support draftOnly option
+      const originalCreate = wrappedOps.create
+      wrappedOps.create = async (...args: unknown[]): Promise<unknown> => {
+        // Parse arguments - can be (data, options?) or (id, data, options?)
+        let data: Record<string, unknown>
+        let options: CreateEntityOptions | undefined
+
+        if (typeof args[0] === 'string') {
+          // (id, data, options?)
+          data = args[1] as Record<string, unknown>
+          options = args[2] as CreateEntityOptions | undefined
+        } else {
+          // (data, options?)
+          data = args[0] as Record<string, unknown>
+          options = args[1] as CreateEntityOptions | undefined
+        }
+
+        if (options?.draftOnly) {
+          const draft = await draftFn(data)
+          return draft
+        }
+
+        // Run draft phase first
+        const draft = await draftFn(data) as Record<string, unknown>
+        // Then resolve
+        const resolved = await resolveFn(draft) as Record<string, unknown>
+        // Create the final entity (without phase markers)
+        const finalData = { ...(resolved || {}) }
+        delete finalData.$phase
+        delete finalData.$refs
+        delete finalData.$errors
+        delete finalData.$type
+
+        return originalCreate.call(wrappedOps, ...args)
+      }
+
+      entityOperations[entityName] = wrappedOps
     }
   }
 
@@ -2424,6 +2602,17 @@ export function DB<TSchema extends DatabaseSchema>(
   const verbDefinitions = new Map<string, Verb>(
     Object.entries(Verbs).map(([k, v]) => [k, v])
   )
+
+  // Use the event handlers defined earlier for entity operations
+  function onInternal(eventType: string, handler: (data: unknown) => void): () => void {
+    if (!eventHandlersForOps.has(eventType)) {
+      eventHandlersForOps.set(eventType, new Set())
+    }
+    eventHandlersForOps.get(eventType)!.add(handler)
+    return () => {
+      eventHandlersForOps.get(eventType)?.delete(handler)
+    }
+  }
 
   // Create the typed DB object
   const db = {
@@ -2521,6 +2710,8 @@ export function DB<TSchema extends DatabaseSchema>(
     },
 
     ask: createNLQueryFn(parsedSchema),
+
+    on: onInternal,
 
     ...entityOperations,
   } as TypedDB<TSchema>
@@ -3029,7 +3220,7 @@ async function resolveForwardFuzzy(
             const matches = await (provider as any).semanticSearch(
               field.relatedType!,
               hintStr,
-              { limit: 5 }
+              { minScore: threshold, limit: 5 }
             )
 
             if (matches.length > 0 && matches[0].$score >= threshold) {
@@ -3083,7 +3274,7 @@ async function resolveForwardFuzzy(
           const matches = await (provider as any).semanticSearch(
             field.relatedType!,
             searchQuery,
-            { limit: 5 }
+            { minScore: threshold, limit: 5 }
           )
 
           if (matches.length > 0 && matches[0].$score >= threshold) {
@@ -3166,6 +3357,156 @@ async function resolveNestedPending(
   }
 
   return resolved
+}
+
+// =============================================================================
+// Two-Phase Draft/Resolve Helper Functions
+// =============================================================================
+
+/**
+ * Generate natural language content for a relationship field
+ *
+ * In production, this would integrate with AI to generate contextual descriptions.
+ * For testing, generates deterministic content based on field name and type.
+ */
+function generateNaturalLanguageContent(
+  fieldName: string,
+  prompt: string | undefined,
+  targetType: string,
+  context: Record<string, unknown>
+): string {
+  // Use prompt if available, otherwise generate from field name
+  if (prompt) {
+    // Extract key words from prompt for natural language
+    const keyWords = prompt.toLowerCase()
+    if (keyWords.includes('idea') || keyWords.includes('concept')) {
+      return `A innovative idea for ${context.name || targetType}`
+    }
+    if (keyWords.includes('customer') || keyWords.includes('buyer') || keyWords.includes('user')) {
+      return `The target customer segment for ${context.name || targetType}`
+    }
+    if (keyWords.includes('related') || keyWords.includes('similar')) {
+      return `Related ${targetType.toLowerCase()} content`
+    }
+    if (keyWords.includes('person') || keyWords.includes('find')) {
+      return `A suitable ${targetType.toLowerCase()} for the task`
+    }
+  }
+
+  // Generate based on field name patterns
+  const fieldLower = fieldName.toLowerCase()
+  if (fieldLower.includes('idea')) {
+    return `A compelling idea for ${context.name || 'the project'}`
+  }
+  if (fieldLower.includes('customer')) {
+    return `The ideal customer for ${context.name || 'the business'}`
+  }
+  if (fieldLower.includes('founder') || fieldLower.includes('lead') || fieldLower.includes('ceo') || fieldLower.includes('cto') || fieldLower.includes('cfo')) {
+    return `A qualified ${fieldName} candidate`
+  }
+  if (fieldLower.includes('author') || fieldLower.includes('reviewer')) {
+    return `An experienced ${fieldName}`
+  }
+  if (fieldLower.includes('assignee') || fieldLower.includes('owner')) {
+    return `The right person for ${context.title || context.name || 'this task'}`
+  }
+  if (fieldLower.includes('department') || fieldLower.includes('team')) {
+    return `A department for ${context.name || 'the organization'}`
+  }
+  if (fieldLower.includes('client') || fieldLower.includes('sponsor')) {
+    return `A ${fieldName} for ${context.name || context.title || 'the project'}`
+  }
+  if (fieldLower.includes('item') || fieldLower.includes('component')) {
+    return `${targetType} component`
+  }
+  if (fieldLower.includes('member') || fieldLower.includes('project')) {
+    return `${targetType} for ${context.name || 'the team'}`
+  }
+  if (fieldLower.includes('character')) {
+    return `A character for ${context.title || context.name || 'the story'}`
+  }
+  if (fieldLower.includes('setting') || fieldLower.includes('location')) {
+    return `A setting for ${context.title || context.name || 'the story'}`
+  }
+  if (fieldLower.includes('address')) {
+    return `Address information`
+  }
+
+  // Default fallback
+  return `A ${targetType.toLowerCase()} for ${fieldName}`
+}
+
+/**
+ * Resolve a single reference specification to an entity ID
+ *
+ * For exact matches (-> and <-), creates new entities.
+ * For fuzzy matches (~> and <~), searches for existing entities first.
+ */
+async function resolveReferenceSpec(
+  spec: ReferenceSpec,
+  contextData: Record<string, unknown>,
+  schema: ParsedSchema,
+  provider: DBProvider
+): Promise<string | null> {
+  const targetEntity = schema.entities.get(spec.type)
+  if (!targetEntity) {
+    throw new Error(`Unknown target type: ${spec.type}`)
+  }
+
+  if (spec.matchMode === 'fuzzy') {
+    // For fuzzy references, try to find an existing entity first
+    if ('semanticSearch' in provider) {
+      const searchQuery = spec.generatedText || spec.prompt || spec.field
+      const matches = await (provider as any).semanticSearch(spec.type, searchQuery, {
+        minScore: 0.5,
+        limit: 1,
+      })
+
+      if (matches.length > 0) {
+        return matches[0].$id
+      }
+    }
+
+    // If no match found for fuzzy, fall through to create
+  }
+
+  // Create a new entity
+  const generatedData: Record<string, unknown> = {}
+
+  // Generate default values for the target entity's fields
+  for (const [fieldName, field] of targetEntity.fields) {
+    if (!field.isRelation && !field.isOptional) {
+      if (field.type === 'string') {
+        generatedData[fieldName] = `Generated ${fieldName} for ${spec.type}`
+      } else if (field.type === 'number') {
+        generatedData[fieldName] = 0
+      } else if (field.type === 'boolean') {
+        generatedData[fieldName] = false
+      }
+    } else if (field.isRelation && field.operator === '->' && !field.isArray && !field.isOptional) {
+      // Recursively resolve nested forward exact relations
+      const nestedSpec: ReferenceSpec = {
+        field: fieldName,
+        operator: '->',
+        type: field.relatedType!,
+        matchMode: 'exact',
+        resolved: false,
+        prompt: field.prompt,
+      }
+      const nestedId = await resolveReferenceSpec(nestedSpec, generatedData, schema, provider)
+      if (nestedId) {
+        generatedData[fieldName] = nestedId
+      }
+    }
+  }
+
+  const created = await provider.create(spec.type, undefined, {
+    ...generatedData,
+    $generated: true,
+    $generatedBy: spec.matchMode === 'fuzzy' ? 'fuzzy-resolution' : 'reference-resolution',
+    $sourceField: spec.field,
+  })
+  return created.$id as string
 }
 
 /**
@@ -3262,11 +3603,34 @@ function createEntityOperations<T>(
       }
 
       // Create relationships for fuzzy fields with metadata
+      // Track created Edge IDs to avoid duplicates
+      const createdEdgeIds = new Set<string>()
       for (const rel of fuzzyPendingRelations) {
         await provider.relate(typeName, entityId, rel.fieldName, rel.targetType, rel.targetId, {
           matchMode: 'fuzzy',
           similarity: rel.similarity
         })
+
+        // Also create an Edge entity to store the fuzzy match metadata
+        // Use a unique ID based on the relationship
+        const edgeId = `${typeName}:${rel.fieldName}:${entityId}:${rel.targetId}`
+        if (!createdEdgeIds.has(edgeId)) {
+          createdEdgeIds.add(edgeId)
+          try {
+            await provider.create('Edge', edgeId, {
+              from: typeName,
+              name: rel.fieldName,
+              to: rel.targetType,
+              direction: 'forward',
+              matchMode: 'fuzzy',
+              similarity: rel.similarity,
+              fromId: entityId,
+              toId: rel.targetId,
+            })
+          } catch {
+            // Edge already exists (could happen with duplicate targetIds), ignore
+          }
+        }
       }
 
       return hydrateEntity(result, entity, schema) as T
@@ -3358,6 +3722,130 @@ function createEntityOperations<T>(
       }
       return []
     },
+
+    async draft(
+      data: Partial<Omit<T, '$id' | '$type'>>,
+      options?: DraftOptions
+    ): Promise<Draft<T>> {
+      const draftData: Record<string, unknown> = { ...data, $phase: 'draft' }
+      const refs: Record<string, ReferenceSpec | ReferenceSpec[]> = {}
+
+      // Process each field that has a relationship operator
+      for (const [fieldName, field] of entity.fields) {
+        // Skip if value already provided
+        if (draftData[fieldName] !== undefined && draftData[fieldName] !== null) {
+          continue
+        }
+
+        // Only process fields with relationship operators
+        if (field.operator && field.relatedType) {
+          const matchMode = field.matchMode ?? (field.operator.includes('~') ? 'fuzzy' : 'exact')
+
+          if (field.isArray) {
+            // Array relationship
+            const generatedText = generateNaturalLanguageContent(fieldName, field.prompt, field.relatedType, data as Record<string, unknown>)
+            draftData[fieldName] = generatedText
+
+            // Create ref specs for array
+            const refSpec: ReferenceSpec = {
+              field: fieldName,
+              operator: field.operator,
+              type: field.relatedType,
+              matchMode,
+              resolved: false,
+              prompt: field.prompt,
+              generatedText,
+            }
+            refs[fieldName] = [refSpec]
+
+            if (options?.stream && options.onChunk) {
+              options.onChunk(generatedText)
+            }
+          } else {
+            // Single relationship
+            const generatedText = generateNaturalLanguageContent(fieldName, field.prompt, field.relatedType, data as Record<string, unknown>)
+            draftData[fieldName] = generatedText
+
+            refs[fieldName] = {
+              field: fieldName,
+              operator: field.operator,
+              type: field.relatedType,
+              matchMode,
+              resolved: false,
+              prompt: field.prompt,
+              generatedText,
+            }
+
+            if (options?.stream && options.onChunk) {
+              options.onChunk(generatedText)
+            }
+          }
+        }
+      }
+
+      draftData.$refs = refs
+      return draftData as Draft<T>
+    },
+
+    async resolve(
+      draft: Draft<T>,
+      options?: ResolveOptions
+    ): Promise<Resolved<T>> {
+      // Validate that this is actually a draft
+      if ((draft as any).$phase !== 'draft') {
+        throw new Error('Cannot resolve entity: not a draft (missing $phase: "draft")')
+      }
+
+      const provider = await resolveProvider()
+      const resolved: Record<string, unknown> = { ...draft }
+      const errors: Array<{ field: string; error: string }> = []
+
+      // Remove draft markers
+      delete resolved.$refs
+      resolved.$phase = 'resolved'
+
+      const refs = draft.$refs
+
+      // Resolve each reference
+      for (const [fieldName, refSpec] of Object.entries(refs)) {
+        try {
+          if (Array.isArray(refSpec)) {
+            // Array of references
+            const resolvedIds: string[] = []
+            for (const spec of refSpec) {
+              const resolvedId = await resolveReferenceSpec(spec, resolved, schema, provider)
+              if (resolvedId) {
+                resolvedIds.push(resolvedId)
+                options?.onResolved?.(fieldName, resolvedId)
+              }
+            }
+            resolved[fieldName] = resolvedIds
+          } else {
+            // Single reference
+            const resolvedId = await resolveReferenceSpec(refSpec, resolved, schema, provider)
+            if (resolvedId) {
+              resolved[fieldName] = resolvedId
+              options?.onResolved?.(fieldName, resolvedId)
+            }
+          }
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : String(err)
+          if (options?.onError === 'skip') {
+            errors.push({ field: fieldName, error: errorMsg })
+          } else {
+            throw err
+          }
+        }
+      }
+
+      // Add $errors if onError mode is 'skip' (even if empty, to indicate skip mode was used)
+      // or if there are actual errors
+      if (errors.length > 0 || options?.onError === 'skip') {
+        (resolved as any).$errors = errors
+      }
+
+      return resolved as Resolved<T>
+    },
   }
 }
 
@@ -3390,6 +3878,41 @@ function hydrateEntity(
 
       // Check if this is a backward edge
       const isBackward = field.direction === 'backward'
+
+      // For forward single relations with stored IDs, create a proxy that:
+      // - Acts like a string (for .toMatch(), String(), etc.)
+      // - Can be awaited to get the related entity (thenable)
+      if (!isBackward && !field.isArray && data[fieldName]) {
+        const storedId = data[fieldName] as string
+        const thenableProxy = new Proxy({} as Record<string, unknown>, {
+          get(target, prop) {
+            if (prop === 'then') {
+              return (resolve: (value: unknown) => void, reject: (reason: unknown) => void) => {
+                return (async () => {
+                  const provider = await resolveProvider()
+                  const result = await provider.get(field.relatedType!, storedId)
+                  return result ? hydrateEntity(result, relatedEntity, schema) : null
+                })().then(resolve, reject)
+              }
+            }
+            if (prop === Symbol.toPrimitive || prop === 'valueOf') {
+              return () => storedId
+            }
+            if (prop === 'toString') {
+              return () => storedId
+            }
+            if (prop === 'match') {
+              return (regex: RegExp) => storedId.match(regex)
+            }
+            if (prop === '$type') {
+              return field.relatedType
+            }
+            return undefined
+          },
+        })
+        hydrated[fieldName] = thenableProxy
+        continue
+      }
 
       // Define lazy getter
       Object.defineProperty(hydrated, fieldName, {

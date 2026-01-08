@@ -153,6 +153,8 @@ export interface ParsedField {
   matchMode?: 'exact' | 'fuzzy'
   /** Natural language prompt before operator */
   prompt?: string
+  /** Similarity threshold for fuzzy matching (0-1), parsed from ~>Type(0.9) syntax */
+  threshold?: number
 }
 
 /**
@@ -161,6 +163,8 @@ export interface ParsedField {
 export interface ParsedEntity {
   name: string
   fields: Map<string, ParsedField>
+  /** Original raw schema for accessing metadata like $fuzzyThreshold */
+  schema?: EntitySchema
 }
 
 /**

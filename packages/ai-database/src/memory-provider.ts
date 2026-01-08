@@ -402,6 +402,9 @@ export class MemoryProvider implements DBProvider {
       italian: [0.02, 0.04, 0.02, 0.02],
       garden: [0.03, 0.02, 0.01, 0.02],
       flowers: [0.02, 0.01, 0.01, 0.01],
+      chef: [0.02, 0.06, 0.03, 0.02],
+      restaurant: [0.03, 0.04, 0.02, 0.03],
+      head: [0.04, 0.05, 0.03, 0.04],
 
       // GraphQL/API
       graphql: [0.1, 0.75, 0.15, 0.55],
@@ -437,6 +440,64 @@ export class MemoryProvider implements DBProvider {
       contains: [0.12, 0.18, 0.12, 0.78],
       search: [0.08, 0.22, 0.08, 0.82],
       terms: [0.05, 0.25, 0.05, 0.85],
+
+      // Business domain (for fuzzy forward resolution tests)
+      enterprise: [0.7, 0.3, 0.8, 0.6],
+      large: [0.65, 0.25, 0.75, 0.55],
+      corporations: [0.68, 0.28, 0.78, 0.58],
+      companies: [0.6, 0.4, 0.7, 0.5],
+      company: [0.62, 0.38, 0.72, 0.52],
+      thousands: [0.7, 0.2, 0.7, 0.5],
+      employees: [0.55, 0.35, 0.65, 0.45],
+      big: [0.68, 0.3, 0.75, 0.58],
+      small: [0.3, 0.6, 0.3, 0.4],
+      business: [0.5, 0.5, 0.6, 0.5],
+      owners: [0.4, 0.5, 0.5, 0.45],
+      consumer: [0.35, 0.55, 0.35, 0.35],
+      individual: [0.32, 0.58, 0.32, 0.32],
+      b2c: [0.3, 0.6, 0.3, 0.35],
+
+      // Tech professional domain
+      developer: [0.2, 0.85, 0.15, 0.1],
+      engineer: [0.25, 0.82, 0.18, 0.12],
+      engineers: [0.27, 0.8, 0.2, 0.14],
+      builds: [0.18, 0.78, 0.16, 0.08],
+      writes: [0.15, 0.75, 0.12, 0.06],
+      professional: [0.22, 0.72, 0.2, 0.15],
+      applications: [0.2, 0.78, 0.18, 0.1],
+      tech: [0.25, 0.8, 0.2, 0.12],
+      technology: [0.28, 0.78, 0.22, 0.14],
+      leaders: [0.4, 0.5, 0.6, 0.4],
+      senior: [0.35, 0.55, 0.55, 0.35],
+
+      // Data science domain
+      data: [0.75, 0.3, 0.15, 0.55],
+      science: [0.78, 0.25, 0.12, 0.5],
+      scientist: [0.8, 0.28, 0.1, 0.52],
+      background: [0.72, 0.32, 0.14, 0.48],
+
+      // DevOps/cloud domain
+      cloud: [0.1, 0.55, 0.85, 0.15],
+      expertise: [0.15, 0.5, 0.8, 0.18],
+
+      // Support domain
+      support: [0.2, 0.45, 0.3, 0.55],
+      specialist: [0.22, 0.48, 0.32, 0.52],
+      technical: [0.25, 0.65, 0.35, 0.4],
+      issues: [0.18, 0.42, 0.28, 0.48],
+
+      // Security domain
+      security: [0.3, 0.6, 0.4, 0.7],
+      auth: [0.28, 0.58, 0.38, 0.72],
+      authentication: [0.32, 0.55, 0.42, 0.75],
+      identity: [0.35, 0.52, 0.45, 0.68],
+      oauth: [0.3, 0.62, 0.4, 0.7],
+
+      // CRM domain
+      crm: [0.45, 0.4, 0.7, 0.55],
+      sales: [0.42, 0.38, 0.68, 0.52],
+      salesforce: [0.48, 0.42, 0.72, 0.58],
+      provider: [0.5, 0.45, 0.65, 0.5],
     }
 
     const DEFAULT_VECTOR = [0.1, 0.1, 0.1, 0.1]
@@ -933,7 +994,8 @@ export class MemoryProvider implements DBProvider {
     fromId: string,
     relation: string,
     toType: string,
-    toId: string
+    toId: string,
+    metadata?: { matchMode?: 'exact' | 'fuzzy'; similarity?: number }
   ): Promise<void> {
     const key = this.relationKey(fromType, fromId, relation)
 
@@ -943,11 +1005,13 @@ export class MemoryProvider implements DBProvider {
 
     this.relations.get(key)!.add(`${toType}:${toId}`)
 
-    // Emit event
+    // Emit event with metadata
     await this.emit('Relation.created', {
       from: `${fromType}/${fromId}`,
       type: relation,
       to: `${toType}/${toId}`,
+      matchMode: metadata?.matchMode,
+      similarity: metadata?.similarity,
     })
   }
 
