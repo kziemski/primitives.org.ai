@@ -2585,6 +2585,183 @@ function parseUrl(url: string): { type: string; id: string } {
   return { type: '', id: url }
 }
 
+// =============================================================================
+// Forward Exact Resolution - Auto-generate related entities
+// =============================================================================
+
+/**
+ * Generate an entity based on its type and context
+ *
+ * For testing, generates deterministic content based on the prompt and type.
+ * In production, this would integrate with AI generation.
+ *
+ * @param type - The type of entity to generate
+ * @param prompt - Optional prompt for generation context
+ * @param context - Parent context information (parent type name, parentData, and optional parentId)
+ * @param schema - The parsed schema
+ */
+async function generateEntity(
+  type: string,
+  prompt: string | undefined,
+  context: { parent: string; parentData: Record<string, unknown>; parentId?: string },
+  schema: ParsedSchema
+): Promise<Record<string, unknown>> {
+  const entity = schema.entities.get(type)
+  if (!entity) throw new Error(`Unknown type: ${type}`)
+
+  const data: Record<string, unknown> = {}
+  for (const [fieldName, field] of entity.fields) {
+    if (!field.isRelation) {
+      if (field.type === 'string') {
+        // Generate deterministic content for testing
+        data[fieldName] = `Generated ${fieldName} for ${type}`
+      } else if (field.isArray && field.type === 'string') {
+        // Generate array of strings
+        data[fieldName] = [`Generated ${fieldName} item for ${type}`]
+      }
+    } else if (field.operator === '<-' && field.direction === 'backward') {
+      // Backward relation to parent - set the parent's ID if this entity's
+      // related type matches the parent type
+      if (field.relatedType === context.parent && context.parentId) {
+        // Store the parent ID directly - this is a reference back to the parent
+        data[fieldName] = context.parentId
+      }
+    } else if (field.operator === '->' && field.direction === 'forward') {
+      // Recursively generate nested forward exact relations
+      // This handles cases like Person.bio -> Bio
+      if (!field.isOptional) {
+        const nestedGenerated = await generateEntity(
+          field.relatedType!,
+          field.prompt,
+          { parent: type, parentData: data },
+          schema
+        )
+        // We need to create the nested entity too, but we can't do that here
+        // because we don't have access to the provider yet.
+        // This will be handled by resolveForwardExact when it calls us
+        data[`_pending_${fieldName}`] = { type: field.relatedType!, data: nestedGenerated }
+      }
+    }
+  }
+  return data
+}
+
+/**
+ * Resolve forward exact (->) fields by auto-generating related entities
+ *
+ * When creating an entity with a -> field, if no value is provided,
+ * we auto-generate the related entity and link it.
+ *
+ * Returns resolved data and pending relationships that need to be created
+ * after the parent entity is created (for array fields).
+ *
+ * @param parentId - Pre-generated ID of the parent entity, so generated children
+ *                   can set backward references to it
+ */
+async function resolveForwardExact(
+  typeName: string,
+  data: Record<string, unknown>,
+  entity: ParsedEntity,
+  schema: ParsedSchema,
+  provider: DBProvider,
+  parentId: string
+): Promise<{ data: Record<string, unknown>; pendingRelations: Array<{ fieldName: string; targetType: string; targetId: string }> }> {
+  const resolved = { ...data }
+  const pendingRelations: Array<{ fieldName: string; targetType: string; targetId: string }> = []
+
+  for (const [fieldName, field] of entity.fields) {
+    if (field.operator === '->' && field.direction === 'forward') {
+      // Skip if value already provided
+      if (resolved[fieldName] !== undefined && resolved[fieldName] !== null) {
+        // If value is provided for array field, we still need to create relationships
+        if (field.isArray && Array.isArray(resolved[fieldName])) {
+          const ids = resolved[fieldName] as string[]
+          for (const targetId of ids) {
+            pendingRelations.push({ fieldName, targetType: field.relatedType!, targetId })
+          }
+        }
+        continue
+      }
+
+      // Skip optional fields - they shouldn't auto-generate
+      if (field.isOptional) continue
+
+      if (field.isArray) {
+        // Generate array of entities (at least one for testing)
+        const relatedEntity = schema.entities.get(field.relatedType!)
+        if (!relatedEntity) continue
+
+        const generated = await generateEntity(
+          field.relatedType!,
+          field.prompt,
+          { parent: typeName, parentData: data, parentId },
+          schema
+        )
+
+        // Resolve any pending nested relations in the generated data
+        const resolvedGenerated = await resolveNestedPending(generated, relatedEntity, schema, provider)
+        const created = await provider.create(field.relatedType!, undefined, resolvedGenerated)
+        resolved[fieldName] = [created.$id]
+
+        // Queue relationship creation for after parent entity is created
+        pendingRelations.push({ fieldName, targetType: field.relatedType!, targetId: created.$id as string })
+      } else {
+        // Single non-optional forward relation - generate the related entity
+        // Generate single entity
+        const generated = await generateEntity(
+          field.relatedType!,
+          field.prompt,
+          { parent: typeName, parentData: data, parentId },
+          schema
+        )
+
+        // Resolve any pending nested relations in the generated data
+        const relatedEntity = schema.entities.get(field.relatedType!)
+        if (relatedEntity) {
+          const resolvedGenerated = await resolveNestedPending(generated, relatedEntity, schema, provider)
+          const created = await provider.create(field.relatedType!, undefined, resolvedGenerated)
+          resolved[fieldName] = created.$id
+        }
+      }
+    }
+  }
+  return { data: resolved, pendingRelations }
+}
+
+/**
+ * Resolve pending nested relations in generated data
+ *
+ * When generateEntity encounters nested -> relations, it stores them as
+ * _pending_fieldName entries. This function creates those entities and
+ * replaces the pending entries with actual IDs.
+ */
+async function resolveNestedPending(
+  data: Record<string, unknown>,
+  entity: ParsedEntity,
+  schema: ParsedSchema,
+  provider: DBProvider
+): Promise<Record<string, unknown>> {
+  const resolved = { ...data }
+
+  for (const key of Object.keys(resolved)) {
+    if (key.startsWith('_pending_')) {
+      const fieldName = key.replace('_pending_', '')
+      const pending = resolved[key] as { type: string; data: Record<string, unknown> }
+      delete resolved[key]
+
+      // Get the related entity to resolve its nested pending relations too
+      const relatedEntity = schema.entities.get(pending.type)
+      if (relatedEntity) {
+        const resolvedNested = await resolveNestedPending(pending.data, relatedEntity, schema, provider)
+        const created = await provider.create(pending.type, undefined, resolvedNested)
+        resolved[fieldName] = created.$id
+      }
+    }
+  }
+
+  return resolved
+}
+
 /**
  * Create operations for a single entity type
  */
@@ -2632,13 +2809,33 @@ function createEntityOperations<T>(
       maybeData?: Omit<T, '$id' | '$type'>
     ): Promise<T> {
       const provider = await resolveProvider()
-      const id = typeof idOrData === 'string' ? idOrData : undefined
+      const providedId = typeof idOrData === 'string' ? idOrData : undefined
       const data =
         typeof idOrData === 'string'
           ? (maybeData as Record<string, unknown>)
           : (idOrData as Record<string, unknown>)
 
-      const result = await provider.create(typeName, id, data)
+      // Pre-generate entity ID so child entities can reference us
+      const entityId = providedId || crypto.randomUUID()
+
+      // Resolve forward exact (->) fields by auto-generating related entities
+      // Pass the entityId so generated children can set backward references
+      const { data: resolvedData, pendingRelations } = await resolveForwardExact(
+        typeName,
+        data,
+        entity,
+        schema,
+        provider,
+        entityId
+      )
+
+      const result = await provider.create(typeName, entityId, resolvedData)
+
+      // Create relationships for array fields
+      for (const rel of pendingRelations) {
+        await provider.relate(typeName, entityId, rel.fieldName, rel.targetType, rel.targetId)
+      }
+
       return hydrateEntity(result, entity, schema) as T
     },
 
@@ -2737,6 +2934,11 @@ function createEntityOperations<T>(
  * For backward edges (direction === 'backward'), we query for entities
  * of the related type that have a reference pointing TO this entity.
  * This enables reverse lookups like "get all comments for a post".
+ *
+ * Backward reference resolution:
+ * - Single backward ref with stored ID: resolve directly (e.g., member.team = teamId -> get Team by ID)
+ * - Single backward ref without stored ID: find related entity that points to us via relations
+ * - Array backward ref: find all entities of related type where their forward ref points to us
  */
 function hydrateEntity(
   data: Record<string, unknown>,
@@ -2745,6 +2947,7 @@ function hydrateEntity(
 ): Record<string, unknown> {
   const hydrated: Record<string, unknown> = { ...data }
   const id = (data.$id || data.id) as string
+  const typeName = entity.name
 
   // Add lazy getters for relations
   for (const [fieldName, field] of entity.fields) {
@@ -2752,48 +2955,109 @@ function hydrateEntity(
       const relatedEntity = schema.entities.get(field.relatedType)
       if (!relatedEntity) continue
 
+      // Check if this is a backward edge
+      const isBackward = field.direction === 'backward'
+
       // Define lazy getter
       Object.defineProperty(hydrated, fieldName, {
-        get: async () => {
-          const provider = await resolveProvider()
-
+        get: () => {
           // Check if this is a backward edge
-          const isBackward = field.direction === 'backward'
+          if (isBackward && !field.isArray) {
+            // Case 1: Single backward ref with stored ID
+            // e.g., Member.team: '<-Team' where member was created with { team: teamId }
+            // Return the raw ID directly for sync access (problem.task === task.$id)
+            // To resolve to entity, use db.get() with this ID
+            const storedId = data[fieldName] as string | undefined
+            if (storedId) {
+              // Return the raw string ID
+              return storedId
+            }
 
-          if (isBackward) {
-            // Backward edge: find entities that point TO this entity
-            // For Post.comments <- Comment, find Comments where comment.post = post.$id
-            // The backref field is either explicitly specified (field.backref) or
-            // we infer it from the entity name (e.g., 'post' for Post)
-            const backrefField = field.backref || entity.name.toLowerCase()
-
-            // Query the related type for entities that reference this entity
-            const results = await provider.list(field.relatedType!, {
-              where: { [backrefField]: id },
-            })
-
-            return Promise.all(
-              results.map((r) => hydrateEntity(r, relatedEntity, schema))
-            )
-          } else if (field.isArray) {
-            // Forward array relation - get related entities via relationship
-            const results = await provider.related(
-              entity.name,
-              id,
-              fieldName
-            )
-            return Promise.all(
-              results.map((r) => hydrateEntity(r, relatedEntity, schema))
-            )
-          } else {
-            // Forward single relation - get the stored ID and fetch
-            const relatedId = data[fieldName] as string | undefined
-            if (!relatedId) return null
-            const result = await provider.get(field.relatedType!, relatedId)
-            return result
-              ? hydrateEntity(result, relatedEntity, schema)
-              : null
+            // Case 1b: Single backward ref WITHOUT stored ID
+            // Need to find via inverse relation lookup - return async resolver directly
+            return (async () => {
+              const provider = await resolveProvider()
+              // Find entities of relatedType that have this entity in their relations
+              // Look through relations on the related entity to find one pointing to us
+              for (const [relFieldName, relField] of relatedEntity.fields) {
+                if (relField.isRelation &&
+                    relField.relatedType === typeName &&
+                    relField.direction !== 'backward' &&
+                    relField.isArray) {
+                  // Found a forward array relation on related entity pointing to us
+                  // Check if any entity of relatedType has this entity in that relation
+                  const allRelated = await provider.list(field.relatedType!)
+                  for (const candidate of allRelated) {
+                    const candidateId = (candidate.$id || candidate.id) as string
+                    const related = await provider.related(field.relatedType!, candidateId, relFieldName)
+                    if (related.some(r => (r.$id || r.id) === id)) {
+                      return hydrateEntity(candidate, relatedEntity, schema)
+                    }
+                  }
+                }
+              }
+              return null
+            })()
           }
+
+          // For forward relations and backward arrays, return async resolver
+          return (async () => {
+            const provider = await resolveProvider()
+
+            if (isBackward) {
+              // Case 2: Array backward ref
+              // e.g., Blog.posts: ['<-Post'] - find Posts where post.blog === blog.$id
+              // The backref tells us which field on the related type stores our ID
+              // If no explicit backref, infer from schema relationships
+              let backrefField = field.backref
+
+              if (!backrefField) {
+                // Infer backref: look for a field on related entity that points to us
+                for (const [relFieldName, relField] of relatedEntity.fields) {
+                  if (relField.isRelation &&
+                      relField.relatedType === typeName &&
+                      relField.direction !== 'backward' &&
+                      !relField.isArray) {
+                    // Found a forward single relation pointing to us - use its name
+                    backrefField = relFieldName
+                    break
+                  }
+                }
+
+                // Fallback to entity name lowercase if no explicit relation found
+                if (!backrefField) {
+                  backrefField = typeName.toLowerCase()
+                }
+              }
+
+              // Query the related type for entities that reference this entity
+              const results = await provider.list(field.relatedType!, {
+                where: { [backrefField]: id },
+              })
+
+              return Promise.all(
+                results.map((r) => hydrateEntity(r, relatedEntity, schema))
+              )
+            } else if (field.isArray) {
+              // Forward array relation - get related entities via relationship
+              const results = await provider.related(
+                entity.name,
+                id,
+                fieldName
+              )
+              return Promise.all(
+                results.map((r) => hydrateEntity(r, relatedEntity, schema))
+              )
+            } else {
+              // Forward single relation - get the stored ID and fetch
+              const relatedId = data[fieldName] as string | undefined
+              if (!relatedId) return null
+              const result = await provider.get(field.relatedType!, relatedId)
+              return result
+                ? hydrateEntity(result, relatedEntity, schema)
+                : null
+            }
+          })()
         },
         enumerable: true,
         configurable: true,
