@@ -469,6 +469,88 @@ function schemaToProperties(schema: EntitySchema): Record<string, NounProperty> 
 // Schema Parsing
 // =============================================================================
 
+// =============================================================================
+// Two-Phase Draft/Resolve Types
+// =============================================================================
+
+/**
+ * Reference specification for unresolved relationships in a draft
+ */
+export interface ReferenceSpec {
+  /** Field name on the entity */
+  field: string
+  /** The relationship operator: ->, ~>, <-, <~ */
+  operator: '->' | '~>' | '<-' | '<~'
+  /** Target entity type */
+  type: string
+  /** Match mode for resolving */
+  matchMode: 'exact' | 'fuzzy'
+  /** Whether this reference is resolved */
+  resolved: boolean
+  /** Natural language prompt for generation */
+  prompt?: string
+  /** Generated natural language text (before resolution) */
+  generatedText?: string
+}
+
+/**
+ * Draft entity with unresolved references
+ *
+ * A draft is an entity that has been generated but whose relationships
+ * have not yet been resolved to actual entity IDs. This allows:
+ * - Streaming draft content to users before relationships are resolved
+ * - Batch resolution of multiple references for efficiency
+ * - Draft-only mode for preview/editing before final creation
+ */
+export interface Draft<T> {
+  /** Phase marker indicating this is a draft */
+  $phase: 'draft'
+  /** Unresolved reference specifications */
+  $refs: Record<string, ReferenceSpec | ReferenceSpec[]>
+  /** Entity data with natural language placeholders for references */
+  [key: string]: unknown
+}
+
+/**
+ * Resolved entity after resolution phase
+ */
+export interface Resolved<T> {
+  /** Phase marker indicating this has been resolved */
+  $phase: 'resolved'
+  /** Any errors that occurred during resolution */
+  $errors?: Array<{ field: string; error: string }>
+  /** Entity data with resolved reference IDs */
+  [key: string]: unknown
+}
+
+/**
+ * Options for the draft() method
+ */
+export interface DraftOptions {
+  /** Enable streaming of draft content */
+  stream?: boolean
+  /** Callback for streaming chunks */
+  onChunk?: (chunk: string) => void
+}
+
+/**
+ * Options for the resolve() method
+ */
+export interface ResolveOptions {
+  /** How to handle resolution errors */
+  onError?: 'throw' | 'skip'
+  /** Callback when a reference is resolved */
+  onResolved?: (fieldName: string, entityId: string) => void
+}
+
+/**
+ * Options for the create() method
+ */
+export interface CreateEntityOptions {
+  /** Only create a draft, don't resolve references */
+  draftOnly?: boolean
+}
+
 /**
  * Result of parsing a relationship operator from a field definition
  */
@@ -485,6 +567,8 @@ export interface OperatorParseResult {
   targetType: string
   /** Union types for polymorphic references (e.g., ->A|B|C parses to ['A', 'B', 'C']) */
   unionTypes?: string[]
+  /** Similarity threshold for fuzzy matching (0-1), parsed from ~>Type(0.9) syntax */
+  threshold?: number
 }
 
 /**
@@ -573,6 +657,20 @@ export function parseOperator(definition: string): OperatorParseResult | null {
       // Determine match mode: ~ = fuzzy, otherwise exact
       const matchMode = op.includes('~') ? 'fuzzy' : 'exact'
 
+      // Parse field-level threshold from ~>Type(0.9) syntax
+      let threshold: number | undefined
+      const thresholdMatch = targetType.match(/^([^(]+)\(([0-9.]+)\)(.*)$/)
+      if (thresholdMatch) {
+        const [, typePart, thresholdStr, suffix] = thresholdMatch
+        threshold = parseFloat(thresholdStr!)
+        if (!isNaN(threshold) && threshold >= 0 && threshold <= 1) {
+          // Reconstruct targetType without the threshold
+          targetType = (typePart || '') + (suffix || '')
+        } else {
+          threshold = undefined
+        }
+      }
+
       // Parse union types (A|B|C syntax)
       // First, strip off any modifiers (?, [], .backref) to get clean types
       let cleanType = targetType
@@ -606,6 +704,7 @@ export function parseOperator(definition: string): OperatorParseResult | null {
         matchMode,
         targetType,
         unionTypes,
+        threshold,
       }
     }
   }
@@ -695,6 +794,9 @@ function parseField(name: string, definition: FieldDefinition): ParsedField {
     if (prompt) {
       result.prompt = prompt
     }
+    if (operatorResult?.threshold !== undefined) {
+      result.threshold = operatorResult.threshold
+    }
   }
 
   return result
@@ -731,7 +833,8 @@ export function parseSchema(schema: DatabaseSchema): ParsedSchema {
       fields.set(fieldName, parseField(fieldName, fieldDef))
     }
 
-    entities.set(entityName, { name: entityName, fields })
+    // Store raw schema for accessing metadata like $fuzzyThreshold
+    entities.set(entityName, { name: entityName, fields, schema: entitySchema })
   }
 
   // Second pass: create bi-directional relationships
@@ -886,8 +989,38 @@ export interface PipelineEntityOperations<T> {
   first(): DBPromise<T | null>
 
   /** Create a new entity */
-  create(data: Omit<T, '$id' | '$type'>): Promise<T>
-  create(id: string, data: Omit<T, '$id' | '$type'>): Promise<T>
+  create(data: Omit<T, '$id' | '$type'>, options?: CreateEntityOptions): Promise<T | Draft<T>>
+  create(id: string, data: Omit<T, '$id' | '$type'>, options?: CreateEntityOptions): Promise<T | Draft<T>>
+
+  /**
+   * Create a draft entity with natural language placeholders for references
+   *
+   * The draft phase generates entity content but leaves relationship fields
+   * as natural language descriptions that will be resolved later.
+   *
+   * @example
+   * ```ts
+   * const draft = await db.Startup.draft({ name: 'Acme' })
+   * // draft.idea contains natural language like "A revolutionary SaaS idea"
+   * // draft.$refs.idea contains reference spec for resolution
+   * ```
+   */
+  draft(data: Partial<Omit<T, '$id' | '$type'>>, options?: DraftOptions): Promise<Draft<T>>
+
+  /**
+   * Resolve a draft entity by converting natural language references to entity IDs
+   *
+   * The resolve phase creates or matches related entities and replaces
+   * natural language placeholders with actual entity IDs.
+   *
+   * @example
+   * ```ts
+   * const draft = await db.Startup.draft({ name: 'Acme' })
+   * const resolved = await db.Startup.resolve(draft)
+   * // resolved.idea is now an actual entity ID
+   * ```
+   */
+  resolve(draft: Draft<T>, options?: ResolveOptions): Promise<Resolved<T>>
 
   /** Update an entity */
   update(id: string, data: Partial<Omit<T, '$id' | '$type'>>): Promise<T>
@@ -1806,7 +1939,8 @@ export interface DBProvider {
     fromId: string,
     relation: string,
     toType: string,
-    toId: string
+    toId: string,
+    metadata?: { matchMode?: 'exact' | 'fuzzy'; similarity?: number }
   ): Promise<void>
 
   /** Remove a relationship */
@@ -2761,6 +2895,246 @@ async function resolveForwardExact(
 }
 
 /**
+ * Resolve backward fuzzy (<~) fields by using semantic search to find existing entities
+ *
+ * The <~ operator differs from <- in that it uses semantic/fuzzy matching:
+ * - Uses AI/embedding-based similarity to find the best match from existing entities
+ * - Does NOT generate new entities - only grounds to existing reference data
+ * - Uses hint fields (e.g., categoryHint for category field) to guide matching
+ *
+ * @param typeName - The type of entity being created
+ * @param data - The input data including hint fields
+ * @param entity - The parsed entity definition
+ * @param schema - The parsed schema
+ * @param provider - The database provider (must support semanticSearch)
+ * @returns The resolved data with backward fuzzy fields populated with matched entity IDs
+ */
+async function resolveBackwardFuzzy(
+  typeName: string,
+  data: Record<string, unknown>,
+  entity: ParsedEntity,
+  schema: ParsedSchema,
+  provider: DBProvider
+): Promise<Record<string, unknown>> {
+  const resolved = { ...data }
+  const threshold = (entity.schema as any)?.$fuzzyThreshold ?? 0.75
+
+  for (const [fieldName, field] of entity.fields) {
+    if (field.operator === '<~' && field.direction === 'backward') {
+      // Skip if value already provided
+      if (resolved[fieldName] !== undefined && resolved[fieldName] !== null) {
+        continue
+      }
+
+      // Get the hint field value - uses fieldNameHint convention
+      const hintKey = `${fieldName}Hint`
+      const searchQuery = (data[hintKey] as string) || field.prompt || ''
+
+      // Skip if no search query available (optional fields without hint)
+      if (!searchQuery) {
+        continue
+      }
+
+      // Check if provider supports semantic search
+      if ('semanticSearch' in provider) {
+        const matches = await (provider as any).semanticSearch(
+          field.relatedType!,
+          searchQuery,
+          { minScore: threshold, limit: field.isArray ? 10 : 1 }
+        )
+
+        if (matches.length > 0) {
+          if (field.isArray) {
+            // For array fields, return all matches above threshold
+            resolved[fieldName] = matches
+              .filter((m: any) => m.$score >= threshold)
+              .map((m: any) => m.$id)
+          } else {
+            // For single fields, return the best match
+            resolved[fieldName] = matches[0].$id
+          }
+        }
+      }
+      // Note: <~ typically doesn't generate - it grounds to existing data
+      // If no match found and field is optional, leave as undefined
+    }
+  }
+
+  return resolved
+}
+
+/**
+ * Resolve forward fuzzy (~>) fields via semantic search then generation
+ *
+ * The ~> operator differs from -> in that it first attempts semantic search:
+ * - Searches existing entities via embedding similarity
+ * - If a match is found above threshold, reuses the existing entity
+ * - If no match is found, generates a new entity
+ * - Respects configurable similarity threshold ($fuzzyThreshold or field-level)
+ *
+ * @param typeName - The type of entity being created
+ * @param data - The input data including hint fields
+ * @param entity - The parsed entity definition
+ * @param schema - The parsed schema
+ * @param provider - The database provider (must support semanticSearch)
+ * @param parentId - Pre-generated ID of the parent entity for backward refs
+ * @returns Object with resolved data and pending relations for array fields
+ */
+async function resolveForwardFuzzy(
+  typeName: string,
+  data: Record<string, unknown>,
+  entity: ParsedEntity,
+  schema: ParsedSchema,
+  provider: DBProvider,
+  parentId: string
+): Promise<{ data: Record<string, unknown>; pendingRelations: Array<{ fieldName: string; targetType: string; targetId: string; similarity?: number }> }> {
+  const resolved = { ...data }
+  const pendingRelations: Array<{ fieldName: string; targetType: string; targetId: string; similarity?: number }> = []
+  // Default threshold from entity schema or 0.75
+  const defaultThreshold = (entity.schema as any)?.$fuzzyThreshold ?? 0.75
+
+  for (const [fieldName, field] of entity.fields) {
+    if (field.operator === '~>' && field.direction === 'forward') {
+      // Skip if value already provided
+      if (resolved[fieldName] !== undefined && resolved[fieldName] !== null) {
+        // If value is provided for array field, we still need to create relationships
+        if (field.isArray && Array.isArray(resolved[fieldName])) {
+          const ids = resolved[fieldName] as string[]
+          for (const targetId of ids) {
+            pendingRelations.push({ fieldName, targetType: field.relatedType!, targetId })
+          }
+        }
+        continue
+      }
+
+      // Get the hint field value - uses fieldNameHint convention
+      const hintKey = `${fieldName}Hint`
+      const hintValue = data[hintKey]
+      const searchQuery = (typeof hintValue === 'string' ? hintValue : undefined) || field.prompt || fieldName
+
+      // Get threshold - field-level overrides entity-level
+      const threshold = field.threshold ?? defaultThreshold
+
+      if (field.isArray) {
+        // Array fuzzy field - can contain both matched and generated
+        const hints = Array.isArray(hintValue) ? hintValue : [hintValue].filter(Boolean)
+        const resultIds: string[] = []
+
+        for (const hint of hints) {
+          const hintStr = String(hint || fieldName)
+          let matched = false
+
+          // Try semantic search first
+          if ('semanticSearch' in provider) {
+            const matches = await (provider as any).semanticSearch(
+              field.relatedType!,
+              hintStr,
+              { limit: 5 }
+            )
+
+            if (matches.length > 0 && matches[0].$score >= threshold) {
+              resultIds.push(matches[0].$id as string)
+              pendingRelations.push({
+                fieldName,
+                targetType: field.relatedType!,
+                targetId: matches[0].$id as string,
+                similarity: matches[0].$score
+              })
+              matched = true
+            }
+          }
+
+          // Generate if no match found
+          if (!matched) {
+            const generated = await generateEntity(
+              field.relatedType!,
+              hintStr,
+              { parent: typeName, parentData: data, parentId },
+              schema
+            )
+
+            // Resolve any pending nested relations
+            const relatedEntity = schema.entities.get(field.relatedType!)
+            if (relatedEntity) {
+              const resolvedGenerated = await resolveNestedPending(generated, relatedEntity, schema, provider)
+              const created = await provider.create(field.relatedType!, undefined, {
+                ...resolvedGenerated,
+                $generated: true,
+                $generatedBy: 'fuzzy-resolution',
+                $sourceField: fieldName
+              })
+              resultIds.push(created.$id as string)
+              pendingRelations.push({
+                fieldName,
+                targetType: field.relatedType!,
+                targetId: created.$id as string
+              })
+            }
+          }
+        }
+
+        resolved[fieldName] = resultIds
+      } else {
+        // Single fuzzy field
+        let matched = false
+
+        // Try semantic search first
+        if ('semanticSearch' in provider) {
+          const matches = await (provider as any).semanticSearch(
+            field.relatedType!,
+            searchQuery,
+            { limit: 5 }
+          )
+
+          if (matches.length > 0 && matches[0].$score >= threshold) {
+            resolved[fieldName] = matches[0].$id
+            resolved[`${fieldName}$matched`] = true
+            resolved[`${fieldName}$score`] = matches[0].$score
+            pendingRelations.push({
+              fieldName,
+              targetType: field.relatedType!,
+              targetId: matches[0].$id as string,
+              similarity: matches[0].$score
+            })
+            matched = true
+          }
+        }
+
+        // Generate if no match found
+        if (!matched) {
+          const generated = await generateEntity(
+            field.relatedType!,
+            field.prompt || searchQuery,
+            { parent: typeName, parentData: data, parentId },
+            schema
+          )
+
+          // Resolve any pending nested relations
+          const relatedEntity = schema.entities.get(field.relatedType!)
+          if (relatedEntity) {
+            const resolvedGenerated = await resolveNestedPending(generated, relatedEntity, schema, provider)
+            const created = await provider.create(field.relatedType!, undefined, {
+              ...resolvedGenerated,
+              $generated: true,
+              $generatedBy: 'fuzzy-resolution',
+              $sourceField: fieldName
+            })
+            resolved[fieldName] = created.$id
+            pendingRelations.push({
+              fieldName,
+              targetType: field.relatedType!,
+              targetId: created.$id as string
+            })
+          }
+        }
+      }
+    }
+  }
+
+  return { data: resolved, pendingRelations }
+}
+
+/**
  * Resolve pending nested relations in generated data
  *
  * When generateEntity encounters nested -> relations, it stores them as
@@ -2861,11 +3235,38 @@ function createEntityOperations<T>(
         entityId
       )
 
-      const result = await provider.create(typeName, entityId, resolvedData)
+      // Resolve forward fuzzy (~>) fields by semantic search then generation
+      const { data: fuzzyResolvedData, pendingRelations: fuzzyPendingRelations } = await resolveForwardFuzzy(
+        typeName,
+        resolvedData,
+        entity,
+        schema,
+        provider,
+        entityId
+      )
 
-      // Create relationships for array fields
+      // Resolve backward fuzzy (<~) fields by semantic search against existing entities
+      const finalData = await resolveBackwardFuzzy(
+        typeName,
+        fuzzyResolvedData,
+        entity,
+        schema,
+        provider
+      )
+
+      const result = await provider.create(typeName, entityId, finalData)
+
+      // Create relationships for array fields (exact)
       for (const rel of pendingRelations) {
         await provider.relate(typeName, entityId, rel.fieldName, rel.targetType, rel.targetId)
+      }
+
+      // Create relationships for fuzzy fields with metadata
+      for (const rel of fuzzyPendingRelations) {
+        await provider.relate(typeName, entityId, rel.fieldName, rel.targetType, rel.targetId, {
+          matchMode: 'fuzzy',
+          similarity: rel.similarity
+        })
       }
 
       return hydrateEntity(result, entity, schema) as T
@@ -3039,6 +3440,19 @@ function hydrateEntity(
 
             if (isBackward) {
               // Case 2: Array backward ref
+              // Check if we have stored IDs (e.g., from backward fuzzy resolution)
+              const storedIds = data[fieldName] as string[] | undefined
+              if (Array.isArray(storedIds) && storedIds.length > 0) {
+                // Use stored IDs directly - this handles backward fuzzy (<~) array fields
+                const results = await Promise.all(
+                  storedIds.map(targetId => provider.get(field.relatedType!, targetId))
+                )
+                return Promise.all(
+                  results.filter(r => r !== null).map((r) => hydrateEntity(r!, relatedEntity, schema))
+                )
+              }
+
+              // No stored IDs - use backref lookup
               // e.g., Blog.posts: ['<-Post'] - find Posts where post.blog === blog.$id
               // The backref tells us which field on the related type stores our ID
               // If no explicit backref, infer from schema relationships
