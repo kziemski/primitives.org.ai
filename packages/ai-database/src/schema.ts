@@ -544,6 +544,20 @@ export interface ResolveOptions {
 }
 
 /**
+ * Progress event for cascade generation
+ */
+export interface CascadeProgress {
+  /** Current phase: 'generating' during creation, 'complete' when finished */
+  phase: 'generating' | 'complete'
+  /** Current depth level in the cascade (0 = root entity) */
+  depth: number
+  /** Current type being generated */
+  currentType?: string
+  /** Total entities created so far */
+  totalEntitiesCreated: number
+}
+
+/**
  * Options for the create() method
  */
 export interface CreateEntityOptions {
@@ -553,6 +567,14 @@ export interface CreateEntityOptions {
   cascade?: boolean
   /** Maximum depth for cascade creation (default: 0, no cascade) */
   maxDepth?: number
+  /** Progress callback for cascade operations */
+  onProgress?: (progress: CascadeProgress) => void
+  /** Error callback for cascade operations */
+  onError?: (error: Error) => void
+  /** Stop cascade on first error (default: false) */
+  stopOnError?: boolean
+  /** Filter which types to cascade (if not specified, cascade all) */
+  cascadeTypes?: string[]
 }
 
 /**
@@ -743,6 +765,7 @@ function parseField(name: string, definition: FieldDefinition): ParsedField {
   let direction: 'forward' | 'backward' | undefined
   let matchMode: 'exact' | 'fuzzy' | undefined
   let prompt: string | undefined
+  let unionTypes: string[] | undefined
 
   // Use the dedicated operator parser
   const operatorResult = parseOperator(type)
@@ -752,6 +775,7 @@ function parseField(name: string, definition: FieldDefinition): ParsedField {
     matchMode = operatorResult.matchMode
     prompt = operatorResult.prompt
     type = operatorResult.targetType
+    unionTypes = operatorResult.unionTypes
   }
 
   // Check for optional modifier
@@ -780,7 +804,12 @@ function parseField(name: string, definition: FieldDefinition): ParsedField {
   ) {
     // PascalCase non-primitive = relation without explicit backref
     isRelation = true
-    relatedType = type
+    // For union types (A|B|C), set relatedType to the first type
+    if (unionTypes && unionTypes.length > 0) {
+      relatedType = unionTypes[0]
+    } else {
+      relatedType = type
+    }
   }
 
   // Build result object
@@ -804,6 +833,10 @@ function parseField(name: string, definition: FieldDefinition): ParsedField {
     }
     if (operatorResult?.threshold !== undefined) {
       result.threshold = operatorResult.threshold
+    }
+    // Add union types if present (more than one type)
+    if (unionTypes && unionTypes.length > 1) {
+      result.unionTypes = unionTypes
     }
   }
 
@@ -862,11 +895,22 @@ export function parseSchema(schema: DatabaseSchema): ParsedSchema {
         // Skip self-references (valid)
         if (field.relatedType === entityName) continue
 
-        // Check if referenced type exists
-        if (!entities.has(field.relatedType)) {
-          throw new Error(
-            `Invalid schema: ${entityName}.${fieldName} references non-existent type '${field.relatedType}'`
-          )
+        // For union types, validate each type in the union individually
+        if (field.unionTypes && field.unionTypes.length > 0) {
+          for (const unionType of field.unionTypes) {
+            if (unionType !== entityName && !entities.has(unionType)) {
+              throw new Error(
+                `Invalid schema: ${entityName}.${fieldName} references non-existent type '${unionType}'`
+              )
+            }
+          }
+        } else {
+          // Check if referenced type exists (non-union case)
+          if (!entities.has(field.relatedType)) {
+            throw new Error(
+              `Invalid schema: ${entityName}.${fieldName} references non-existent type '${field.relatedType}'`
+            )
+          }
         }
       }
     }
@@ -4490,25 +4534,35 @@ function hydrateEntity(
         continue
       }
 
-      // For forward array relations with stored IDs, create a lazy getter that
-      // fetches and hydrates the related entities
+      // For forward array relations with stored IDs, create a thenable array that:
+      // - Behaves like a normal array of IDs (has length, can be iterated, etc.)
+      // - Can be awaited to fetch and hydrate the full entities
       if (!isBackward && field.isArray && Array.isArray(data[fieldName]) && (data[fieldName] as unknown[]).length > 0) {
         const storedIds = data[fieldName] as string[]
-        Object.defineProperty(hydrated, fieldName, {
-          get: () => {
-            return (async () => {
-              const provider = await resolveProvider()
-              const results = await Promise.all(
-                storedIds.map(targetId => provider.get(field.relatedType!, targetId))
-              )
-              return Promise.all(
-                results.filter(r => r !== null).map((r) => hydrateEntity(r!, relatedEntity, schema))
-              )
-            })()
+        // Create a proxy that wraps the array but adds thenable behavior
+        const thenableArray = new Proxy(storedIds, {
+          get(target, prop) {
+            if (prop === 'then') {
+              return (resolve: (value: unknown) => void, reject: (reason: unknown) => void) => {
+                return (async () => {
+                  const provider = await resolveProvider()
+                  const results = await Promise.all(
+                    storedIds.map(targetId => provider.get(field.relatedType!, targetId))
+                  )
+                  return results.filter(r => r !== null).map((r) => hydrateEntity(r!, relatedEntity, schema))
+                })().then(resolve, reject)
+              }
+            }
+            // For all other properties, delegate to the actual array
+            const value = Reflect.get(target, prop)
+            // Bind methods to the target array
+            if (typeof value === 'function') {
+              return value.bind(target)
+            }
+            return value
           },
-          enumerable: true,
-          configurable: true,
         })
+        hydrated[fieldName] = thenableArray
         continue
       }
 
