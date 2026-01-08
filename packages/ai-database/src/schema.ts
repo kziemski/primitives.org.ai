@@ -3277,16 +3277,15 @@ async function cascadeGenerate(
       // Generate new related entities
       if (field.isArray) {
         // Generate array of related entities
-        const generated = await generateEntity(
+        // Use generateSimpleEntity to avoid infinite recursion
+        const generated = generateSimpleEntity(
           field.relatedType!,
           field.prompt,
           { parent: entityDef.name, parentData: entity, parentId: entityId },
-          schema
+          relatedEntityDef
         )
 
-        // Resolve any pending nested relations
-        const resolvedGenerated = await resolveNestedPending(generated, relatedEntityDef, schema, provider)
-        const created = await provider.create(field.relatedType!, undefined, resolvedGenerated)
+        const created = await provider.create(field.relatedType!, undefined, generated)
 
         // Update the parent entity with the new relation
         const existingIds = (entity[fieldName] as string[]) || []
@@ -3305,17 +3304,15 @@ async function cascadeGenerate(
         // Recursively cascade into the new child
         await cascadeGenerate(created, relatedEntityDef, schema, provider, options, depth + 1, progress)
       } else {
-        // Generate single related entity
-        const generated = await generateEntity(
+        // Generate single related entity using simple generation
+        const generated = generateSimpleEntity(
           field.relatedType!,
           field.prompt,
           { parent: entityDef.name, parentData: entity, parentId: entityId },
-          schema
+          relatedEntityDef
         )
 
-        // Resolve any pending nested relations
-        const resolvedGenerated = await resolveNestedPending(generated, relatedEntityDef, schema, provider)
-        const created = await provider.create(field.relatedType!, undefined, resolvedGenerated)
+        const created = await provider.create(field.relatedType!, undefined, generated)
 
         // Update the parent entity with the new relation
         await provider.update(entityDef.name, entityId, { [fieldName]: created.$id })
