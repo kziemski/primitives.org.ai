@@ -26,8 +26,7 @@
   "dependencies": {
     "ai-functions": "workspace:*",
     "digital-tools": "workspace:*",
-    "digital-workers": "workspace:*",
-    "rpc.do": "workspace:*"
+    "digital-workers": "workspace:*"
   },
   "keywords": [
     "ai",

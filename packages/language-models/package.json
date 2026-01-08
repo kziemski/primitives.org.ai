@@ -28,7 +28,5 @@
     "primitives"
   ],
   "license": "MIT",
-  "dependencies": {
-    "rpc.do": "workspace:*"
-  }
+  "dependencies": {}
 }

@@ -1,0 +1,116 @@
+{
+  "name": "org.ai",
+  "version": "0.0.1",
+  "description": "All primitives for building AI-powered organizations",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./functions": {
+      "import": "./dist/functions.js",
+      "types": "./dist/functions.d.ts"
+    },
+    "./providers": {
+      "import": "./dist/providers.js",
+      "types": "./dist/providers.d.ts"
+    },
+    "./models": {
+      "import": "./dist/models.js",
+      "types": "./dist/models.d.ts"
+    },
+    "./database": {
+      "import": "./dist/database.js",
+      "types": "./dist/database.d.ts"
+    },
+    "./workflows": {
+      "import": "./dist/workflows.js",
+      "types": "./dist/workflows.d.ts"
+    },
+    "./agents": {
+      "import": "./dist/agents.js",
+      "types": "./dist/agents.d.ts"
+    },
+    "./workers": {
+      "import": "./dist/workers.js",
+      "types": "./dist/workers.d.ts"
+    },
+    "./tasks": {
+      "import": "./dist/tasks.js",
+      "types": "./dist/tasks.d.ts"
+    },
+    "./tools": {
+      "import": "./dist/tools.js",
+      "types": "./dist/tools.d.ts"
+    },
+    "./products": {
+      "import": "./dist/products.js",
+      "types": "./dist/products.d.ts"
+    },
+    "./services": {
+      "import": "./dist/services.js",
+      "types": "./dist/services.d.ts"
+    },
+    "./business": {
+      "import": "./dist/business.js",
+      "types": "./dist/business.d.ts"
+    },
+    "./human": {
+      "import": "./dist/human.js",
+      "types": "./dist/human.d.ts"
+    },
+    "./props": {
+      "import": "./dist/props.js",
+      "types": "./dist/props.d.ts"
+    },
+    "./evaluate": {
+      "import": "./dist/evaluate.js",
+      "types": "./dist/evaluate.d.ts"
+    },
+    "./experiments": {
+      "import": "./dist/experiments.js",
+      "types": "./dist/experiments.d.ts"
+    },
+    "./tests": {
+      "import": "./dist/tests.js",
+      "types": "./dist/tests.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "ai-database": "workspace:^",
+    "ai-evaluate": "workspace:^",
+    "ai-experiments": "workspace:^",
+    "ai-functions": "workspace:^",
+    "ai-props": "workspace:^",
+    "ai-providers": "workspace:^",
+    "ai-tests": "workspace:^",
+    "ai-workflows": "workspace:^",
+    "autonomous-agents": "workspace:^",
+    "business-as-code": "workspace:^",
+    "digital-products": "workspace:^",
+    "digital-tasks": "workspace:^",
+    "digital-tools": "workspace:^",
+    "digital-workers": "workspace:^",
+    "human-in-the-loop": "workspace:^",
+    "language-models": "workspace:^",
+    "services-as-software": "workspace:^"
+  },
+  "keywords": [
+    "ai",
+    "primitives",
+    "agents",
+    "workflows",
+    "business",
+    "automation"
+  ],
+  "license": "MIT"
+}

@@ -25,8 +25,7 @@
   },
   "dependencies": {
     "ai-functions": "workspace:*",
-    "chdb": "^1.6.0",
-    "rpc.do": "workspace:*"
+    "chdb": "^1.6.0"
   },
   "keywords": [
     "ai",

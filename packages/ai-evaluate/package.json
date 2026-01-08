@@ -22,8 +22,7 @@
   "dependencies": {
     "ai-functions": "workspace:*",
     "ai-tests": "workspace:*",
-    "capnweb": "^0.2.0",
-    "rpc.do": "workspace:*"
+    "capnweb": "^0.2.0"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^2.1.0",

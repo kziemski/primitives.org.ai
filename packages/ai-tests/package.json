@@ -32,8 +32,7 @@
     "deploy": "wrangler deploy"
   },
   "dependencies": {
-    "chai": "^5.1.0",
-    "rpc.do": "workspace:*"
+    "chai": "^5.1.0"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.8.0",

@@ -21,8 +21,7 @@
   },
   "dependencies": {
     "ai-functions": "workspace:*",
-    "ai-workflows": "workspace:*",
-    "rpc.do": "workspace:*"
+    "ai-workflows": "workspace:*"
   },
   "keywords": [
     "ai",

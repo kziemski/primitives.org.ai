@@ -25,8 +25,7 @@
   },
   "dependencies": {
     "ai": "^5.0.0",
-    "language-models": "workspace:*",
-    "rpc.do": "workspace:*"
+    "language-models": "workspace:*"
   },
   "optionalDependencies": {
     "@ai-sdk/amazon-bedrock": "^3.0.0",

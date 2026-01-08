@@ -21,8 +21,7 @@
   },
   "dependencies": {
     "ai-database": "workspace:*",
-    "ai-functions": "workspace:*",
-    "rpc.do": "workspace:*"
+    "ai-functions": "workspace:*"
   },
   "keywords": [
     "business",
