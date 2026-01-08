@@ -2687,9 +2687,41 @@ async function resolveForwardExact(
       if (field.isOptional) continue
 
       if (field.isArray) {
-        // Generate array of entities (at least one for testing)
+        // Forward array relation - check if we should auto-generate
         const relatedEntity = schema.entities.get(field.relatedType!)
         if (!relatedEntity) continue
+
+        // Check if related entity has a backward ref to this type (symmetric relationship)
+        let hasBackwardRef = false
+        for (const [, relField] of relatedEntity.fields) {
+          if (relField.isRelation &&
+              relField.relatedType === typeName &&
+              relField.direction === 'backward') {
+            hasBackwardRef = true
+            break
+          }
+        }
+
+        // Check if related entity has required non-relation fields
+        let hasRequiredScalarFields = false
+        for (const [, relField] of relatedEntity.fields) {
+          if (!relField.isRelation && !relField.isOptional) {
+            hasRequiredScalarFields = true
+            break
+          }
+        }
+
+        // Decide whether to auto-generate:
+        // - If there's a symmetric backward ref AND required scalars, skip (prevents duplicates)
+        // - Otherwise, generate if the related entity can be meaningfully generated
+        const shouldSkip = hasBackwardRef && hasRequiredScalarFields
+        const canGenerate = !shouldSkip && (
+          hasBackwardRef ||  // Symmetric ref without required scalars
+          field.prompt ||    // Has a generation prompt
+          !hasRequiredScalarFields  // No required fields to worry about
+        )
+
+        if (!canGenerate) continue
 
         const generated = await generateEntity(
           field.relatedType!,
@@ -2963,22 +2995,23 @@ function hydrateEntity(
         get: () => {
           // Check if this is a backward edge
           if (isBackward && !field.isArray) {
-            // Case 1: Single backward ref with stored ID
-            // e.g., Member.team: '<-Team' where member was created with { team: teamId }
-            // Return the raw ID directly for sync access (problem.task === task.$id)
-            // To resolve to entity, use db.get() with this ID
+            // Case 1: Single backward ref
+            // Returns a Promise that resolves to the related entity
             const storedId = data[fieldName] as string | undefined
-            if (storedId) {
-              // Return the raw string ID
-              return storedId
-            }
 
-            // Case 1b: Single backward ref WITHOUT stored ID
-            // Need to find via inverse relation lookup - return async resolver directly
             return (async () => {
               const provider = await resolveProvider()
+
+              if (storedId) {
+                // Has stored ID - directly fetch the related entity
+                const result = await provider.get(field.relatedType!, storedId)
+                return result
+                  ? hydrateEntity(result, relatedEntity, schema)
+                  : null
+              }
+
+              // No stored ID - find via inverse relation lookup
               // Find entities of relatedType that have this entity in their relations
-              // Look through relations on the related entity to find one pointing to us
               for (const [relFieldName, relField] of relatedEntity.fields) {
                 if (relField.isRelation &&
                     relField.relatedType === typeName &&

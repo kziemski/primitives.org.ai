@@ -124,7 +124,8 @@ describe('Backward Exact (<-) Resolution', () => {
       const problems = await task.problems
 
       for (const problem of problems) {
-        expect(problem.task).toBe(task.$id)
+        const resolvedTask = await problem.task
+        expect(resolvedTask.$id).toBe(task.$id)
       }
     })
 
