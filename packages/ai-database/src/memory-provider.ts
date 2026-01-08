@@ -491,7 +491,6 @@ export class MemoryProvider implements DBProvider {
       furniture: [0.1, 0.15, 0.2, 0.85],
       home: [0.12, 0.18, 0.22, 0.8],
       living: [0.1, 0.15, 0.2, 0.82],
-      consumer: [0.35, 0.55, 0.4, 0.35],
       goods: [0.3, 0.5, 0.35, 0.4],
       leaders: [0.4, 0.5, 0.6, 0.4],
       senior: [0.35, 0.55, 0.55, 0.35],
