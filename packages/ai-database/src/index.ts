@@ -177,6 +177,36 @@ export type {
   ForEachErrorAction,
 } from './ai-promise-db.js'
 
+// Semantic Search exports
+export {
+  cosineSimilarity,
+  computeRRF,
+  extractEmbeddableText,
+  generateContentHash,
+  createMockSemanticProvider,
+} from './semantic.js'
+
+export type {
+  SemanticProvider,
+  SemanticSearchOptions,
+  SemanticSearchResult,
+  HybridSearchOptions,
+  HybridSearchResult,
+  EmbeddingConfig,
+  EmbeddingsConfig,
+  WithSemanticScore,
+  WithHybridScore,
+} from './semantic.js'
+
+// Re-export from schema.ts for convenience
+export type {
+  SemanticSearchOptions as DBSemanticSearchOptions,
+  HybridSearchOptions as DBHybridSearchOptions,
+  EmbeddingTypeConfig,
+  EmbeddingsConfig as DBEmbeddingsConfig,
+  DBOptions,
+} from './schema.js'
+
 // Authorization (FGA/RBAC) exports
 export type {
   // Core primitives

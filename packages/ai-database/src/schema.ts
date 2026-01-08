@@ -1931,6 +1931,15 @@ export function DB<TSchema extends DatabaseSchema>(
 ): DBResult<TSchema> {
   const parsedSchema = parseSchema(schema)
 
+  // Configure provider with embeddings settings if provided
+  if (options?.embeddings) {
+    resolveProvider().then(provider => {
+      if ('setEmbeddingsConfig' in provider) {
+        (provider as any).setEmbeddingsConfig(options.embeddings)
+      }
+    })
+  }
+
   // Create Actions API early so it can be injected into entity operations
   const actionsAPI = {
     async create(options: CreateActionOptions | { type: string; data: unknown; total?: number }) {
@@ -1998,6 +2007,25 @@ export function DB<TSchema extends DatabaseSchema>(
         results.push(...typeResults)
       }
       return results
+    },
+
+    async semanticSearch(query: string, options?: SemanticSearchOptions) {
+      const provider = await resolveProvider()
+      const results: Array<{ $id: string; $type: string; $score: number; [key: string]: unknown }> = []
+
+      if ('semanticSearch' in provider) {
+        for (const [typeName] of parsedSchema.entities) {
+          const typeResults = await (provider as any).semanticSearch(typeName, query, options)
+          results.push(...typeResults)
+        }
+      }
+
+      // Sort by score across all types
+      results.sort((a, b) => b.$score - a.$score)
+
+      // Apply limit if specified
+      const limit = options?.limit ?? results.length
+      return results.slice(0, limit)
     },
 
     async count(type: string, where?: Record<string, unknown>) {
@@ -2366,6 +2394,37 @@ function createEntityOperations<T>(
       for (const item of items) {
         await callback(item)
       }
+    },
+
+    async semanticSearch(query: string, options?: SemanticSearchOptions): Promise<Array<T & { $score: number }>> {
+      const provider = await resolveProvider()
+      if ('semanticSearch' in provider) {
+        const results = await (provider as any).semanticSearch(typeName, query, options)
+        return Promise.all(
+          results.map((r: Record<string, unknown>) => ({
+            ...hydrateEntity(r, entity, schema),
+            $score: r.$score,
+          } as T & { $score: number }))
+        )
+      }
+      return []
+    },
+
+    async hybridSearch(query: string, options?: HybridSearchOptions): Promise<Array<T & { $rrfScore: number; $ftsRank: number; $semanticRank: number; $score: number }>> {
+      const provider = await resolveProvider()
+      if ('hybridSearch' in provider) {
+        const results = await (provider as any).hybridSearch(typeName, query, options)
+        return Promise.all(
+          results.map((r: Record<string, unknown>) => ({
+            ...hydrateEntity(r, entity, schema),
+            $rrfScore: r.$rrfScore,
+            $ftsRank: r.$ftsRank,
+            $semanticRank: r.$semanticRank,
+            $score: r.$score,
+          } as T & { $rrfScore: number; $ftsRank: number; $semanticRank: number; $score: number }))
+        )
+      }
+      return []
     },
   }
 }

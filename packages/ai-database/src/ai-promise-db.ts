@@ -1129,6 +1129,8 @@ export function wrapEntityOperations<T>(
     list: (options?: any) => Promise<T[]>
     find: (where: any) => Promise<T[]>
     search: (query: string, options?: any) => Promise<T[]>
+    semanticSearch?: (query: string, options?: any) => Promise<Array<T & { $score: number }>>
+    hybridSearch?: (query: string, options?: any) => Promise<Array<T & { $rrfScore: number; $ftsRank: number; $semanticRank: number; $score: number }>>
     create: (...args: any[]) => Promise<T>
     update: (id: string, data: any) => Promise<T>
     upsert: (id: string, data: any) => Promise<T>
@@ -1141,6 +1143,8 @@ export function wrapEntityOperations<T>(
   list: (options?: any) => DBPromise<T[]>
   find: (where: any) => DBPromise<T[]>
   search: (query: string, options?: any) => DBPromise<T[]>
+  semanticSearch: (query: string, options?: any) => Promise<Array<T & { $score: number }>>
+  hybridSearch: (query: string, options?: any) => Promise<Array<T & { $rrfScore: number; $ftsRank: number; $semanticRank: number; $score: number }>>
   create: (...args: any[]) => Promise<T>
   update: (id: string, data: any) => Promise<T>
   upsert: (id: string, data: any) => Promise<T>
@@ -1232,6 +1236,23 @@ export function wrapEntityOperations<T>(
         actionsAPI,
       })
       return listPromise.forEach(callback as any, options as any)
+    },
+
+    // Semantic search methods
+    semanticSearch(query: string, options?: any): Promise<Array<T & { $score: number }>> {
+      if (operations.semanticSearch) {
+        return operations.semanticSearch(query, options)
+      }
+      // Fallback: return empty array if not supported
+      return Promise.resolve([])
+    },
+
+    hybridSearch(query: string, options?: any): Promise<Array<T & { $rrfScore: number; $ftsRank: number; $semanticRank: number; $score: number }>> {
+      if (operations.hybridSearch) {
+        return operations.hybridSearch(query, options)
+      }
+      // Fallback: return empty array if not supported
+      return Promise.resolve([])
     },
 
     // Mutations don't need wrapping

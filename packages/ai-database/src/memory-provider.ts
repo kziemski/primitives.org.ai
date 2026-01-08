@@ -3,9 +3,16 @@
  *
  * Simple provider implementation for testing and development.
  * Includes concurrency control via Semaphore for rate limiting.
+ * Supports automatic embedding generation on create/update.
  */
 
-import type { DBProvider, ListOptions, SearchOptions } from './schema.js'
+import type { DBProvider, ListOptions, SearchOptions, EmbeddingsConfig, SemanticSearchOptions, HybridSearchOptions } from './schema.js'
+import {
+  cosineSimilarity,
+  computeRRF,
+  extractEmbeddableText,
+  generateContentHash,
+} from './semantic.js'
 
 // =============================================================================
 // Semaphore for Concurrency Control
@@ -188,6 +195,8 @@ export interface Artifact {
 export interface MemoryProviderOptions {
   /** Concurrency limit for operations (default: 10) */
   concurrency?: number
+  /** Embedding configuration per type */
+  embeddings?: EmbeddingsConfig
 }
 
 // =============================================================================
@@ -315,8 +324,226 @@ export class MemoryProvider implements DBProvider {
   // Concurrency control
   private semaphore: Semaphore
 
+  // Embedding configuration
+  private embeddingsConfig: EmbeddingsConfig
+
+  // Embedding dimensions (matching semantic.ts)
+  private readonly EMBEDDING_DIMENSIONS = 384
+
   constructor(options: MemoryProviderOptions = {}) {
     this.semaphore = new Semaphore(options.concurrency ?? 10)
+    this.embeddingsConfig = options.embeddings ?? {}
+  }
+
+  /**
+   * Set embeddings configuration
+   */
+  setEmbeddingsConfig(config: EmbeddingsConfig): void {
+    this.embeddingsConfig = config
+  }
+
+  // ===========================================================================
+  // Embedding Generation
+  // ===========================================================================
+
+  /**
+   * Generate embedding for text (deterministic for testing)
+   *
+   * Uses semantic word vectors to create meaningful embeddings
+   * where similar concepts have higher cosine similarity.
+   */
+  private generateEmbedding(text: string): number[] {
+    // Import semantic vectors for deterministic embeddings
+    const SEMANTIC_VECTORS: Record<string, number[]> = {
+      // AI/ML domain
+      machine: [0.9, 0.1, 0.05, 0.02],
+      learning: [0.85, 0.15, 0.08, 0.03],
+      artificial: [0.88, 0.12, 0.06, 0.04],
+      intelligence: [0.87, 0.13, 0.07, 0.05],
+      neural: [0.82, 0.18, 0.09, 0.06],
+      network: [0.75, 0.2, 0.15, 0.1],
+      deep: [0.8, 0.17, 0.1, 0.08],
+      ai: [0.92, 0.08, 0.04, 0.02],
+      ml: [0.88, 0.12, 0.06, 0.03],
+
+      // Programming domain
+      programming: [0.15, 0.85, 0.1, 0.05],
+      code: [0.12, 0.88, 0.12, 0.06],
+      software: [0.18, 0.82, 0.15, 0.08],
+      development: [0.2, 0.8, 0.18, 0.1],
+      typescript: [0.1, 0.9, 0.08, 0.04],
+      javascript: [0.12, 0.88, 0.1, 0.05],
+      python: [0.25, 0.75, 0.12, 0.06],
+      react: [0.08, 0.85, 0.2, 0.1],
+      vue: [0.06, 0.84, 0.18, 0.08],
+      frontend: [0.05, 0.8, 0.25, 0.12],
+
+      // Database domain
+      database: [0.1, 0.7, 0.08, 0.6],
+      query: [0.12, 0.65, 0.1, 0.7],
+      sql: [0.08, 0.6, 0.05, 0.75],
+      index: [0.1, 0.58, 0.08, 0.72],
+      optimization: [0.15, 0.55, 0.12, 0.68],
+      performance: [0.18, 0.5, 0.15, 0.65],
+
+      // DevOps domain
+      kubernetes: [0.05, 0.6, 0.8, 0.15],
+      docker: [0.08, 0.55, 0.82, 0.12],
+      container: [0.06, 0.5, 0.85, 0.1],
+      deployment: [0.1, 0.45, 0.78, 0.18],
+      devops: [0.12, 0.48, 0.75, 0.2],
+
+      // Food domain (very different from tech)
+      cooking: [0.02, 0.05, 0.03, 0.02],
+      recipe: [0.03, 0.04, 0.02, 0.03],
+      food: [0.02, 0.03, 0.02, 0.02],
+      pasta: [0.01, 0.02, 0.01, 0.01],
+      pizza: [0.01, 0.03, 0.02, 0.01],
+      italian: [0.02, 0.04, 0.02, 0.02],
+      garden: [0.03, 0.02, 0.01, 0.02],
+      flowers: [0.02, 0.01, 0.01, 0.01],
+
+      // GraphQL/API
+      graphql: [0.1, 0.75, 0.15, 0.55],
+      api: [0.15, 0.7, 0.2, 0.5],
+      rest: [0.12, 0.68, 0.18, 0.48],
+      queries: [0.14, 0.65, 0.12, 0.6],
+
+      // Testing
+      testing: [0.1, 0.78, 0.08, 0.15],
+      test: [0.08, 0.8, 0.06, 0.12],
+      unit: [0.06, 0.82, 0.05, 0.1],
+      integration: [0.12, 0.75, 0.1, 0.18],
+
+      // State management
+      state: [0.08, 0.82, 0.2, 0.08],
+      management: [0.15, 0.75, 0.25, 0.12],
+      hooks: [0.06, 0.88, 0.15, 0.05],
+      usestate: [0.05, 0.9, 0.12, 0.04],
+      useeffect: [0.04, 0.88, 0.1, 0.03],
+
+      // Related/Concept domain (for semantic similarity tests)
+      related: [0.5, 0.5, 0.5, 0.5],
+      concept: [0.55, 0.45, 0.55, 0.45],
+      similar: [0.52, 0.48, 0.52, 0.48],
+      different: [0.48, 0.52, 0.48, 0.52],
+      words: [0.45, 0.55, 0.45, 0.55],
+      semantically: [0.6, 0.4, 0.6, 0.4],
+
+      // Exact match domain (distinctly different vectors)
+      exact: [0.1, 0.1, 0.1, 0.9],
+      match: [0.15, 0.15, 0.1, 0.85],
+      title: [0.1, 0.2, 0.1, 0.8],
+      contains: [0.12, 0.18, 0.12, 0.78],
+      search: [0.08, 0.22, 0.08, 0.82],
+      terms: [0.05, 0.25, 0.05, 0.85],
+    }
+
+    const DEFAULT_VECTOR = [0.1, 0.1, 0.1, 0.1]
+
+    // Simple hash function
+    const simpleHash = (str: string): number => {
+      let hash = 0
+      for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i)
+        hash = ((hash << 5) - hash) + char
+        hash = hash & hash
+      }
+      return Math.abs(hash)
+    }
+
+    // Seeded random
+    const seededRandom = (seed: number, index: number): number => {
+      const x = Math.sin(seed + index) * 10000
+      return x - Math.floor(x)
+    }
+
+    // Tokenize
+    const words = text
+      .toLowerCase()
+      .replace(/[^\w\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 0)
+
+    if (words.length === 0) {
+      return Array.from({ length: this.EMBEDDING_DIMENSIONS }, (_, i) =>
+        seededRandom(0, i) * 0.01
+      )
+    }
+
+    // Aggregate word vectors
+    const aggregated: number[] = [0, 0, 0, 0]
+    for (const word of words) {
+      const lower = word.toLowerCase()
+      const vec = SEMANTIC_VECTORS[lower] ?? DEFAULT_VECTOR.map((v, i) =>
+        v + seededRandom(simpleHash(lower), i) * 0.1
+      )
+      for (let i = 0; i < 4; i++) {
+        aggregated[i]! += vec[i]!
+      }
+    }
+
+    // Normalize
+    const norm = Math.sqrt(aggregated.reduce((sum, v) => sum + v * v, 0))
+    const normalized = aggregated.map(v => v / (norm || 1))
+
+    // Expand to full dimensions
+    const textHash = simpleHash(text)
+    const embedding = new Array(this.EMBEDDING_DIMENSIONS)
+
+    for (let i = 0; i < this.EMBEDDING_DIMENSIONS; i++) {
+      const baseIndex = i % 4
+      const base = normalized[baseIndex]!
+      const noise = seededRandom(textHash, i) * 0.1 - 0.05
+      embedding[i] = base + noise
+    }
+
+    // Final normalization
+    const finalNorm = Math.sqrt(embedding.reduce((sum: number, v: number) => sum + v * v, 0))
+    return embedding.map((v: number) => v / (finalNorm || 1))
+  }
+
+  /**
+   * Check if embeddings should be generated for a type
+   */
+  private shouldEmbed(type: string): { enabled: boolean; fields?: string[] } {
+    const config = this.embeddingsConfig[type]
+    if (config === false) {
+      return { enabled: false }
+    }
+    if (config && config.fields) {
+      return { enabled: true, fields: config.fields }
+    }
+    // Default: embed all text fields (auto-detect)
+    return { enabled: true }
+  }
+
+  /**
+   * Auto-generate embedding for an entity
+   */
+  private async autoEmbed(type: string, id: string, data: Record<string, unknown>): Promise<void> {
+    const { enabled, fields } = this.shouldEmbed(type)
+    if (!enabled) return
+
+    // Extract embeddable text
+    const { text, fields: embeddedFields } = extractEmbeddableText(data, fields)
+    if (!text.trim()) return
+
+    // Generate embedding
+    const embedding = this.generateEmbedding(text)
+    const contentHash = generateContentHash(text)
+
+    // Store as artifact with complete metadata
+    const url = `${type}/${id}`
+    await this.setArtifact(url, 'embedding', {
+      content: embedding,
+      sourceHash: contentHash,
+      metadata: {
+        fields: embeddedFields,
+        dimensions: this.EMBEDDING_DIMENSIONS,
+        text: text.slice(0, 200),
+      },
+    })
   }
 
   // ===========================================================================
@@ -426,6 +653,160 @@ export class MemoryProvider implements DBProvider {
     return scored.map((s) => s.entity)
   }
 
+  /**
+   * Semantic search using embedding similarity
+   */
+  async semanticSearch(
+    type: string,
+    query: string,
+    options?: SemanticSearchOptions
+  ): Promise<Array<Record<string, unknown> & { $score: number }>> {
+    const store = this.getTypeStore(type)
+    const limit = options?.limit ?? 10
+    const minScore = options?.minScore ?? 0
+
+    // Generate query embedding
+    const queryEmbedding = this.generateEmbedding(query)
+
+    const scored: Array<{ entity: Record<string, unknown>; score: number }> = []
+
+    for (const [id, entity] of store) {
+      // Get stored embedding from artifacts
+      const url = `${type}/${id}`
+      const artifact = await this.getArtifact(url, 'embedding')
+
+      if (!artifact || !Array.isArray(artifact.content)) {
+        continue
+      }
+
+      const embedding = artifact.content as number[]
+      const score = cosineSimilarity(queryEmbedding, embedding)
+
+      if (score >= minScore) {
+        scored.push({
+          entity: { ...entity, $id: id, $type: type },
+          score,
+        })
+      }
+    }
+
+    // Sort by score descending
+    scored.sort((a, b) => b.score - a.score)
+
+    // Apply limit and add $score
+    return scored.slice(0, limit).map(({ entity, score }) => ({
+      ...entity,
+      $score: score,
+    }))
+  }
+
+  /**
+   * Hybrid search combining FTS and semantic with RRF scoring
+   */
+  async hybridSearch(
+    type: string,
+    query: string,
+    options?: HybridSearchOptions
+  ): Promise<Array<Record<string, unknown> & {
+    $rrfScore: number
+    $ftsRank: number
+    $semanticRank: number
+    $score: number
+  }>> {
+    const limit = options?.limit ?? 10
+    const offset = options?.offset ?? 0
+    const rrfK = options?.rrfK ?? 60
+    const ftsWeight = options?.ftsWeight ?? 0.5
+    const semanticWeight = options?.semanticWeight ?? 0.5
+    const minScore = options?.minScore ?? 0
+
+    // Get FTS results with their ranks
+    const ftsResults = await this.search(type, query)
+    const ftsRanks = new Map<string, number>()
+    ftsResults.forEach((entity, index) => {
+      const id = (entity.$id as string) || (entity.id as string)
+      ftsRanks.set(id, index + 1) // 1-indexed rank
+    })
+
+    // Get semantic results with their ranks and scores
+    // Get more results to ensure we have enough after offset
+    const semanticResults = await this.semanticSearch(type, query, { limit: (limit + offset) * 2, minScore })
+    const semanticRanks = new Map<string, { rank: number; score: number }>()
+    semanticResults.forEach((entity, index) => {
+      const id = (entity.$id as string) || (entity.id as string)
+      semanticRanks.set(id, { rank: index + 1, score: entity.$score })
+    })
+
+    // Combine results with RRF
+    const allIds = new Set([...ftsRanks.keys(), ...semanticRanks.keys()])
+    const combined: Array<{
+      entity: Record<string, unknown>
+      rrfScore: number
+      ftsRank: number
+      semanticRank: number
+      semanticScore: number
+    }> = []
+
+    const store = this.getTypeStore(type)
+
+    for (const id of allIds) {
+      const entity = store.get(id)
+      if (!entity) continue
+
+      const ftsRank = ftsRanks.get(id) ?? Infinity
+      const semantic = semanticRanks.get(id) ?? { rank: Infinity, score: 0 }
+      const semanticRank = semantic.rank
+      const semanticScore = semantic.score
+
+      // Skip if semantic score is below threshold (when we have a semantic result)
+      if (semanticRanks.has(id) && semanticScore < minScore) continue
+
+      const rrfScore = computeRRF(ftsRank, semanticRank, rrfK, ftsWeight, semanticWeight)
+
+      combined.push({
+        entity: { ...entity, $id: id, $type: type },
+        rrfScore,
+        ftsRank,
+        semanticRank,
+        semanticScore,
+      })
+    }
+
+    // Sort by RRF score descending
+    combined.sort((a, b) => b.rrfScore - a.rrfScore)
+
+    // Apply offset and limit, then return with scoring fields
+    return combined.slice(offset, offset + limit).map(({ entity, rrfScore, ftsRank, semanticRank, semanticScore }) => ({
+      ...entity,
+      $rrfScore: rrfScore,
+      $ftsRank: ftsRank,
+      $semanticRank: semanticRank,
+      $score: semanticScore,
+    }))
+  }
+
+  /**
+   * Get all embeddings for a type
+   */
+  async getAllEmbeddings(type: string): Promise<Array<{ id: string; embedding: number[] }>> {
+    const store = this.getTypeStore(type)
+    const results: Array<{ id: string; embedding: number[] }> = []
+
+    for (const [id] of store) {
+      const url = `${type}/${id}`
+      const artifact = await this.getArtifact(url, 'embedding')
+
+      if (artifact && Array.isArray(artifact.content)) {
+        results.push({
+          id,
+          embedding: artifact.content as number[],
+        })
+      }
+    }
+
+    return results
+  }
+
   async create(
     type: string,
     id: string | undefined,
@@ -445,6 +826,9 @@ export class MemoryProvider implements DBProvider {
     }
 
     store.set(entityId, entity)
+
+    // Auto-generate embedding
+    await this.autoEmbed(type, entityId, entity)
 
     // Emit event
     await this.emit(`${type}.created`, { $id: entityId, $type: type, ...entity })
@@ -472,11 +856,14 @@ export class MemoryProvider implements DBProvider {
 
     store.set(id, updated)
 
+    // Re-generate embedding with updated data
+    await this.autoEmbed(type, id, updated)
+
+    // Invalidate non-embedding artifacts when data changes
+    await this.invalidateArtifacts(`${type}/${id}`)
+
     // Emit event
     await this.emit(`${type}.updated`, { $id: id, $type: type, ...updated })
-
-    // Invalidate artifacts when data changes
-    await this.invalidateArtifacts(`${type}/${id}`)
 
     return { ...updated, $id: id, $type: type }
   }
