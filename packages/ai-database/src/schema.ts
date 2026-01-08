@@ -4611,7 +4611,8 @@ function hydrateEntity(
       // For forward array relations with stored IDs, create a thenable array that:
       // - Behaves like a normal array of IDs (has length, can be iterated, etc.)
       // - Can be awaited to fetch and hydrate the full entities
-      if (!isBackward && field.isArray && Array.isArray(data[fieldName]) && (data[fieldName] as unknown[]).length > 0) {
+      // Note: we create the proxy even for empty arrays so they have $type for batch loading detection
+      if (!isBackward && field.isArray && Array.isArray(data[fieldName])) {
         const storedIds = data[fieldName] as string[]
         // Create a proxy that wraps the array but adds thenable behavior
         const thenableArray = new Proxy(storedIds, {
@@ -4626,6 +4627,14 @@ function hydrateEntity(
                   return results.filter(r => r !== null).map((r) => hydrateEntity(r!, relatedEntity, schema))
                 })().then(resolve, reject)
               }
+            }
+            // Expose $type for batch loading detection
+            if (prop === '$type') {
+              return field.relatedType
+            }
+            // Expose $isArrayRelation marker for batch loading
+            if (prop === '$isArrayRelation') {
+              return true
             }
             // For all other properties, delegate to the actual array
             const value = Reflect.get(target, prop)

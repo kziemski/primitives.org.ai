@@ -165,6 +165,7 @@ export {
   createEntityPromise,
   createSearchPromise,
   wrapEntityOperations,
+  setProviderResolver,
   DB_PROMISE_SYMBOL,
   RAW_DB_PROMISE_SYMBOL,
 } from './ai-promise-db.js'

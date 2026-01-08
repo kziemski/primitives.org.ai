@@ -22,6 +22,27 @@
  */
 
 import { Semaphore } from './memory-provider.js'
+import type { DBProvider } from './schema.js'
+
+// Provider resolver - will be set by schema.ts
+let providerResolver: (() => Promise<DBProvider>) | null = null
+
+/**
+ * Set the provider resolver function (called from schema.ts)
+ */
+export function setProviderResolver(resolver: () => Promise<DBProvider>): void {
+  providerResolver = resolver
+}
+
+/**
+ * Get the provider for batch operations
+ */
+async function getProvider(): Promise<DBProvider | null> {
+  if (providerResolver) {
+    return providerResolver()
+  }
+  return null
+}
 
 // =============================================================================
 // Types
@@ -308,7 +329,13 @@ export class DBPromise<T> implements PromiseLike<T> {
 
     // Execute the query
     const result = await this._options.executor()
-    this._resolvedValue = result
+
+    // If result is an array, wrap it with batch-loading map
+    if (Array.isArray(result)) {
+      this._resolvedValue = createBatchLoadingArray(result) as T
+    } else {
+      this._resolvedValue = result
+    }
     this._isResolved = true
 
     return this._resolvedValue
@@ -344,9 +371,7 @@ export class DBPromise<T> implements PromiseLike<T> {
         // Create recording context
         const recordings: PropertyRecording[] = []
 
-        // Record what the callback accesses for each item
-        const recordedResults: U[] = []
-
+        // Phase 1: Record what the callback accesses for each item (using placeholder proxies)
         for (let i = 0; i < items.length; i++) {
           const item = items[i]
           const recording: PropertyRecording = {
@@ -357,20 +382,31 @@ export class DBPromise<T> implements PromiseLike<T> {
           // Create a recording proxy for this item
           const recordingProxy = createRecordingProxy(item, recording)
 
-          // Execute callback with recording proxy
-          const result = callback(recordingProxy as any, i)
-          recordedResults.push(result)
+          // Execute callback with recording proxy to discover accesses
+          try {
+            callback(recordingProxy as any, i)
+          } catch {
+            // Ignore errors during recording phase - they'll surface in Phase 3
+          }
           recordings.push(recording)
         }
 
-        // Analyze recordings to find batch-loadable relations
+        // Phase 2: Analyze recordings and batch-load relations
         const batchLoads = analyzeBatchLoads(recordings, items)
-
-        // Execute batch loads
         const loadedRelations = await executeBatchLoads(batchLoads)
 
-        // Apply loaded relations to results
-        return applyBatchResults(recordedResults, loadedRelations, items)
+        // Phase 3: Re-run callback with enriched items that have loaded relations
+        const enrichedItems: Record<string, unknown>[] = []
+        for (let i = 0; i < items.length; i++) {
+          enrichedItems.push(enrichItemWithLoadedRelations(items[i] as Record<string, unknown>, loadedRelations))
+        }
+
+        // Execute callback again with enriched data
+        const results: U[] = []
+        for (let i = 0; i < enrichedItems.length; i++) {
+          results.push(callback(enrichedItems[i] as any, i))
+        }
+        return results
       },
     })
   }
@@ -907,6 +943,105 @@ function getNestedValue(obj: unknown, path: string[]): unknown {
 }
 
 /**
+ * Create an array that has a batch-loading map method
+ * When .map() is called on the resolved array, it performs batch loading of relations
+ */
+function createBatchLoadingArray<T>(items: T[]): T[] {
+  // Create a new array with all the original items
+  const batchArray = [...items] as T[] & {
+    map: <U>(callback: (item: T, index: number) => U) => Promise<U[]>
+  }
+
+  // Override the map method to do batch loading
+  Object.defineProperty(batchArray, 'map', {
+    value: async function<U>(callback: (item: T, index: number) => U): Promise<U[]> {
+      const items = this as T[]
+
+      // Phase 1: Record what the callback accesses using placeholder proxies
+      const recordings: PropertyRecording[] = []
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i]
+        const recording: PropertyRecording = {
+          paths: new Set(),
+          relations: new Map(),
+        }
+
+        // Create a recording proxy for this item
+        const recordingProxy = createRecordingProxy(item, recording)
+
+        // Execute callback with recording proxy to discover accesses
+        try {
+          callback(recordingProxy as T, i)
+        } catch {
+          // Ignore errors during recording phase - they'll surface in Phase 3
+        }
+        recordings.push(recording)
+      }
+
+      // Phase 2: Analyze recordings and batch-load relations
+      const batchLoads = analyzeBatchLoads(recordings, items)
+      const loadedRelations = await executeBatchLoads(batchLoads)
+
+      // Phase 3: Re-run callback with enriched items that have loaded relations
+      const enrichedItems: Record<string, unknown>[] = []
+      for (let i = 0; i < items.length; i++) {
+        enrichedItems.push(enrichItemWithLoadedRelations(items[i] as Record<string, unknown>, loadedRelations))
+      }
+
+      // Execute callback again with enriched data
+      const results: U[] = []
+      for (let i = 0; i < enrichedItems.length; i++) {
+        results.push(callback(enrichedItems[i] as T, i))
+      }
+      return results
+    },
+    writable: true,
+    configurable: true,
+    enumerable: false,
+  })
+
+  return batchArray
+}
+
+/**
+ * Create a proxy that records nested property accesses for relations
+ * This returns placeholder values to allow the callback to complete
+ */
+function createRelationRecordingProxy(
+  relationRecording: RelationRecording,
+  path: string[] = []
+): unknown {
+  // Return a proxy that records all nested accesses
+  return new Proxy({} as Record<string, unknown>, {
+    get(target, prop: string | symbol) {
+      if (typeof prop === 'symbol') {
+        return undefined
+      }
+
+      // Record the nested path
+      const fullPath = [...path, prop].join('.')
+      relationRecording.nestedPaths.add(prop) // Just the immediate property
+
+      // For common array methods that don't need recording
+      if (prop === 'map' || prop === 'filter' || prop === 'forEach' || prop === 'length') {
+        if (relationRecording.isArray) {
+          // Return array-like behavior
+          if (prop === 'length') return 0
+          if (prop === 'map') return (fn: Function) => []
+          if (prop === 'filter') return (fn: Function) => []
+          if (prop === 'forEach') return (fn: Function) => {}
+        }
+        return undefined
+      }
+
+      // Return another nested proxy for continued chaining
+      return createRelationRecordingProxy(relationRecording, [...path, prop])
+    },
+  })
+}
+
+/**
  * Create a proxy that records property accesses
  */
 function createRecordingProxy(
@@ -927,16 +1062,85 @@ function createRecordingProxy(
 
       const value = target[prop]
 
-      // If accessing a relation (identified by $id or Promise), record it
-      if (value && typeof value === 'object' && '$type' in (value as any)) {
-        recording.relations.set(prop, {
-          type: (value as any).$type,
-          isArray: Array.isArray(value),
-          nestedPaths: new Set(),
-        })
+      // If accessing a relation (identified by $type marker from hydration)
+      // Note: proxies may not expose $type in 'has' trap, so check via property access
+      const maybeType = value && typeof value === 'object' ? (value as any).$type : undefined
+      if (maybeType && typeof maybeType === 'string') {
+        const relationType = maybeType
+
+        // Get or create the relation recording
+        let relationRecording = recording.relations.get(prop)
+        if (!relationRecording) {
+          relationRecording = {
+            type: relationType,
+            isArray: Array.isArray(value),
+            nestedPaths: new Set(),
+          }
+          recording.relations.set(prop, relationRecording)
+        }
+
+        // Return a proxy that records nested accesses but uses placeholder values
+        return createRelationRecordingProxy(relationRecording)
       }
 
-      // Return a nested recording proxy for objects
+      // Handle arrays with potential relation elements (like members: ['->User'])
+      if (Array.isArray(value)) {
+        // Check if the array itself is a relation array (has $type marker from thenableArray)
+        const arrayType = (value as any).$type
+        const isArrayRelation = arrayType !== undefined || (value as any).$isArrayRelation
+
+        // Also check if array contains relation proxies (for backwards compatibility)
+        const hasRelationElements = !isArrayRelation && value.some(v =>
+          v && typeof v === 'object' && (v as any).$type !== undefined
+        )
+
+        if (isArrayRelation || hasRelationElements) {
+          // Get the type from the array $type or first element
+          let relationType = arrayType
+          if (!relationType) {
+            const firstRelation = value.find(v => v && typeof v === 'object' && (v as any).$type !== undefined)
+            relationType = firstRelation ? (firstRelation as any).$type : 'unknown'
+          }
+
+          let relationRecording = recording.relations.get(prop)
+          if (!relationRecording) {
+            relationRecording = {
+              type: relationType,
+              isArray: true,
+              nestedPaths: new Set(),
+            }
+            recording.relations.set(prop, relationRecording)
+          }
+
+          // Return a proxy array that records element accesses
+          return new Proxy(value, {
+            get(arrayTarget, arrayProp) {
+              if (arrayProp === 'map') {
+                return (fn: Function) => {
+                  // Record what the map callback accesses
+                  const elementProxy = createRelationRecordingProxy(relationRecording!)
+                  // Execute callback to record accesses, but we can't return real results
+                  try { fn(elementProxy, 0) } catch {}
+                  return []
+                }
+              }
+              if (arrayProp === 'length') return value.length
+              if (arrayProp === 'filter') return (fn: Function) => []
+              if (arrayProp === 'forEach') return (fn: Function) => {}
+              // Numeric index access
+              if (!isNaN(Number(arrayProp))) {
+                return createRelationRecordingProxy(relationRecording!)
+              }
+              return Reflect.get(arrayTarget, arrayProp)
+            }
+          })
+        }
+
+        // Regular array - wrap for recording
+        return createRecordingProxy(value, recording)
+      }
+
+      // Return a nested recording proxy for regular objects
       if (value && typeof value === 'object') {
         return createRecordingProxy(value, recording)
       }
@@ -959,29 +1163,60 @@ function analyzeBatchLoads(
   const relationCounts = new Map<string, number>()
 
   for (const recording of recordings) {
-    for (const [relationName, relation] of recording.relations) {
+    for (const [relationName] of recording.relations) {
       relationCounts.set(relationName, (relationCounts.get(relationName) || 0) + 1)
     }
   }
 
-  // Only batch-load relations accessed in all (or most) items
+  // Batch-load any relation that was accessed at least once
   for (const [relationName, count] of relationCounts) {
-    if (count >= recordings.length * 0.5) {
-      // At least 50% of items access this relation
+    if (count > 0) {
+      // At least one item accesses this relation
       const ids: string[] = []
 
       for (let i = 0; i < items.length; i++) {
         const item = items[i] as Record<string, unknown>
-        const relationId = item[relationName]
-        if (typeof relationId === 'string') {
-          ids.push(relationId)
-        } else if (relationId && typeof relationId === 'object' && '$id' in relationId) {
-          ids.push((relationId as any).$id)
+        const relationValue = item[relationName]
+
+        // Handle array relations (e.g., members: ['id1', 'id2'])
+        if (Array.isArray(relationValue)) {
+          for (const element of relationValue) {
+            if (typeof element === 'string') {
+              ids.push(element)
+            } else if (element && typeof element === 'object') {
+              // Try valueOf() for thenable proxies
+              if (typeof (element as any).valueOf === 'function') {
+                const val = (element as any).valueOf()
+                if (typeof val === 'string') {
+                  ids.push(val)
+                }
+              } else if ((element as any).$id) {
+                ids.push((element as any).$id)
+              }
+            }
+          }
+        } else if (typeof relationValue === 'string') {
+          ids.push(relationValue)
+        } else if (relationValue && typeof relationValue === 'object') {
+          // Try valueOf() for thenable proxies (single relation)
+          if (typeof (relationValue as any).valueOf === 'function') {
+            const val = (relationValue as any).valueOf()
+            if (typeof val === 'string') {
+              ids.push(val)
+            }
+          } else if ((relationValue as any).$id) {
+            ids.push((relationValue as any).$id)
+          }
         }
       }
 
       if (ids.length > 0) {
-        const relation = recordings[0]?.relations.get(relationName)
+        // Find the relation info from any recording that has it
+        let relation: RelationRecording | undefined
+        for (const recording of recordings) {
+          relation = recording.relations.get(relationName)
+          if (relation) break
+        }
         if (relation) {
           batchLoads.set(relationName, { type: relation.type, ids })
         }
@@ -1000,26 +1235,127 @@ async function executeBatchLoads(
 ): Promise<Map<string, Map<string, unknown>>> {
   const results = new Map<string, Map<string, unknown>>()
 
-  // For now, return empty - actual implementation would batch query
-  // This is a placeholder that will be filled in by the actual DB integration
+  const provider = await getProvider()
+  if (!provider) {
+    // No provider available, return empty results
+    for (const [relationName] of batchLoads) {
+      results.set(relationName, new Map())
+    }
+    return results
+  }
 
+  // Batch load each relation type
   for (const [relationName, { type, ids }] of batchLoads) {
-    results.set(relationName, new Map())
+    const relationResults = new Map<string, unknown>()
+
+    // Deduplicate IDs
+    const uniqueIds = [...new Set(ids)]
+
+    // Fetch all entities in parallel
+    const entities = await Promise.all(
+      uniqueIds.map(id => provider.get(type, id))
+    )
+
+    // Map results by ID
+    for (let i = 0; i < uniqueIds.length; i++) {
+      const entity = entities[i]
+      if (entity) {
+        const entityId = (entity.$id || entity.id) as string
+        relationResults.set(entityId, entity)
+      }
+    }
+
+    results.set(relationName, relationResults)
   }
 
   return results
 }
 
 /**
- * Apply batch-loaded results to the mapped results
+ * Enrich an item with loaded relations, replacing thenable proxies with actual data
+ */
+function enrichItemWithLoadedRelations(
+  item: Record<string, unknown>,
+  loadedRelations: Map<string, Map<string, unknown>>
+): Record<string, unknown> {
+  const enriched: Record<string, unknown> = { ...item }
+
+  for (const [relationName, relationData] of loadedRelations) {
+    const relationValue = item[relationName]
+
+    if (relationValue === undefined || relationValue === null) {
+      continue
+    }
+
+    // Handle array relations
+    if (Array.isArray(relationValue)) {
+      const loadedArray: unknown[] = []
+      for (const element of relationValue) {
+        let idStr: string | undefined
+        if (typeof element === 'string') {
+          idStr = element
+        } else if (element && typeof element === 'object') {
+          // Try valueOf for thenable proxies
+          if (typeof (element as any).valueOf === 'function') {
+            const val = (element as any).valueOf()
+            if (typeof val === 'string') {
+              idStr = val
+            }
+          }
+          if (!idStr && (element as any).$id) {
+            idStr = (element as any).$id
+          }
+        }
+
+        if (idStr) {
+          const loaded = relationData.get(idStr)
+          if (loaded) {
+            loadedArray.push(loaded)
+          }
+        }
+      }
+      enriched[relationName] = loadedArray
+    } else {
+      // Handle single relations - get the ID from the thenable proxy or direct value
+      let relationId: string | undefined
+
+      if (typeof relationValue === 'string') {
+        relationId = relationValue
+      } else if (relationValue && typeof relationValue === 'object') {
+        // Try to get ID from proxy's valueOf or toString
+        if ('valueOf' in relationValue && typeof (relationValue as any).valueOf === 'function') {
+          const val = (relationValue as any).valueOf()
+          if (typeof val === 'string') {
+            relationId = val
+          }
+        }
+        // Also check for $id
+        if (!relationId && '$id' in relationValue) {
+          relationId = (relationValue as any).$id
+        }
+      }
+
+      if (relationId) {
+        const loaded = relationData.get(relationId)
+        if (loaded) {
+          enriched[relationName] = loaded
+        }
+      }
+    }
+  }
+
+  return enriched
+}
+
+/**
+ * Apply batch-loaded results to the mapped results (deprecated, kept for compatibility)
  */
 function applyBatchResults<U>(
   results: U[],
   loadedRelations: Map<string, Map<string, unknown>>,
   originalItems: unknown[]
 ): U[] {
-  // For now, return results as-is
-  // Actual implementation would inject loaded relations
+  // No longer used - enrichment happens before callback re-run
   return results
 }
 
