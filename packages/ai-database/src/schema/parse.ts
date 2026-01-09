@@ -743,7 +743,7 @@ export function parseField(name: string, definition: FieldDefinition): ParsedFie
 
   // Use the dedicated operator parser
   const operatorResult = parseOperator(type)
-  if (operatorResult) {
+  if (operatorResult && operatorResult.operator) {
     // Validate the operator target type
     validateOperatorTarget(operatorResult.targetType, operatorResult.operator, name)
 
