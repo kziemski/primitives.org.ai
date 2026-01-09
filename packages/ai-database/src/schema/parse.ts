@@ -19,6 +19,482 @@ import type {
 import type { OperatorParseResult } from './types.js'
 
 // =============================================================================
+// Schema Validation Error
+// =============================================================================
+
+/**
+ * Custom error class for schema validation errors
+ */
+export class SchemaValidationError extends Error {
+  /** Error code for programmatic handling */
+  code: string
+  /** Path to the problematic element (e.g., 'User.name') */
+  path?: string
+  /** Additional details about the error */
+  details?: string
+
+  constructor(message: string, code: string, path?: string, details?: string) {
+    super(message)
+    this.name = 'SchemaValidationError'
+    this.code = code
+    this.path = path
+    this.details = details
+  }
+}
+
+// =============================================================================
+// Validation Constants
+// =============================================================================
+
+/** Valid primitive types */
+const VALID_PRIMITIVE_TYPES: PrimitiveType[] = [
+  'string',
+  'number',
+  'boolean',
+  'date',
+  'datetime',
+  'json',
+  'markdown',
+  'url',
+]
+
+/** Maximum entity name length */
+const MAX_ENTITY_NAME_LENGTH = 64
+
+/** Maximum field name length */
+const MAX_FIELD_NAME_LENGTH = 64
+
+/** Pattern for valid entity names: starts with letter, followed by letters/numbers/underscores */
+const VALID_ENTITY_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]*$/
+
+/** Pattern for valid field names: starts with letter or underscore, followed by letters/numbers/underscores */
+const VALID_FIELD_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+// =============================================================================
+// Validation Functions
+// =============================================================================
+
+/**
+ * Validate an entity name
+ *
+ * @param name - The entity name to validate
+ * @throws SchemaValidationError if the name is invalid
+ */
+export function validateEntityName(name: string): void {
+  // Check for empty name
+  if (!name || name.trim().length === 0) {
+    throw new SchemaValidationError(
+      `Invalid entity name: name cannot be empty. Entity names must start with a letter and contain only letters, numbers, and underscores.`,
+      'INVALID_ENTITY_NAME',
+      name
+    )
+  }
+
+  // Check length
+  if (name.length > MAX_ENTITY_NAME_LENGTH) {
+    throw new SchemaValidationError(
+      `Invalid entity name '${name}': name exceeds maximum length of ${MAX_ENTITY_NAME_LENGTH} characters. Entity names must start with a letter and contain only letters, numbers, and underscores.`,
+      'INVALID_ENTITY_NAME',
+      name
+    )
+  }
+
+  // Check for SQL injection patterns (semicolons, comments, keywords)
+  if (/[;'"`]|--|\bDROP\b|\bSELECT\b|\bUNION\b|\bINSERT\b|\bDELETE\b|\bUPDATE\b/i.test(name)) {
+    throw new SchemaValidationError(
+      `Invalid entity name '${name}': contains potentially dangerous characters or SQL keywords. Entity names must start with a letter and contain only letters, numbers, and underscores.`,
+      'INVALID_ENTITY_NAME',
+      name
+    )
+  }
+
+  // Check for XSS patterns (script tags, HTML, JavaScript protocol)
+  if (/<[^>]*>|javascript:|onerror|onclick|onload/i.test(name)) {
+    throw new SchemaValidationError(
+      `Invalid entity name '${name}': contains potentially dangerous HTML or JavaScript. Entity names must start with a letter and contain only letters, numbers, and underscores.`,
+      'INVALID_ENTITY_NAME',
+      name
+    )
+  }
+
+  // Check for angle brackets specifically
+  if (/<|>/.test(name)) {
+    throw new SchemaValidationError(
+      `Invalid entity name '${name}': contains special characters (< or >). Entity names must start with a letter and contain only letters, numbers, and underscores.`,
+      'INVALID_ENTITY_NAME',
+      name
+    )
+  }
+
+  // Check for spaces
+  if (/\s/.test(name)) {
+    throw new SchemaValidationError(
+      `Invalid entity name '${name}': contains spaces. Entity names must start with a letter and contain only letters, numbers, and underscores.`,
+      'INVALID_ENTITY_NAME',
+      name
+    )
+  }
+
+  // Check the pattern (alphanumeric + underscores, must start with letter)
+  if (!VALID_ENTITY_NAME_PATTERN.test(name)) {
+    throw new SchemaValidationError(
+      `Invalid entity name '${name}': must start with a letter and contain only letters, numbers, and underscores.`,
+      'INVALID_ENTITY_NAME',
+      name
+    )
+  }
+}
+
+/**
+ * Validate a field name
+ *
+ * @param name - The field name to validate
+ * @param entityName - The entity the field belongs to (for error messages)
+ * @throws SchemaValidationError if the name is invalid
+ */
+export function validateFieldName(name: string, entityName: string): void {
+  const path = `${entityName}.${name}`
+
+  // Check for empty name
+  if (!name || name.trim().length === 0) {
+    throw new SchemaValidationError(
+      `Invalid field name in '${entityName}': field name cannot be empty.`,
+      'INVALID_FIELD_NAME',
+      path
+    )
+  }
+
+  // Check length
+  if (name.length > MAX_FIELD_NAME_LENGTH) {
+    throw new SchemaValidationError(
+      `Invalid field name '${name}' in '${entityName}': name exceeds maximum length of ${MAX_FIELD_NAME_LENGTH} characters.`,
+      'INVALID_FIELD_NAME',
+      path
+    )
+  }
+
+  // Check for SQL injection patterns
+  if (/[;'"`]|--|\bDROP\b|\bSELECT\b|\bUNION\b|\bINSERT\b|\bDELETE\b|\bUPDATE\b/i.test(name)) {
+    throw new SchemaValidationError(
+      `Invalid field name '${name}' in '${entityName}': contains potentially dangerous characters or SQL keywords.`,
+      'INVALID_FIELD_NAME',
+      path
+    )
+  }
+
+  // Check for special characters (including @)
+  if (!VALID_FIELD_NAME_PATTERN.test(name)) {
+    throw new SchemaValidationError(
+      `Invalid field name '${name}' in '${entityName}': must start with a letter or underscore and contain only letters, numbers, and underscores.`,
+      'INVALID_FIELD_NAME',
+      path
+    )
+  }
+}
+
+/**
+ * Validate a field type
+ *
+ * @param typeDef - The field type definition to validate
+ * @param fieldName - The field name (for error messages)
+ * @param entityName - The entity name (for error messages)
+ * @throws SchemaValidationError if the type is invalid
+ */
+export function validateFieldType(typeDef: string, fieldName: string, entityName: string): void {
+  const path = `${entityName}.${fieldName}`
+
+  // Check for empty type
+  if (!typeDef || typeDef.trim().length === 0) {
+    throw new SchemaValidationError(
+      `Invalid field type for '${path}': type cannot be empty. Valid types are: ${VALID_PRIMITIVE_TYPES.join(', ')}, or a PascalCase entity reference.`,
+      'INVALID_FIELD_TYPE',
+      path
+    )
+  }
+
+  // Strip modifiers to get the base type
+  let baseType = typeDef.trim()
+
+  // Check for double optional (string??)
+  if (baseType.includes('??')) {
+    throw new SchemaValidationError(
+      `Invalid field type '${typeDef}' for '${path}': double optional modifier (??) is not allowed.`,
+      'INVALID_FIELD_TYPE',
+      path
+    )
+  }
+
+  // Remove optional modifier
+  if (baseType.endsWith('?')) {
+    baseType = baseType.slice(0, -1)
+  }
+
+  // Handle array suffix notation (e.g., string[]?)
+  if (baseType.endsWith('[]?')) {
+    baseType = baseType.slice(0, -3)
+  }
+  if (baseType.endsWith('[]')) {
+    baseType = baseType.slice(0, -2)
+  }
+
+  // If it's an operator-based definition, we validate the target type separately
+  if (/^(->|~>|<-|<~)/.test(baseType) || baseType.includes('->') || baseType.includes('~>') || baseType.includes('<-') || baseType.includes('<~')) {
+    // This will be validated in parseOperator
+    return
+  }
+
+  // Handle backref syntax (Type.field)
+  if (baseType.includes('.')) {
+    const parts = baseType.split('.')
+    baseType = parts[0]!
+    // Validate the backref field name if there are multiple dots
+    if (parts.length > 2) {
+      throw new SchemaValidationError(
+        `Invalid field type '${typeDef}' for '${path}': multiple dots in backref syntax are not allowed.`,
+        'INVALID_FIELD_TYPE',
+        path
+      )
+    }
+    // Validate the backref field name
+    const backrefName = parts[1]!
+    if (!VALID_FIELD_NAME_PATTERN.test(backrefName)) {
+      throw new SchemaValidationError(
+        `Invalid backref field name '${backrefName}' in '${typeDef}' for '${path}': must start with a letter or underscore.`,
+        'INVALID_FIELD_TYPE',
+        path
+      )
+    }
+  }
+
+  // Check for invalid SQL types
+  const sqlTypes = ['int', 'varchar', 'text', 'blob', 'integer', 'real', 'float', 'double']
+  if (sqlTypes.includes(baseType.toLowerCase())) {
+    const suggestion = baseType.toLowerCase() === 'int' || baseType.toLowerCase() === 'integer' ? 'number' :
+                       baseType.toLowerCase() === 'text' || baseType.toLowerCase() === 'varchar' ? 'string' :
+                       baseType.toLowerCase() === 'real' || baseType.toLowerCase() === 'float' || baseType.toLowerCase() === 'double' ? 'number' : 'string'
+    throw new SchemaValidationError(
+      `Invalid field type '${baseType}' for '${path}': SQL types are not supported. Did you mean '${suggestion}'? Valid types are: ${VALID_PRIMITIVE_TYPES.join(', ')}.`,
+      'INVALID_FIELD_TYPE',
+      path
+    )
+  }
+
+  // Check for invalid JavaScript types
+  const jsTypes = ['object', 'array', 'function', 'symbol', 'bigint', 'undefined', 'null']
+  if (jsTypes.includes(baseType.toLowerCase())) {
+    throw new SchemaValidationError(
+      `Invalid field type '${baseType}' for '${path}': JavaScript types are not supported. Valid types are: ${VALID_PRIMITIVE_TYPES.join(', ')}.`,
+      'INVALID_FIELD_TYPE',
+      path
+    )
+  }
+
+  // Check if it's a valid primitive or PascalCase entity reference
+  const isPrimitive = VALID_PRIMITIVE_TYPES.includes(baseType as PrimitiveType)
+  const isPascalCase = /^[A-Z][A-Za-z0-9_]*$/.test(baseType)
+
+  if (!isPrimitive && !isPascalCase) {
+    throw new SchemaValidationError(
+      `Invalid field type '${baseType}' for '${path}': unknown type. Valid types are: ${VALID_PRIMITIVE_TYPES.join(', ')}, or a PascalCase entity reference.`,
+      'INVALID_FIELD_TYPE',
+      path
+    )
+  }
+}
+
+/**
+ * Validate array field definition
+ *
+ * @param definition - The array field definition
+ * @param fieldName - The field name (for error messages)
+ * @param entityName - The entity name (for error messages)
+ * @throws SchemaValidationError if the array syntax is invalid
+ */
+export function validateArrayDefinition(definition: unknown[], fieldName: string, entityName: string): void {
+  const path = `${entityName}.${fieldName}`
+
+  // Check for empty array
+  if (definition.length === 0) {
+    throw new SchemaValidationError(
+      `Invalid array field definition for '${path}': empty array syntax is not allowed. Use ['Type'] for array of Type.`,
+      'INVALID_FIELD_TYPE',
+      path
+    )
+  }
+
+  // Check for multiple elements
+  if (definition.length > 1) {
+    throw new SchemaValidationError(
+      `Invalid array field definition for '${path}': array syntax only supports single element. Use ['Type'] not ['Type1', 'Type2'].`,
+      'INVALID_FIELD_TYPE',
+      path
+    )
+  }
+
+  // Check for nested arrays
+  if (Array.isArray(definition[0])) {
+    throw new SchemaValidationError(
+      `Invalid array field definition for '${path}': nested array syntax is not allowed. Use ['Type'] not [['Type']].`,
+      'INVALID_FIELD_TYPE',
+      path
+    )
+  }
+
+  // Check that the inner element is a string
+  if (typeof definition[0] !== 'string') {
+    throw new SchemaValidationError(
+      `Invalid array field definition for '${path}': array element must be a string type definition.`,
+      'INVALID_FIELD_TYPE',
+      path
+    )
+  }
+}
+
+/**
+ * Validate operator target type
+ *
+ * @param targetType - The target type from the operator
+ * @param operator - The operator used
+ * @param fieldName - The field name (for error messages)
+ * @throws SchemaValidationError if the target type is invalid
+ */
+export function validateOperatorTarget(targetType: string, operator: string, fieldName: string): void {
+  // Check for empty target type
+  if (!targetType || targetType.trim().length === 0) {
+    throw new SchemaValidationError(
+      `Invalid operator '${operator}' for field '${fieldName}': missing target type. Use '${operator}Type' syntax.`,
+      'INVALID_OPERATOR',
+      fieldName
+    )
+  }
+
+  // Strip modifiers for validation
+  let baseType = targetType.trim()
+  if (baseType.endsWith('?')) baseType = baseType.slice(0, -1)
+  if (baseType.endsWith('[]')) baseType = baseType.slice(0, -2)
+
+  // Handle threshold syntax (Type(0.8) or malformed Type(0.8)
+  // Match either complete threshold (Type(0.8)) or incomplete (Type(0.8)
+  const incompleteThresholdMatch = baseType.match(/^([A-Za-z][A-Za-z0-9_]*)\([^)]*$/)
+  if (incompleteThresholdMatch) {
+    // Unclosed parenthesis - this is a malformed threshold
+    // The test expects this to parse without error but not extract threshold
+    // So we strip the malformed part and use just the type name
+    baseType = incompleteThresholdMatch[1]!
+  } else {
+    const fullThresholdMatch = baseType.match(/^([^(]+)\(([^)]+)\)$/)
+    if (fullThresholdMatch) {
+      baseType = fullThresholdMatch[1]!
+    }
+  }
+
+  // Handle backref syntax
+  if (baseType.includes('.')) {
+    const parts = baseType.split('.')
+    const [typePart, backrefPart] = parts
+    baseType = typePart!
+
+    // Validate backref name
+    if (backrefPart && !VALID_FIELD_NAME_PATTERN.test(backrefPart)) {
+      throw new SchemaValidationError(
+        `Invalid backref name '${backrefPart}' in operator target '${targetType}' for field '${fieldName}': must start with a letter or underscore.`,
+        'INVALID_OPERATOR',
+        fieldName
+      )
+    }
+
+    // Check for multiple dots
+    if (parts.length > 2) {
+      throw new SchemaValidationError(
+        `Invalid operator target '${targetType}' for field '${fieldName}': multiple dots in backref syntax are not allowed.`,
+        'INVALID_OPERATOR',
+        fieldName
+      )
+    }
+  }
+
+  // Handle union types
+  if (baseType.includes('|')) {
+    const unionTypes = baseType.split('|').map(t => t.trim())
+
+    // Check for empty union members
+    if (unionTypes.some(t => !t)) {
+      throw new SchemaValidationError(
+        `Invalid union type '${targetType}' for field '${fieldName}': empty union members are not allowed.`,
+        'INVALID_OPERATOR',
+        fieldName
+      )
+    }
+
+    // Validate each union type
+    for (const unionType of unionTypes) {
+      if (!/^[A-Z][A-Za-z0-9_]*$/.test(unionType)) {
+        throw new SchemaValidationError(
+          `Invalid union type '${unionType}' in '${targetType}' for field '${fieldName}': type names must be PascalCase.`,
+          'INVALID_OPERATOR',
+          fieldName
+        )
+      }
+
+      // Check for SQL injection in union types
+      if (/[;'"`]|--|\bDROP\b|\bSELECT\b|\bUNION\b/i.test(unionType)) {
+        throw new SchemaValidationError(
+          `Invalid union type '${unionType}' in '${targetType}' for field '${fieldName}': contains potentially dangerous characters.`,
+          'INVALID_OPERATOR',
+          fieldName
+        )
+      }
+    }
+  } else {
+    // Single type validation
+    // Check for SQL injection
+    if (/[;'"`]|--|\bDROP\b|\bSELECT\b|\bUNION\b/i.test(baseType)) {
+      throw new SchemaValidationError(
+        `Invalid operator target '${targetType}' for field '${fieldName}': contains potentially dangerous characters or SQL keywords.`,
+        'INVALID_OPERATOR',
+        fieldName
+      )
+    }
+
+    // Check for XSS
+    if (/<[^>]*>|javascript:|onerror|onclick/i.test(baseType)) {
+      throw new SchemaValidationError(
+        `Invalid operator target '${targetType}' for field '${fieldName}': contains potentially dangerous HTML or JavaScript.`,
+        'INVALID_OPERATOR',
+        fieldName
+      )
+    }
+
+    // Validate PascalCase
+    if (baseType && !/^[A-Z][A-Za-z0-9_]*$/.test(baseType)) {
+      throw new SchemaValidationError(
+        `Invalid operator target '${targetType}' for field '${fieldName}': type names must be PascalCase.`,
+        'INVALID_OPERATOR',
+        fieldName
+      )
+    }
+  }
+}
+
+/**
+ * Validate operator syntax
+ *
+ * @param definition - The field definition containing the operator
+ * @param fieldName - The field name (for error messages)
+ * @throws SchemaValidationError if the operator syntax is invalid
+ */
+export function validateOperatorSyntax(definition: string, fieldName: string): void {
+  // Check for invalid operator combinations
+  if (/<>|><|~~>|-->>|<~~/.test(definition)) {
+    throw new SchemaValidationError(
+      `Invalid operator in field '${fieldName}': '${definition}' contains invalid operator syntax. Valid operators are: ->, ~>, <-, <~.`,
+      'INVALID_OPERATOR',
+      fieldName
+    )
+  }
+}
+
+// =============================================================================
 // Operator Parsing
 // =============================================================================
 
@@ -119,6 +595,14 @@ export function parseOperator(definition: string): OperatorParseResult | null {
           targetType = (typePart || '') + (suffix || '')
         } else {
           threshold = undefined
+        }
+      } else {
+        // Handle malformed threshold syntax (missing closing paren)
+        const malformedThresholdMatch = targetType.match(/^([A-Za-z][A-Za-z0-9_]*)\([^)]*$/)
+        if (malformedThresholdMatch) {
+          // Strip the malformed threshold part, keep just the type name
+          targetType = malformedThresholdMatch[1]!
+          // threshold stays undefined
         }
       }
 
@@ -242,6 +726,10 @@ export function parseField(name: string, definition: FieldDefinition): ParsedFie
   }
 
   let type = definition
+
+  // Validate operator syntax first (check for invalid operators)
+  validateOperatorSyntax(type, name)
+
   let isArray = false
   let isOptional = false
   let isRelation = false
@@ -256,6 +744,9 @@ export function parseField(name: string, definition: FieldDefinition): ParsedFie
   // Use the dedicated operator parser
   const operatorResult = parseOperator(type)
   if (operatorResult) {
+    // Validate the operator target type
+    validateOperatorTarget(operatorResult.targetType, operatorResult.operator, name)
+
     operator = operatorResult.operator
     direction = operatorResult.direction
     matchMode = operatorResult.matchMode
@@ -368,6 +859,9 @@ export function parseSchema(schema: DatabaseSchema): ParsedSchema {
 
   // First pass: parse all entities and their fields
   for (const [entityName, entitySchema] of Object.entries(schema)) {
+    // Validate entity name
+    validateEntityName(entityName)
+
     const fields = new Map<string, ParsedField>()
 
     for (const [fieldName, fieldDef] of Object.entries(entitySchema)) {
@@ -375,10 +869,28 @@ export function parseSchema(schema: DatabaseSchema): ParsedSchema {
       if (fieldName.startsWith('$')) {
         continue
       }
-      // Skip non-string/array definitions (invalid field types)
+
+      // Validate field name
+      validateFieldName(fieldName, entityName)
+
+      // Validate field definition type
       if (typeof fieldDef !== 'string' && !Array.isArray(fieldDef)) {
-        continue
+        // Object-type field definitions are invalid
+        throw new SchemaValidationError(
+          `Invalid field type for '${entityName}.${fieldName}': nested objects are not supported. Use a reference to another entity instead.`,
+          'INVALID_FIELD_TYPE',
+          `${entityName}.${fieldName}`
+        )
       }
+
+      // Validate array syntax
+      if (Array.isArray(fieldDef)) {
+        validateArrayDefinition(fieldDef, fieldName, entityName)
+      } else {
+        // Validate field type (string definition)
+        validateFieldType(fieldDef, fieldName, entityName)
+      }
+
       fields.set(fieldName, parseField(fieldName, fieldDef))
     }
 
