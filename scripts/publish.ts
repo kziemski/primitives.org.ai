@@ -15,6 +15,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const rootDir = join(__dirname, '..')
 const packagesDir = join(rootDir, 'packages')
 
+// Packages to exclude from publishing (npm restrictions, etc.)
+const EXCLUDED_PACKAGES = new Set([
+  'ai4', // Name too similar to 'ai' package on npm
+])
+
 interface PackageJson {
   name: string
   version: string
@@ -96,6 +101,11 @@ async function main() {
 
     if (pkg.private) {
       console.log(`⏭️  ${pkg.name} (private)`)
+      continue
+    }
+
+    if (EXCLUDED_PACKAGES.has(pkg.name)) {
+      console.log(`⏭️  ${pkg.name} (excluded - npm restriction)`)
       continue
     }
 
