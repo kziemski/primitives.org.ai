@@ -1,5 +1,11 @@
 # ai-providers
 
+## 2.1.1
+
+### Patch Changes
+
+- language-models@2.1.1
+
 ## 2.0.3
 
 ### Patch Changes

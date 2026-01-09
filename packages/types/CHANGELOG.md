@@ -1,4 +1,4 @@
-# ai-workflows
+# @primitives/types
 
 ## 2.1.1
 
@@ -12,14 +12,3 @@
   - @primitives/types: New shared types package with failing tests for RED phase
 
   These tests document the expected behavior for the GREEN phase implementation where generic type parameters will be reordered to put Output first (matching Promise<T> convention).
-
-## 2.0.3
-
-### Patch Changes
-
-- Updated dependencies
-  - rpc.do@0.2.0
-
-## 2.0.2
-
-## 2.0.1

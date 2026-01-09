@@ -1,5 +1,13 @@
 # digital-workers
 
+## 2.1.1
+
+### Patch Changes
+
+- Updated dependencies [6beb531]
+  - ai-functions@2.1.1
+  - ai-workflows@2.1.1
+
 ## 2.0.3
 
 ### Patch Changes

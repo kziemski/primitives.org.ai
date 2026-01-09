@@ -5,7 +5,8 @@
  * with full RPC promise pipelining support via rpc.do.
  */
 
-import { RPC, http, ws, type RPCProxy, type RPCPromise as RpcPromiseType } from 'rpc.do'
+// TODO: Re-enable RPC imports when rpc.do is published
+// import { RPC, http, ws, type RPCProxy, type RPCPromise as RpcPromiseType } from 'rpc.do'
 
 /**
  * Base class for RPC service targets
@@ -170,36 +171,38 @@ export function AI<T extends Record<string, SimpleSchema>>(
 ): SchemaFunctions<T> | (AIClient & Record<string, (...args: unknown[]) => Promise<unknown>>) {
   // Check if this is RPC client mode
   if (isAIClientOptions(schemasOrOptions)) {
-    const { model, temperature, maxTokens, functions, wsUrl, httpUrl, token } = schemasOrOptions
-
-    // Create transport based on provided URLs
-    let transport
-    if (wsUrl) {
-      transport = ws(wsUrl, token ? () => token : undefined)
-    } else if (httpUrl) {
-      transport = http(httpUrl, token ? () => token : undefined)
-    } else {
-      throw new Error('AI client requires either wsUrl or httpUrl')
-    }
-
-    // Create RPC client
-    const rpcClient = RPC<AIClient>(transport)
-
-    // Create a proxy that handles both defined methods and dynamic function calls
-    return new Proxy(rpcClient, {
-      get(target, prop: string) {
-        // Return existing methods
-        if (prop in target) {
-          return (target as unknown as Record<string, unknown>)[prop]
-        }
-
-        // Handle dynamic function calls (ai.functionName())
-        return (...args: unknown[]) => {
-          const client = target as unknown as AIClient
-          return client.do(prop, args.length === 1 ? args[0] : args)
-        }
-      }
-    }) as AIClient & Record<string, (...args: unknown[]) => Promise<unknown>>
+    // TODO: Re-enable RPC client when rpc.do is published
+    // const { model, temperature, maxTokens, functions, wsUrl, httpUrl, token } = schemasOrOptions
+    //
+    // // Create transport based on provided URLs
+    // let transport
+    // if (wsUrl) {
+    //   transport = ws(wsUrl, token ? () => token : undefined)
+    // } else if (httpUrl) {
+    //   transport = http(httpUrl, token ? () => token : undefined)
+    // } else {
+    //   throw new Error('AI client requires either wsUrl or httpUrl')
+    // }
+    //
+    // // Create RPC client
+    // const rpcClient = RPC<AIClient>(transport)
+    //
+    // // Create a proxy that handles both defined methods and dynamic function calls
+    // return new Proxy(rpcClient, {
+    //   get(target, prop: string) {
+    //     // Return existing methods
+    //     if (prop in target) {
+    //       return (target as unknown as Record<string, unknown>)[prop]
+    //     }
+    //
+    //     // Handle dynamic function calls (ai.functionName())
+    //     return (...args: unknown[]) => {
+    //       const client = target as unknown as AIClient
+    //       return client.do(prop, args.length === 1 ? args[0] : args)
+    //     }
+    //   }
+    // }) as AIClient & Record<string, (...args: unknown[]) => Promise<unknown>>
+    throw new Error('RPC client mode requires rpc.do package (not yet published). Use schema-based mode instead.')
   }
 
   // Schema functions mode - create a function for each schema

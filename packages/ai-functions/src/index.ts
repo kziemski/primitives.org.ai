@@ -14,8 +14,8 @@
  * @packageDocumentation
  */
 
-// Re-export RPC primitives from rpc.do
-export * from 'rpc.do'
+// TODO: Re-enable RPC exports when rpc.do is published
+// export * from 'rpc.do'
 
 // Export AI function types and interfaces
 export * from './types.js'

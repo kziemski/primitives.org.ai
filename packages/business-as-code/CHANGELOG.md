@@ -1,5 +1,13 @@
 # business-as-code
 
+## 2.1.1
+
+### Patch Changes
+
+- Updated dependencies [6beb531]
+  - ai-functions@2.1.1
+  - ai-database@2.1.1
+
 ## 2.0.3
 
 ### Patch Changes
