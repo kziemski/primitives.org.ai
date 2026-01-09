@@ -568,13 +568,30 @@ async function executeNLQuery<T>(
     const provider = await resolveProvider()
     const results: T[] = []
 
+    // Simple heuristic for common "list all" patterns in fallback mode
+    const lowerQuestion = question.toLowerCase().trim()
+    const isListAllQuery = /^(show|list|get|find|display)\s+(all|every|the)?\s*/i.test(lowerQuestion) ||
+                          lowerQuestion === '' ||
+                          /\ball\b/i.test(lowerQuestion)
+
     if (targetType) {
-      const searchResults = await provider.search(targetType, question)
-      results.push(...(searchResults as T[]))
+      if (isListAllQuery) {
+        // For "show all X" queries, just list everything
+        const listResults = await provider.list(targetType)
+        results.push(...(listResults as T[]))
+      } else {
+        const searchResults = await provider.search(targetType, question)
+        results.push(...(searchResults as T[]))
+      }
     } else {
       for (const [typeName] of schema.entities) {
-        const searchResults = await provider.search(typeName, question)
-        results.push(...(searchResults as T[]))
+        if (isListAllQuery) {
+          const listResults = await provider.list(typeName)
+          results.push(...(listResults as T[]))
+        } else {
+          const searchResults = await provider.search(typeName, question)
+          results.push(...(searchResults as T[]))
+        }
       }
     }
 
@@ -1193,6 +1210,12 @@ export function DB<TSchema extends DatabaseSchema>(
   // Using Record<string, unknown> with [key: string]: unknown allows flexible method access
   // while being safer than `any`. The actual operations implement EntityOperations<T>
   // but we lose the generic when storing by entity name.
+  //
+  // IMPORTANT: Each entity must be both:
+  // 1. Callable as a tagged template literal: db.Lead`query`
+  // 2. An object with methods: db.Lead.get(), db.Lead.list(), etc.
+  //
+  // We achieve this by creating a function and attaching methods to it.
   const entityOperations: Record<string, Record<string, unknown>> = {}
   const eventHandlersForOps = new Map<string, Set<(data: unknown) => void>>()
 
@@ -1209,10 +1232,33 @@ export function DB<TSchema extends DatabaseSchema>(
     }
   }
 
+  /**
+   * Make entity operations callable as a tagged template literal
+   * This allows both: db.Lead.get('id') and db.Lead`natural language query`
+   */
+  function makeCallableEntityOps(
+    ops: Record<string, unknown>,
+    entityName: string
+  ): Record<string, unknown> {
+    // Create the NL query function for this entity type
+    const nlQueryFn = createNLQueryFn(parsedSchema, entityName)
+
+    // Create a function that acts as the tagged template literal handler
+    const callableOps = function(strings: TemplateStringsArray, ...values: unknown[]) {
+      return nlQueryFn(strings, ...values)
+    }
+
+    // Copy all methods from the wrapped operations to the function
+    Object.assign(callableOps, ops)
+
+    return callableOps as unknown as Record<string, unknown>
+  }
+
   for (const [entityName, entity] of parsedSchema.entities) {
     if (entityName === 'Edge') {
       const edgeOps = createEdgeEntityOperations(allEdgeRecords, resolveProvider)
-      entityOperations[entityName] = wrapEntityOperations(entityName, edgeOps, actionsAPI) as Record<string, unknown>
+      const wrappedEdgeOps = wrapEntityOperations(entityName, edgeOps, actionsAPI) as Record<string, unknown>
+      entityOperations[entityName] = makeCallableEntityOps(wrappedEdgeOps, entityName)
     } else {
       const baseOps = createEntityOperations(entityName, entity, parsedSchema)
       const wrappedOps = wrapEntityOperations(entityName, baseOps, actionsAPI)
@@ -1378,7 +1424,8 @@ export function DB<TSchema extends DatabaseSchema>(
         return originalCreate.call(wrappedOps, ...args)
       }
 
-      entityOperations[entityName] = wrappedOps
+      // Make the entity operations callable as a tagged template literal
+      entityOperations[entityName] = makeCallableEntityOps(wrappedOps as Record<string, unknown>, entityName)
     }
   }
 
