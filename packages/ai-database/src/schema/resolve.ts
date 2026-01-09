@@ -383,14 +383,45 @@ export function hydrateEntity(
       // - Can be awaited to get the related entity (thenable)
       if (!isBackward && !field.isArray && data[fieldName]) {
         const storedId = data[fieldName] as string
+        // For union types, we need to check all possible types
+        const typesToSearch = field.unionTypes && field.unionTypes.length > 0
+          ? field.unionTypes
+          : [field.relatedType!]
+        // Check if we have a stored matchedType from the creation
+        const storedMatchedType = data[`${fieldName}$matchedType`] as string | undefined
+
         const thenableProxy = new Proxy({} as Record<string, unknown>, {
           get(target, prop) {
             if (prop === 'then') {
               return (resolve: (value: unknown) => void, reject: (reason: unknown) => void) => {
                 return (async () => {
                   const provider = await resolveProvider()
-                  const result = await provider.get(field.relatedType!, storedId)
-                  return result ? hydrateEntity(result, relatedEntity, schema, resolveProvider) : null
+
+                  // If we have a stored matched type, use it directly
+                  if (storedMatchedType && typesToSearch.includes(storedMatchedType)) {
+                    const result = await provider.get(storedMatchedType, storedId)
+                    if (result) {
+                      const matchedEntity = schema.entities.get(storedMatchedType)
+                      if (matchedEntity) {
+                        const hydrated = hydrateEntity(result, matchedEntity, schema, resolveProvider)
+                        return { ...hydrated, $matchedType: storedMatchedType }
+                      }
+                    }
+                  }
+
+                  // For union types, try each type until we find the entity
+                  for (const searchType of typesToSearch) {
+                    const searchEntity = schema.entities.get(searchType)
+                    if (!searchEntity) continue
+
+                    const result = await provider.get(searchType, storedId)
+                    if (result) {
+                      const hydrated = hydrateEntity(result, searchEntity, schema, resolveProvider)
+                      // Include $matchedType to indicate which union type matched
+                      return { ...hydrated, $matchedType: searchType }
+                    }
+                  }
+                  return null
                 })().then(resolve, reject)
               }
             }
@@ -404,7 +435,7 @@ export function hydrateEntity(
               return (regex: RegExp) => storedId.match(regex)
             }
             if (prop === '$type') {
-              return field.relatedType
+              return storedMatchedType || field.relatedType
             }
             return undefined
           },
@@ -419,6 +450,11 @@ export function hydrateEntity(
       // Note: we create the proxy even for empty arrays so they have $type for batch loading detection
       if (!isBackward && field.isArray && Array.isArray(data[fieldName])) {
         const storedIds = data[fieldName] as string[]
+        // For union types, we need to check all possible types
+        const typesToSearch = field.unionTypes && field.unionTypes.length > 0
+          ? field.unionTypes
+          : [field.relatedType!]
+
         // Create a proxy that wraps the array but adds thenable behavior
         const thenableArray = new Proxy(storedIds, {
           get(target, prop) {
@@ -426,10 +462,24 @@ export function hydrateEntity(
               return (resolve: (value: unknown) => void, reject: (reason: unknown) => void) => {
                 return (async () => {
                   const provider = await resolveProvider()
-                  const results = await Promise.all(
-                    storedIds.map(targetId => provider.get(field.relatedType!, targetId))
-                  )
-                  return results.filter(r => r !== null).map((r) => hydrateEntity(r!, relatedEntity, schema, resolveProvider))
+                  const results: Array<Record<string, unknown>> = []
+
+                  for (const targetId of storedIds) {
+                    // For union types, try each type until we find the entity
+                    for (const searchType of typesToSearch) {
+                      const searchEntity = schema.entities.get(searchType)
+                      if (!searchEntity) continue
+
+                      const result = await provider.get(searchType, targetId)
+                      if (result) {
+                        const hydrated = hydrateEntity(result, searchEntity, schema, resolveProvider)
+                        // Include $matchedType to indicate which union type matched
+                        results.push({ ...hydrated, $matchedType: searchType })
+                        break
+                      }
+                    }
+                  }
+                  return results
                 })().then(resolve, reject)
               }
             }
@@ -503,51 +553,76 @@ export function hydrateEntity(
 
             if (isBackward) {
               // Case 2: Array backward ref
+              // For union types, we need to check all possible types
+              const typesToSearch = field.unionTypes && field.unionTypes.length > 0
+                ? field.unionTypes
+                : [field.relatedType!]
+
               // Check if we have stored IDs (e.g., from backward fuzzy resolution)
               const storedIds = data[fieldName] as string[] | undefined
               if (Array.isArray(storedIds) && storedIds.length > 0) {
                 // Use stored IDs directly - this handles backward fuzzy (<~) array fields
-                const results = await Promise.all(
-                  storedIds.map(targetId => provider.get(field.relatedType!, targetId))
-                )
-                return Promise.all(
-                  results.filter(r => r !== null).map((r) => hydrateEntity(r!, relatedEntity, schema, resolveProvider))
-                )
+                // For union types, try each type until we find the entity
+                const hydrated: Array<Record<string, unknown>> = []
+                for (const targetId of storedIds) {
+                  for (const searchType of typesToSearch) {
+                    const searchEntity = schema.entities.get(searchType)
+                    if (!searchEntity) continue
+
+                    const result = await provider.get(searchType, targetId)
+                    if (result) {
+                      const hydratedEntity = hydrateEntity(result, searchEntity, schema, resolveProvider)
+                      hydrated.push({ ...hydratedEntity, $matchedType: searchType })
+                      break
+                    }
+                  }
+                }
+                return hydrated
               }
 
-              // No stored IDs - use backref lookup
+              // No stored IDs - use backref lookup across all union types
               // e.g., Blog.posts: ['<-Post'] - find Posts where post.blog === blog.$id
               // The backref tells us which field on the related type stores our ID
-              // If no explicit backref, infer from schema relationships
-              let backrefField = field.backref
+              const allResults: Array<Record<string, unknown>> = []
 
-              if (!backrefField) {
-                // Infer backref: look for a field on related entity that points to us
-                for (const [relFieldName, relField] of relatedEntity.fields) {
-                  if (relField.isRelation &&
-                      relField.relatedType === typeName &&
-                      relField.direction !== 'backward' &&
-                      !relField.isArray) {
-                    // Found a forward single relation pointing to us - use its name
-                    backrefField = relFieldName
-                    break
+              for (const searchType of typesToSearch) {
+                const searchEntity = schema.entities.get(searchType)
+                if (!searchEntity) continue
+
+                // If no explicit backref, infer from schema relationships
+                let backrefField = field.backref
+
+                if (!backrefField) {
+                  // Infer backref: look for a field on related entity that points to us
+                  for (const [relFieldName, relField] of searchEntity.fields) {
+                    if (relField.isRelation &&
+                        relField.relatedType === typeName &&
+                        relField.direction !== 'backward' &&
+                        !relField.isArray) {
+                      // Found a forward single relation pointing to us - use its name
+                      backrefField = relFieldName
+                      break
+                    }
+                  }
+
+                  // Fallback to entity name lowercase if no explicit relation found
+                  if (!backrefField) {
+                    backrefField = typeName.toLowerCase()
                   }
                 }
 
-                // Fallback to entity name lowercase if no explicit relation found
-                if (!backrefField) {
-                  backrefField = typeName.toLowerCase()
+                // Query the related type for entities that reference this entity
+                const results = await provider.list(searchType, {
+                  where: { [backrefField]: id },
+                })
+
+                for (const r of results) {
+                  const hydratedEntity = hydrateEntity(r, searchEntity, schema, resolveProvider)
+                  allResults.push({ ...hydratedEntity, $matchedType: searchType })
                 }
               }
 
-              // Query the related type for entities that reference this entity
-              const results = await provider.list(field.relatedType!, {
-                where: { [backrefField]: id },
-              })
-
-              return Promise.all(
-                results.map((r) => hydrateEntity(r, relatedEntity, schema, resolveProvider))
-              )
+              return allResults
             } else if (field.isArray) {
               // Forward array relation - get related entities via relationship
               const results = await provider.related(

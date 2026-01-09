@@ -85,26 +85,68 @@ export async function resolveBackwardFuzzy(
         continue
       }
 
+      // Determine which types to search - all union types or just the primary type
+      const typesToSearch = field.unionTypes && field.unionTypes.length > 0
+        ? field.unionTypes
+        : [field.relatedType!]
+
       // Check if provider supports semantic search
       if (hasSemanticSearch(provider)) {
-        const matches: SemanticSearchResult[] = await provider.semanticSearch(
-          field.relatedType!,
-          searchQuery,
-          { minScore: threshold, limit: field.isArray ? 10 : 1 }
-        )
+        if (field.isArray) {
+          // For array fields, collect matches from all union types
+          const allMatches: Array<{ id: string; score: number; matchedType: string }> = []
 
-        if (matches.length > 0) {
-          if (field.isArray) {
-            // For array fields, return all matches above threshold
-            resolved[fieldName] = matches
-              .filter((m: SemanticSearchResult) => m.$score >= threshold)
-              .map((m: SemanticSearchResult) => m.$id)
-          } else {
-            // For single fields, return the best match
-            const firstMatch = matches[0]
-            if (firstMatch) {
-              resolved[fieldName] = firstMatch.$id
+          for (const searchType of typesToSearch) {
+            // Only search types that exist in the schema
+            if (!schema.entities.has(searchType)) continue
+
+            const matches: SemanticSearchResult[] = await provider.semanticSearch(
+              searchType,
+              searchQuery,
+              { minScore: threshold, limit: 10 }
+            )
+
+            for (const match of matches) {
+              if (match.$score >= threshold) {
+                allMatches.push({
+                  id: match.$id,
+                  score: match.$score,
+                  matchedType: searchType
+                })
+              }
             }
+          }
+
+          // Sort by score descending and take best matches
+          allMatches.sort((a, b) => b.score - a.score)
+          resolved[fieldName] = allMatches.map(m => m.id)
+        } else {
+          // For single fields, find the best match across all union types
+          let bestMatch: SemanticSearchResult | undefined
+          let bestMatchType: string | undefined
+
+          for (const searchType of typesToSearch) {
+            // Only search types that exist in the schema
+            if (!schema.entities.has(searchType)) continue
+
+            const matches: SemanticSearchResult[] = await provider.semanticSearch(
+              searchType,
+              searchQuery,
+              { minScore: threshold, limit: 1 }
+            )
+
+            const firstMatch = matches[0]
+            if (firstMatch && firstMatch.$score >= threshold) {
+              if (!bestMatch || firstMatch.$score > bestMatch.$score) {
+                bestMatch = firstMatch
+                bestMatchType = searchType
+              }
+            }
+          }
+
+          if (bestMatch && bestMatchType) {
+            resolved[fieldName] = bestMatch.$id
+            resolved[`${fieldName}$matchedType`] = bestMatchType
           }
         }
       }
@@ -144,9 +186,9 @@ export async function resolveForwardFuzzy(
   schema: ParsedSchema,
   provider: DBProvider,
   parentId: string
-): Promise<{ data: Record<string, unknown>; pendingRelations: Array<{ fieldName: string; targetType: string; targetId: string; similarity?: number }> }> {
+): Promise<{ data: Record<string, unknown>; pendingRelations: Array<{ fieldName: string; targetType: string; targetId: string; similarity?: number; matchedType?: string }> }> {
   const resolved = { ...data }
-  const pendingRelations: Array<{ fieldName: string; targetType: string; targetId: string; similarity?: number }> = []
+  const pendingRelations: Array<{ fieldName: string; targetType: string; targetId: string; similarity?: number; matchedType?: string }> = []
   // Default threshold from entity schema or 0.75
   const defaultThreshold = getFuzzyThreshold(entity)
 
@@ -178,65 +220,96 @@ export async function resolveForwardFuzzy(
         const resultIds: string[] = []
         const usedEntityIds = new Set<string>() // Track already-matched entities to avoid duplicates
 
+        // Determine which types to search - all union types or just the primary type
+        const typesToSearch = field.unionTypes && field.unionTypes.length > 0
+          ? field.unionTypes
+          : [field.relatedType!]
+
         for (const hint of hints) {
           const hintStr = String(hint || fieldName)
           let matched = false
+          let matchedType: string | undefined
 
-          // Try semantic search first
+          // Try semantic search first - search across all union types
           if (hasSemanticSearch(provider)) {
-            const matches: SemanticSearchResult[] = await provider.semanticSearch(
-              field.relatedType!,
-              hintStr,
-              { minScore: threshold, limit: 10 } // Get more results to find unused matches
-            )
+            // Collect best match from all union types
+            let bestMatch: SemanticSearchResult | undefined
+            let bestMatchType: string | undefined
 
-            // Find the best match that hasn't been used yet
-            for (const match of matches) {
-              const matchId = match.$id
-              if (match.$score >= threshold && !usedEntityIds.has(matchId)) {
-                resultIds.push(matchId)
-                usedEntityIds.add(matchId)
-                pendingRelations.push({
-                  fieldName,
-                  targetType: field.relatedType!,
-                  targetId: matchId,
-                  similarity: match.$score
-                })
-                // Update the matched entity with $generated: false and similarity metadata
-                await provider.update(field.relatedType!, matchId, {
-                  $generated: false,
-                  $similarity: match.$score
-                })
-                matched = true
-                break
+            for (const searchType of typesToSearch) {
+              // Only search types that exist in the schema
+              if (!schema.entities.has(searchType)) continue
+
+              const matches: SemanticSearchResult[] = await provider.semanticSearch(
+                searchType,
+                hintStr,
+                { minScore: threshold, limit: 10 } // Get more results to find unused matches
+              )
+
+              // Find the best match that hasn't been used yet
+              for (const match of matches) {
+                const matchId = match.$id
+                if (match.$score >= threshold && !usedEntityIds.has(matchId)) {
+                  // Track the best match across all types
+                  if (!bestMatch || match.$score > bestMatch.$score) {
+                    bestMatch = match
+                    bestMatchType = searchType
+                  }
+                  break // Found valid match in this type, move to next type
+                }
               }
+            }
+
+            if (bestMatch && bestMatchType) {
+              const matchId = bestMatch.$id
+              matchedType = bestMatchType
+              resultIds.push(matchId)
+              usedEntityIds.add(matchId)
+              pendingRelations.push({
+                fieldName,
+                targetType: matchedType,
+                targetId: matchId,
+                similarity: bestMatch.$score,
+                matchedType
+              })
+              // Update the matched entity with $generated: false and similarity metadata
+              await provider.update(matchedType, matchId, {
+                $generated: false,
+                $similarity: bestMatch.$score,
+                $matchedType: matchedType
+              })
+              matched = true
             }
           }
 
           // Generate if no match found (or all matches were already used)
           if (!matched) {
+            // For generation, use the first union type (or primary relatedType)
+            const generateType = typesToSearch[0]!
             const generated = await generateEntity(
-              field.relatedType!,
+              generateType,
               hintStr,
               { parent: typeName, parentData: data, parentId },
               schema
             )
 
             // Resolve any pending nested relations
-            const relatedEntity = schema.entities.get(field.relatedType!)
+            const relatedEntity = schema.entities.get(generateType)
             if (relatedEntity) {
               const resolvedGenerated = await resolveNestedPending(generated, relatedEntity, schema, provider)
-              const created = await provider.create(field.relatedType!, undefined, {
+              const created = await provider.create(generateType, undefined, {
                 ...resolvedGenerated,
                 $generated: true,
                 $generatedBy: parentId,
-                $sourceField: fieldName
+                $sourceField: fieldName,
+                $matchedType: generateType
               })
               resultIds.push(created.$id as string)
               pendingRelations.push({
                 fieldName,
-                targetType: field.relatedType!,
-                targetId: created.$id as string
+                targetType: generateType,
+                targetId: created.$id as string,
+                matchedType: generateType
               })
             }
           }
@@ -246,31 +319,58 @@ export async function resolveForwardFuzzy(
       } else {
         // Single fuzzy field
         let matched = false
+        let matchedType: string | undefined
 
-        // Try semantic search first
+        // Determine which types to search - all union types or just the primary type
+        const typesToSearch = field.unionTypes && field.unionTypes.length > 0
+          ? field.unionTypes
+          : [field.relatedType!]
+
+        // Try semantic search first - search across all union types
         if (hasSemanticSearch(provider)) {
-          const matches: SemanticSearchResult[] = await provider.semanticSearch(
-            field.relatedType!,
-            searchQuery,
-            { minScore: threshold, limit: 5 }
-          )
+          // Collect best match from all union types
+          let bestMatch: SemanticSearchResult | undefined
+          let bestMatchType: string | undefined
 
-          const firstMatch = matches[0]
-          if (firstMatch && firstMatch.$score >= threshold) {
-            const matchedId = firstMatch.$id
+          for (const searchType of typesToSearch) {
+            // Only search types that exist in the schema
+            if (!schema.entities.has(searchType)) continue
+
+            const matches: SemanticSearchResult[] = await provider.semanticSearch(
+              searchType,
+              searchQuery,
+              { minScore: threshold, limit: 5 }
+            )
+
+            const firstMatch = matches[0]
+            if (firstMatch && firstMatch.$score >= threshold) {
+              // Track the best match across all types
+              if (!bestMatch || firstMatch.$score > bestMatch.$score) {
+                bestMatch = firstMatch
+                bestMatchType = searchType
+              }
+            }
+          }
+
+          if (bestMatch && bestMatchType) {
+            const matchedId = bestMatch.$id
+            matchedType = bestMatchType
             resolved[fieldName] = matchedId
             resolved[`${fieldName}$matched`] = true
-            resolved[`${fieldName}$score`] = firstMatch.$score
+            resolved[`${fieldName}$score`] = bestMatch.$score
+            resolved[`${fieldName}$matchedType`] = matchedType
             pendingRelations.push({
               fieldName,
-              targetType: field.relatedType!,
+              targetType: matchedType,
               targetId: matchedId,
-              similarity: firstMatch.$score
+              similarity: bestMatch.$score,
+              matchedType
             })
             // Update the matched entity with $generated: false and similarity metadata
-            await provider.update(field.relatedType!, matchedId, {
+            await provider.update(matchedType, matchedId, {
               $generated: false,
-              $similarity: firstMatch.$score
+              $similarity: bestMatch.$score,
+              $matchedType: matchedType
             })
             matched = true
           }
@@ -278,28 +378,33 @@ export async function resolveForwardFuzzy(
 
         // Generate if no match found
         if (!matched) {
+          // For generation, use the first union type (or primary relatedType)
+          const generateType = typesToSearch[0]!
           const generated = await generateEntity(
-            field.relatedType!,
+            generateType,
             searchQuery,  // Use searchQuery which prioritizes hint over field.prompt
             { parent: typeName, parentData: data, parentId },
             schema
           )
 
           // Resolve any pending nested relations
-          const relatedEntity = schema.entities.get(field.relatedType!)
+          const relatedEntity = schema.entities.get(generateType)
           if (relatedEntity) {
             const resolvedGenerated = await resolveNestedPending(generated, relatedEntity, schema, provider)
-            const created = await provider.create(field.relatedType!, undefined, {
+            const created = await provider.create(generateType, undefined, {
               ...resolvedGenerated,
               $generated: true,
               $generatedBy: parentId,
-              $sourceField: fieldName
+              $sourceField: fieldName,
+              $matchedType: generateType
             })
             resolved[fieldName] = created.$id
+            resolved[`${fieldName}$matchedType`] = generateType
             pendingRelations.push({
               fieldName,
-              targetType: field.relatedType!,
-              targetId: created.$id as string
+              targetType: generateType,
+              targetId: created.$id as string,
+              matchedType: generateType
             })
           }
         }

@@ -2,16 +2,15 @@
  * Core types for AI functions
  */
 
-// Use Promise directly for interface definitions
-// The actual RPC layer handles serialization
-type RpcPromise<T> = Promise<T>
-
 /**
  * A function definition that can be called by AI
+ *
+ * @typeParam TOutput - The return type of the function handler
+ * @typeParam TInput - The input type accepted by the function handler
  */
 export interface AIFunctionDefinition<
-  TInput = unknown,
-  TOutput = unknown
+  TOutput = unknown,
+  TInput = unknown
 > {
   /** Unique name for the function */
   name: string
@@ -88,41 +87,41 @@ export interface AIFunctionCall {
 }
 
 /**
- * AI client interface - all methods return RpcPromise for pipelining
+ * AI client interface - all methods return Promise for pipelining
  */
 export interface AIClient {
   /** Generate text or structured output */
-  generate(options: AIGenerateOptions): RpcPromise<AIGenerateResult>
+  generate(options: AIGenerateOptions): Promise<AIGenerateResult>
 
   /** Execute an action */
-  do(action: string, context?: unknown): RpcPromise<unknown>
+  do(action: string, context?: unknown): Promise<unknown>
 
   /** Type checking / validation */
-  is(value: unknown, type: string | JSONSchema): RpcPromise<boolean>
+  is(value: unknown, type: string | JSONSchema): Promise<boolean>
 
   /** Generate code */
-  code(prompt: string, language?: string): RpcPromise<string>
+  code(prompt: string, language?: string): Promise<string>
 
   /** Make a decision */
-  decide<T extends string>(options: T[], context?: string): RpcPromise<T>
+  decide<T extends string>(options: T[], context?: string): Promise<T>
 
   /** Generate a diagram */
-  diagram(description: string, format?: 'mermaid' | 'svg' | 'ascii'): RpcPromise<string>
+  diagram(description: string, format?: 'mermaid' | 'svg' | 'ascii'): Promise<string>
 
   /** Generate an image */
-  image(prompt: string, options?: ImageOptions): RpcPromise<ImageResult>
+  image(prompt: string, options?: ImageOptions): Promise<ImageResult>
 
   /** Generate a video */
-  video(prompt: string, options?: VideoOptions): RpcPromise<VideoResult>
+  video(prompt: string, options?: VideoOptions): Promise<VideoResult>
 
   /** Write/generate text content */
-  write(prompt: string, options?: WriteOptions): RpcPromise<string>
+  write(prompt: string, options?: WriteOptions): Promise<string>
 
   /** Generate a list of items with names and descriptions */
-  list(prompt: string): RpcPromise<ListResult>
+  list(prompt: string): Promise<ListResult>
 
   /** Generate multiple named lists of items */
-  lists(prompt: string): RpcPromise<ListsResult>
+  lists(prompt: string): Promise<ListsResult>
 }
 
 export interface ImageOptions {
@@ -209,7 +208,7 @@ export type CodeLanguage = 'typescript' | 'javascript' | 'python' | 'go' | 'rust
 /**
  * Output types for generative functions
  */
-export type GenerativeOutputType = 'string' | 'object' | 'image' | 'video' | 'audio'
+export type GenerativeOutputType = 'string' | 'object' | 'image' | 'video'
 
 /**
  * Human interaction channels
@@ -258,16 +257,19 @@ export interface SchemaLimitations {
 
 /**
  * Base definition shared by all function types
+ *
+ * @typeParam TOutput - The return type schema
+ * @typeParam TInput - The arguments schema
  */
-export interface BaseFunctionDefinition<TArgs = unknown, TReturn = unknown> {
+export interface BaseFunctionDefinition<TOutput = unknown, TInput = unknown> {
   /** Function name (used as the callable identifier) */
   name: string
   /** Human-readable description of what this function does */
   description?: string
   /** Arguments schema - SimpleSchema or Zod schema */
-  args: TArgs
+  args: TInput
   /** Return type schema - SimpleSchema or Zod schema (optional) */
-  returnType?: TReturn
+  returnType?: TOutput
 }
 
 /**
@@ -291,9 +293,12 @@ export interface BaseFunctionDefinition<TArgs = unknown, TReturn = unknown> {
  *   language: 'typescript',
  * })
  * ```
+ *
+ * @typeParam TOutput - The return type schema
+ * @typeParam TInput - The arguments schema
  */
-export interface CodeFunctionDefinition<TArgs = unknown, TReturn = unknown>
-  extends BaseFunctionDefinition<TArgs, TReturn> {
+export interface CodeFunctionDefinition<TOutput = unknown, TInput = unknown>
+  extends BaseFunctionDefinition<TOutput, TInput> {
   type: 'code'
   /** Target programming language */
   language?: CodeLanguage
@@ -335,9 +340,12 @@ export interface CodeFunctionResult {
  *   promptTemplate: 'Summarize the following text:\n\n{{text}}',
  * })
  * ```
+ *
+ * @typeParam TOutput - The return type schema
+ * @typeParam TInput - The arguments schema
  */
-export interface GenerativeFunctionDefinition<TArgs = unknown, TReturn = unknown>
-  extends BaseFunctionDefinition<TArgs, TReturn> {
+export interface GenerativeFunctionDefinition<TOutput = unknown, TInput = unknown>
+  extends BaseFunctionDefinition<TOutput, TInput> {
   type: 'generative'
   /** What type of output this function produces */
   output: GenerativeOutputType
@@ -363,8 +371,6 @@ export interface GenerativeFunctionResult<T = unknown> {
   image?: ImageResult
   /** Generated video (if output is 'video') */
   video?: VideoResult
-  /** Generated audio URL (if output is 'audio') */
-  audio?: { url: string; duration: number }
 }
 
 /**
@@ -385,9 +391,12 @@ export interface GenerativeFunctionResult<T = unknown> {
  *   maxIterations: 10,
  * })
  * ```
+ *
+ * @typeParam TOutput - The return type schema
+ * @typeParam TInput - The arguments schema
  */
-export interface AgenticFunctionDefinition<TArgs = unknown, TReturn = unknown>
-  extends BaseFunctionDefinition<TArgs, TReturn> {
+export interface AgenticFunctionDefinition<TOutput = unknown, TInput = unknown>
+  extends BaseFunctionDefinition<TOutput, TInput> {
   type: 'agentic'
   /** Instructions for the agent on how to accomplish the task */
   instructions: string
@@ -447,9 +456,12 @@ export interface AgenticExecutionState {
  *   instructions: 'Review the expense request and approve or reject it.',
  * })
  * ```
+ *
+ * @typeParam TOutput - The return type schema
+ * @typeParam TInput - The arguments schema
  */
-export interface HumanFunctionDefinition<TArgs = unknown, TReturn = unknown>
-  extends BaseFunctionDefinition<TArgs, TReturn> {
+export interface HumanFunctionDefinition<TOutput = unknown, TInput = unknown>
+  extends BaseFunctionDefinition<TOutput, TInput> {
   type: 'human'
   /** How to interact with the human */
   channel: HumanChannel
@@ -488,23 +500,29 @@ export interface HumanFunctionResult<T = unknown> {
 
 /**
  * Union of all function definition types
+ *
+ * @typeParam TOutput - The return type schema
+ * @typeParam TInput - The arguments schema
  */
-export type FunctionDefinition<TArgs = unknown, TReturn = unknown> =
-  | CodeFunctionDefinition<TArgs, TReturn>
-  | GenerativeFunctionDefinition<TArgs, TReturn>
-  | AgenticFunctionDefinition<TArgs, TReturn>
-  | HumanFunctionDefinition<TArgs, TReturn>
+export type FunctionDefinition<TOutput = unknown, TInput = unknown> =
+  | CodeFunctionDefinition<TOutput, TInput>
+  | GenerativeFunctionDefinition<TOutput, TInput>
+  | AgenticFunctionDefinition<TOutput, TInput>
+  | HumanFunctionDefinition<TOutput, TInput>
 
 /**
  * Result of defineFunction - a callable with metadata
+ *
+ * @typeParam TOutput - The return type of the function
+ * @typeParam TInput - The arguments type accepted by the function
  */
-export interface DefinedFunction<TArgs = unknown, TReturn = unknown> {
+export interface DefinedFunction<TOutput = unknown, TInput = unknown> {
   /** The original definition */
-  definition: FunctionDefinition<TArgs, TReturn>
+  definition: FunctionDefinition<TOutput, TInput>
   /** Call the function */
-  call: (args: TArgs) => Promise<TReturn>
+  call: (args: TInput) => Promise<TOutput>
   /** Get the function as a tool definition for AI */
-  asTool: () => AIFunctionDefinition<TArgs, TReturn>
+  asTool: () => AIFunctionDefinition<TOutput, TInput>
 }
 
 /**

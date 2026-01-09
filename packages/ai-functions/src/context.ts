@@ -315,7 +315,22 @@ export function getExecutionTier(itemCount: number): ExecutionTier {
 
 /**
  * Check if we should use the batch API for a given number of items
- * @deprecated Use getExecutionTier() instead for more granular control
+ *
+ * @deprecated Use {@link getExecutionTier} instead for more granular control.
+ * This function will be removed in a future major version.
+ *
+ * @param itemCount - Number of items to process
+ * @returns true if batch or flex tier should be used, false for immediate
+ *
+ * @example
+ * ```ts
+ * // Deprecated usage:
+ * if (shouldUseBatchAPI(items.length)) { ... }
+ *
+ * // Recommended:
+ * const tier = getExecutionTier(items.length)
+ * if (tier === 'batch' || tier === 'flex') { ... }
+ * ```
  */
 export function shouldUseBatchAPI(itemCount: number): boolean {
   const tier = getExecutionTier(itemCount)

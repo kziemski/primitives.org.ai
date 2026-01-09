@@ -52,94 +52,75 @@ describe('EventHandler generic order - TDD RED', () => {
      * - The test file won't compile until @ts-expect-error is removed
      */
 
-    it('documents: CURRENT types have input first, output second', () => {
-      // CURRENT: EventHandler<Input, Output>
-      // data parameter is typed as FIRST generic (Input)
-      // return type is typed as SECOND generic (Output)
-
-      // This compiles with CURRENT types because:
-      // EventHandler<ProcessResult, OrderInput> means data: ProcessResult
-      const currentHandler: EventHandler<ProcessResult, OrderInput> = (data, $) => {
-        // With CURRENT types, data is ProcessResult (first generic)
-        // @ts-expect-error - This WILL error when types are fixed (data will be OrderInput)
-        const _success: boolean = data.success  // Works with current types
-        // @ts-expect-error - This WILL error when types are fixed
-        const _time: number = data.processedAt  // Works with current types
-
-        // Return type is OrderInput with current types
-        // @ts-expect-error - This WILL error when types are fixed (return should be ProcessResult)
-        return { orderId: '123', items: [] } as OrderInput
-      }
-
-      expect(currentHandler).toBeDefined()
-    })
-
-    it('documents: calling handler with "wrong" args works with current types', () => {
+    it('documents: FIXED types have output first, input second', () => {
+      // FIXED: EventHandler<Output, Input>
+      // - First generic (TOutput) is the return type
+      // - Second generic (TInput) is the data parameter type
+      //
+      // EventHandler<ProcessResult, OrderInput> means:
+      // - data: OrderInput (second generic)
+      // - returns: ProcessResult (first generic)
       const handler: EventHandler<ProcessResult, OrderInput> = (data, $) => {
-        // Current: data is ProcessResult
-        return { orderId: '1', items: [] }
+        // With FIXED types, data is OrderInput (second generic)
+        const _orderId: string = data.orderId
+        const _items: string[] = data.items
+
+        // Return type is ProcessResult (first generic)
+        return { success: true, processedAt: Date.now() }
       }
 
-      // With CURRENT types, first arg should be ProcessResult
-      // @ts-expect-error - This WILL error when types are fixed (should accept OrderInput)
-      handler({ success: true, processedAt: 123 }, {} as WorkflowContext)
+      expect(handler).toBeDefined()
     })
 
-    it('FAILS: desired behavior - data should be second generic', () => {
-      // When types are FIXED to <TOutput, TInput>:
-      // EventHandler<ProcessResult, OrderInput> should mean:
+    it('documents: calling handler with correct args works with fixed types', () => {
+      const handler: EventHandler<ProcessResult, OrderInput> = (data, $) => {
+        // Fixed: data is OrderInput, returns ProcessResult
+        return { success: true, processedAt: Date.now() }
+      }
+
+      // With FIXED types, first arg should be OrderInput
+      handler({ orderId: '1', items: [] }, {} as WorkflowContext)
+    })
+
+    it('PASSES: data is second generic with fixed types', () => {
+      // With FIXED types <TOutput, TInput>:
+      // EventHandler<ProcessResult, OrderInput> means:
       // - data: OrderInput (second generic)
       // - return: ProcessResult (first generic)
 
-      const desiredHandler: EventHandler<ProcessResult, OrderInput> = (data, $) => {
-        // These lines test that data is OrderInput
-        // With CURRENT types: these will error (data is ProcessResult)
-        // With FIXED types: these should compile fine
-        // @ts-expect-error - REMOVE when types are fixed
+      const handler: EventHandler<ProcessResult, OrderInput> = (data, $) => {
+        // Data is correctly typed as OrderInput (second generic)
         const orderId: string = data.orderId
-        // @ts-expect-error - REMOVE when types are fixed
         const items: string[] = data.items
 
         return { success: true, processedAt: Date.now() }
       }
 
-      // Calling with OrderInput as data
-      // @ts-expect-error - REMOVE when types are fixed (currently expects ProcessResult)
-      desiredHandler({ orderId: '123', items: ['a'] }, {} as WorkflowContext)
+      // Calling with OrderInput as data - now works correctly
+      handler({ orderId: '123', items: ['a'] }, {} as WorkflowContext)
     })
   })
 
-  describe('WorkflowContext.do<TResult, TInput> order - documents current behavior', () => {
+  describe('WorkflowContext.do<TResult, TInput> order - FIXED types', () => {
     /**
-     * Current $.do signature: <TData, TResult>(event, data: TData) => Promise<TResult>
-     * Desired $.do signature: <TResult, TInput>(event, data: TInput) => Promise<TResult>
+     * FIXED $.do signature: <TResult, TInput>(event, data: TInput) => Promise<TResult>
      *
-     * The desired order puts Result first (like Promise<T>)
+     * The order puts Result first (like Promise<T>)
      */
-    it('documents: CURRENT $.do has data first, result second', () => {
+    it('documents: FIXED $.do has result first, input second', () => {
       const workflow = Workflow($ => {
         $.on.Order.process(() => ({ success: true, processedAt: Date.now() }))
       })
 
-      // With CURRENT types: $.do<TData, TResult>
-      // - First generic (TData) is the data/input type
-      // - Second generic (TResult) is the result/output type
-      //
       // With FIXED types: $.do<TResult, TInput>
       // - First generic (TResult) is the result/output type
       // - Second generic (TInput) is the data/input type
 
-      // This test documents current behavior using @ts-expect-error
-      // When types are fixed, these comments will fail
-
-      // CURRENT: $.do<ProcessResult, OrderInput> means data: ProcessResult, returns Promise<OrderInput>
-      // @ts-expect-error - REMOVE when types are fixed (data param type will change)
-      workflow.$.do<ProcessResult, OrderInput>('Order.process', { success: true, processedAt: 123 })
-
-      // When FIXED: $.do<ProcessResult, OrderInput> should mean data: OrderInput, returns Promise<ProcessResult>
+      // $.do<ProcessResult, OrderInput> means data: OrderInput, returns Promise<ProcessResult>
+      workflow.$.do<ProcessResult, OrderInput>('Order.process', { orderId: '123', items: [] })
     })
 
-    it('FAILS: desired - $.do should accept data as second generic type', async () => {
+    it('PASSES: $.do accepts data as second generic type', async () => {
       const workflow = Workflow($ => {
         $.on.Order.process((order: OrderInput) => ({
           success: true,
@@ -148,12 +129,10 @@ describe('EventHandler generic order - TDD RED', () => {
       })
 
       try {
-        // With FIXED types, this should compile (data is OrderInput, result is ProcessResult)
-        // With CURRENT types, this will error (current expects data to be ProcessResult)
-        // @ts-expect-error - REMOVE when types are fixed
+        // With FIXED types, data is OrderInput (second generic), result is ProcessResult (first generic)
         const result: ProcessResult = await workflow.$.do<ProcessResult, OrderInput>(
           'Order.process',
-          { orderId: '123', items: ['item1'] }  // OrderInput - should be accepted when fixed
+          { orderId: '123', items: ['item1'] }  // OrderInput - accepted with fixed types
         )
       } catch {
         // Expected to throw - we're testing types, not runtime
@@ -161,27 +140,27 @@ describe('EventHandler generic order - TDD RED', () => {
     })
   })
 
-  describe('WorkflowContext.try<TResult, TInput> order - documents current behavior', () => {
-    it('documents: CURRENT $.try has data first, result second', () => {
+  describe('WorkflowContext.try<TResult, TInput> order - FIXED types', () => {
+    it('documents: FIXED $.try has result first, input second', () => {
       const workflow = Workflow($ => {
         $.on.Test.action(() => ({ orderId: 'x', items: [] }))
       })
 
       // Same pattern as $.do - don't await to avoid runtime error
-      // @ts-expect-error - REMOVE when types are fixed
-      const _promise = workflow.$.try<ProcessResult, OrderInput>('Test.action', { success: true, processedAt: 123 })
+      // $.try<ProcessResult, OrderInput> means data: OrderInput, returns Promise<ProcessResult>
+      const _promise = workflow.$.try<ProcessResult, OrderInput>('Test.action', { orderId: 'x', items: [] })
     })
 
-    it('FAILS: desired - $.try should accept data as second generic type', async () => {
+    it('PASSES: $.try accepts data as second generic type', async () => {
       const workflow = Workflow($ => {
         $.on.Payment.validate((input: { amount: number }) => ({ valid: input.amount > 0 }))
       })
 
       try {
-        // @ts-expect-error - REMOVE when types are fixed
+        // With FIXED types, data is { amount: number }, result is { valid: boolean }
         const result: { valid: boolean } = await workflow.$.try<{ valid: boolean }, { amount: number }>(
           'Payment.validate',
-          { amount: 100 }  // Should be accepted when fixed
+          { amount: 100 }  // Accepted with fixed types
         )
       } catch {
         // Expected

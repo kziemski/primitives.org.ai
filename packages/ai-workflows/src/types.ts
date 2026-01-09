@@ -17,11 +17,15 @@ export interface HandlerFunction<T = unknown> {
 /**
  * Event handler function type
  * Can return void (for send) or a result (for do/try)
+ *
+ * Generic order follows Promise<T> convention:
+ * - TOutput (first) is what the handler returns
+ * - TInput (second) is what the handler receives
  */
-export type EventHandler<T = unknown, R = unknown> = (
-  data: T,
+export type EventHandler<TOutput = unknown, TInput = unknown> = (
+  data: TInput,
   $: WorkflowContext
-) => R | void | Promise<R | void>
+) => TOutput | void | Promise<TOutput | void>
 
 /**
  * Schedule handler function type
@@ -43,14 +47,22 @@ export interface WorkflowContext {
   /**
    * Do an action (durable, waits for result)
    * Retries on failure, stores result durably
+   *
+   * Generic order follows Promise<T> convention:
+   * - TResult (first) is what the action returns
+   * - TInput (second) is what data is passed to the action
    */
-  do: <TData = unknown, TResult = unknown>(event: string, data: TData) => Promise<TResult>
+  do: <TResult = unknown, TInput = unknown>(event: string, data: TInput) => Promise<TResult>
 
   /**
    * Try an action (non-durable, waits for result)
    * Simple execution without durability guarantees
+   *
+   * Generic order follows Promise<T> convention:
+   * - TResult (first) is what the action returns
+   * - TInput (second) is what data is passed to the action
    */
-  try: <TData = unknown, TResult = unknown>(event: string, data: TData) => Promise<TResult>
+  try: <TResult = unknown, TInput = unknown>(event: string, data: TInput) => Promise<TResult>
 
   /** Register event handler ($.on.Noun.event) */
   on: OnProxy
@@ -143,23 +155,97 @@ export interface ArtifactData {
 }
 
 /**
+ * Event handler proxy for a specific noun
+ * Allows $.on.Noun.event(handler) pattern
+ */
+export type NounEventProxy = {
+  [event: string]: (handler: EventHandler) => void
+}
+
+/**
  * Event proxy type for $.on.Noun.event pattern
+ *
+ * Includes explicit known nouns for IDE autocomplete while
+ * preserving index signature for dynamic noun access.
  */
 export type OnProxy = {
-  [noun: string]: {
-    [event: string]: (handler: EventHandler) => void
-  }
+  // Known nouns (for autocomplete)
+  Customer: NounEventProxy
+  Order: NounEventProxy
+  Payment: NounEventProxy
+  User: NounEventProxy
+  Email: NounEventProxy
+  Invoice: NounEventProxy
+  Product: NounEventProxy
+  Subscription: NounEventProxy
+  // Index signature for dynamic nouns
+  [noun: string]: NounEventProxy
+}
+
+/**
+ * Schedule handler with optional time modifiers
+ * Allows $.every.Monday.at9am(handler) pattern
+ */
+export type DayScheduleProxy = ((handler: ScheduleHandler) => void) & {
+  at6am: (handler: ScheduleHandler) => void
+  at7am: (handler: ScheduleHandler) => void
+  at8am: (handler: ScheduleHandler) => void
+  at9am: (handler: ScheduleHandler) => void
+  at10am: (handler: ScheduleHandler) => void
+  at11am: (handler: ScheduleHandler) => void
+  at12pm: (handler: ScheduleHandler) => void
+  atnoon: (handler: ScheduleHandler) => void
+  at1pm: (handler: ScheduleHandler) => void
+  at2pm: (handler: ScheduleHandler) => void
+  at3pm: (handler: ScheduleHandler) => void
+  at4pm: (handler: ScheduleHandler) => void
+  at5pm: (handler: ScheduleHandler) => void
+  at6pm: (handler: ScheduleHandler) => void
+  atmidnight: (handler: ScheduleHandler) => void
+  [timeKey: string]: (handler: ScheduleHandler) => void
 }
 
 /**
  * Every proxy type for $.every patterns
+ *
+ * Includes explicit known schedule patterns for IDE autocomplete while
+ * preserving index signature for dynamic patterns.
  */
 export type EveryProxy = {
+  // Callable for natural language schedules
   (description: string, handler: ScheduleHandler): void
 } & {
-  [key: string]: ((handler: ScheduleHandler) => void) | ((value: number) => (handler: ScheduleHandler) => void) | {
-    [timeKey: string]: (handler: ScheduleHandler) => void
-  }
+  // Known time units (for autocomplete)
+  second: (handler: ScheduleHandler) => void
+  minute: (handler: ScheduleHandler) => void
+  hour: (handler: ScheduleHandler) => void
+  day: (handler: ScheduleHandler) => void
+  week: (handler: ScheduleHandler) => void
+  month: (handler: ScheduleHandler) => void
+  year: (handler: ScheduleHandler) => void
+
+  // Known days of week with time modifiers
+  Monday: DayScheduleProxy
+  Tuesday: DayScheduleProxy
+  Wednesday: DayScheduleProxy
+  Thursday: DayScheduleProxy
+  Friday: DayScheduleProxy
+  Saturday: DayScheduleProxy
+  Sunday: DayScheduleProxy
+  weekday: DayScheduleProxy
+  weekend: DayScheduleProxy
+  midnight: (handler: ScheduleHandler) => void
+  noon: (handler: ScheduleHandler) => void
+
+  // Plural forms for specifying intervals
+  seconds: (value: number) => (handler: ScheduleHandler) => void
+  minutes: (value: number) => (handler: ScheduleHandler) => void
+  hours: (value: number) => (handler: ScheduleHandler) => void
+  days: (value: number) => (handler: ScheduleHandler) => void
+  weeks: (value: number) => (handler: ScheduleHandler) => void
+
+  // Index signature for dynamic patterns
+  [key: string]: ((handler: ScheduleHandler) => void) | ((value: number) => (handler: ScheduleHandler) => void) | DayScheduleProxy
 }
 
 /**

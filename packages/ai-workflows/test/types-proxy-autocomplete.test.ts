@@ -113,26 +113,16 @@ describe('OnProxy/EveryProxy autocomplete - TDD RED', () => {
       const _random = workflow.$.on.AnyRandomString  // Also works, same type
     })
 
-    it('FAILS when fixed: OnProxy should have explicit known nouns', () => {
-      // This test will FAIL TO COMPILE when OnProxy is fixed to have explicit keys
-      // because the type check will be different
-
-      // With CURRENT types: OnProxy has no explicit 'Customer' key
-      // With FIXED types: OnProxy should have Customer, Order, etc. as explicit keys
-
-      // Type that checks if 'Customer' is an explicit key vs index signature
-      // With pure index signature, this is still 'true' because any string matches
-      // So we need a different approach...
-
-      // For now, this test documents the limitation - we can't easily distinguish
-      // index-signature-matched keys from explicit keys in TypeScript
+    it('PASSES: OnProxy has explicit known nouns', () => {
+      // With FIXED types: OnProxy has explicit Customer, Order, etc. keys
 
       type OnProxyKeys = keyof OnProxy
-      // With index signature: keyof is string
-      // With explicit keys: keyof would include 'Customer' | 'Order' | string
+      // With explicit keys: keyof includes 'Customer' | 'Order' | string
 
-      // @ts-expect-error - REMOVE when fixed: OnProxyKeys should include literal types
-      const _onlyString: OnProxyKeys = 'Customer'  // Currently this is just 'string'
+      // This now works - Customer is a valid OnProxyKeys value
+      const _customerKey: OnProxyKeys = 'Customer'
+      const _orderKey: OnProxyKeys = 'Order'
+      const _paymentKey: OnProxyKeys = 'Payment'
     })
   })
 
@@ -178,17 +168,16 @@ describe('OnProxy/EveryProxy autocomplete - TDD RED', () => {
       // Type: hour is union type, not specifically (handler) => void
     })
 
-    it('FAILS when fixed: $.every.Monday.at9am should be directly typed', () => {
+    it('PASSES: $.every.Monday.at9am is directly typed', () => {
       const workflow = Workflow($ => {})
 
       const monday = workflow.$.every.Monday
 
-      // With CURRENT types: monday.at9am may not be properly typed
-      // With FIXED types: monday.at9am should be (handler: ScheduleHandler) => void
-
-      // This currently might error or return unknown
-      // @ts-expect-error - REMOVE when types are fixed to support chained access
+      // With FIXED types: monday.at9am is (handler: ScheduleHandler) => void
       const at9am: (handler: ScheduleHandler) => void = monday.at9am
+
+      // Can call it directly
+      at9am(() => {})
     })
 
     it('documents: $.every.minutes curried call works at runtime', () => {
@@ -206,14 +195,15 @@ describe('OnProxy/EveryProxy autocomplete - TDD RED', () => {
       expectTypeOf(every30).toBeFunction()
     })
 
-    it('FAILS when fixed: keyof EveryProxy should include known patterns', () => {
-      // With CURRENT types: keyof EveryProxy is string (from index signature)
-      // With FIXED types: keyof EveryProxy should include 'hour' | 'Monday' | 'minutes' | string
+    it('PASSES: keyof EveryProxy includes known patterns', () => {
+      // With FIXED types: keyof EveryProxy includes 'hour' | 'Monday' | 'minutes' | string
 
       type EveryProxyKeys = keyof EveryProxy
 
-      // @ts-expect-error - REMOVE when fixed: should accept literal type
-      const _hourKey: EveryProxyKeys extends 'hour' ? true : false = true
+      // These are all valid EveryProxy keys
+      const _hourKey: EveryProxyKeys = 'hour'
+      const _mondayKey: EveryProxyKeys = 'Monday'
+      const _minutesKey: EveryProxyKeys = 'minutes'
     })
 
     it('documents: IDE autocomplete limited with current union types', () => {

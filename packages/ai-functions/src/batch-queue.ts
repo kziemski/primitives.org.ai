@@ -31,13 +31,33 @@ import type { SimpleSchema } from './schema.js'
 // Types
 // ============================================================================
 
-/** Batch processing mode */
+/**
+ * Batch processing mode
+ *
+ * - `sync`: Process synchronously (blocking)
+ * - `async`: Process asynchronously (non-blocking)
+ * - `background`: Process in background (fire and forget)
+ */
 export type BatchMode = 'sync' | 'async' | 'background'
 
-/** Supported batch providers */
+/**
+ * Supported batch providers
+ *
+ * - `openai`: OpenAI Batch API with 50% discount, up to 24hr turnaround
+ * - `anthropic`: Anthropic Message Batches API
+ * - `google`: Google AI batch processing
+ * - `bedrock`: AWS Bedrock batch inference
+ * - `cloudflare`: Cloudflare Workers AI batch processing
+ */
 export type BatchProvider = 'openai' | 'anthropic' | 'google' | 'bedrock' | 'cloudflare'
 
-/** Status of a batch job */
+/**
+ * Status of a batch job
+ *
+ * Lifecycle: pending -> validating -> in_progress -> finalizing -> completed
+ * Error states: failed, expired, cancelled
+ * Cancel states: cancelling -> cancelled
+ */
 export type BatchStatus =
   | 'pending'
   | 'validating'
@@ -49,7 +69,14 @@ export type BatchStatus =
   | 'cancelling'
   | 'cancelled'
 
-/** Individual item in a batch */
+/**
+ * Individual item in a batch
+ *
+ * Represents a single prompt/request within a batch job. Each item has its own
+ * ID, prompt, optional schema, and tracks its own completion status and result.
+ *
+ * @typeParam T - The expected result type for this item
+ */
 export interface BatchItem<T = unknown> {
   /** Unique ID for this item */
   id: string
@@ -69,7 +96,12 @@ export interface BatchItem<T = unknown> {
   status: 'pending' | 'completed' | 'failed'
 }
 
-/** Batch job information */
+/**
+ * Batch job information
+ *
+ * Contains metadata about a submitted batch job including its status,
+ * progress, and timing information. Used to track and manage batch jobs.
+ */
 export interface BatchJob {
   /** Unique batch ID */
   id: string
@@ -101,14 +133,26 @@ export interface BatchJob {
   errorFileId?: string
 }
 
-/** Result of a batch submission */
+/**
+ * Result of a batch submission
+ *
+ * Returned when a batch is submitted to the provider. Contains the job
+ * information and a promise that resolves when the batch completes.
+ */
 export interface BatchSubmitResult {
   job: BatchJob
   /** Promise that resolves when batch is complete */
   completion: Promise<BatchResult[]>
 }
 
-/** Result of a single item in the batch */
+/**
+ * Result of a single item in the batch
+ *
+ * Contains the outcome of processing a single item including success/failure
+ * status, result data, and token usage information.
+ *
+ * @typeParam T - The type of the result data
+ */
 export interface BatchResult<T = unknown> {
   /** Item ID */
   id: string
@@ -128,7 +172,12 @@ export interface BatchResult<T = unknown> {
   }
 }
 
-/** Options for creating a batch queue */
+/**
+ * Options for creating a batch queue
+ *
+ * Configure the batch queue behavior including provider selection,
+ * model, webhook notifications, and auto-submission thresholds.
+ */
 export interface BatchQueueOptions {
   /** Provider to use for batch processing */
   provider?: BatchProvider
@@ -313,6 +362,9 @@ export class BatchQueue {
 
 /**
  * Interface for provider-specific batch implementations
+ *
+ * Implement this interface to add support for a new batch processing provider.
+ * Each provider (OpenAI, Anthropic, etc.) has its own adapter implementation.
  */
 export interface BatchAdapter {
   /** Submit a batch to the provider */
@@ -329,7 +381,10 @@ export interface BatchAdapter {
 
 /**
  * Interface for flex processing (faster than batch, ~50% discount)
- * Available for OpenAI and AWS Bedrock
+ *
+ * Flex processing provides the same cost savings as batch processing
+ * but with faster turnaround (minutes instead of hours).
+ * Currently available for OpenAI and AWS Bedrock only.
  */
 export interface FlexAdapter {
   /**
@@ -363,6 +418,20 @@ const flexAdapters: Record<BatchProvider, FlexAdapter | null> = {
 
 /**
  * Register a batch adapter for a provider
+ *
+ * Call this to register a custom batch adapter for a provider.
+ * This is typically done by provider-specific packages.
+ *
+ * @param provider - The provider to register the adapter for
+ * @param adapter - The batch adapter implementation
+ *
+ * @example
+ * ```ts
+ * import { registerBatchAdapter } from 'ai-functions'
+ * import { OpenAIBatchAdapter } from './openai-adapter'
+ *
+ * registerBatchAdapter('openai', new OpenAIBatchAdapter())
+ * ```
  */
 export function registerBatchAdapter(provider: BatchProvider, adapter: BatchAdapter): void {
   adapters[provider] = adapter
@@ -370,6 +439,12 @@ export function registerBatchAdapter(provider: BatchProvider, adapter: BatchAdap
 
 /**
  * Register a flex adapter for a provider
+ *
+ * Flex adapters provide faster-than-batch processing with the same cost savings.
+ * Only OpenAI and AWS Bedrock currently support flex processing.
+ *
+ * @param provider - The provider to register the adapter for
+ * @param adapter - The flex adapter implementation
  */
 export function registerFlexAdapter(provider: BatchProvider, adapter: FlexAdapter): void {
   flexAdapters[provider] = adapter
@@ -377,6 +452,10 @@ export function registerFlexAdapter(provider: BatchProvider, adapter: FlexAdapte
 
 /**
  * Get the batch adapter for a provider
+ *
+ * @param provider - The provider to get the adapter for
+ * @returns The registered batch adapter
+ * @throws Error if no adapter is registered for the provider
  */
 export function getBatchAdapter(provider: BatchProvider): BatchAdapter {
   const adapter = adapters[provider]
@@ -391,6 +470,10 @@ export function getBatchAdapter(provider: BatchProvider): BatchAdapter {
 
 /**
  * Get the flex adapter for a provider
+ *
+ * @param provider - The provider to get the adapter for
+ * @returns The registered flex adapter
+ * @throws Error if no flex adapter is registered (flex not supported by provider)
  */
 export function getFlexAdapter(provider: BatchProvider): FlexAdapter {
   const adapter = flexAdapters[provider]
@@ -404,7 +487,10 @@ export function getFlexAdapter(provider: BatchProvider): FlexAdapter {
 }
 
 /**
- * Check if flex is available for a provider
+ * Check if flex processing is available for a provider
+ *
+ * @param provider - The provider to check
+ * @returns true if flex adapter is registered, false otherwise
  */
 export function hasFlexAdapter(provider: BatchProvider): boolean {
   return flexAdapters[provider] !== null
@@ -458,10 +544,18 @@ export async function withBatch<T>(
 // Deferred Execution Support
 // ============================================================================
 
-/** Symbol to mark an AIPromise as batched/deferred */
+/**
+ * Symbol to mark an AIPromise as batched/deferred
+ *
+ * Used internally to identify promises that should be processed via batch API.
+ */
 export const BATCH_MODE_SYMBOL = Symbol.for('ai-batch-mode')
 
-/** Options for deferred execution */
+/**
+ * Options for deferred execution
+ *
+ * Extends FunctionOptions with batch-specific settings.
+ */
 export interface DeferredOptions extends FunctionOptions {
   /** Batch queue to add to */
   batch?: BatchQueue
@@ -471,6 +565,9 @@ export interface DeferredOptions extends FunctionOptions {
 
 /**
  * Check if we're in batch mode
+ *
+ * @param options - Options that may contain a batch queue
+ * @returns true if a batch queue is present in options
  */
 export function isBatchMode(options?: DeferredOptions): boolean {
   return !!options?.batch
@@ -478,6 +575,13 @@ export function isBatchMode(options?: DeferredOptions): boolean {
 
 /**
  * Add an operation to the batch queue instead of executing immediately
+ *
+ * @typeParam T - The expected result type
+ * @param batch - The batch queue to add to
+ * @param prompt - The prompt to process
+ * @param schema - Optional schema for structured output
+ * @param options - Additional options including custom ID
+ * @returns A BatchItem that will be resolved when the batch completes
  */
 export function deferToBatch<T>(
   batch: BatchQueue,

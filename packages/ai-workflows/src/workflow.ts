@@ -392,11 +392,11 @@ export function Workflow(
 
     getState(): WorkflowState {
       // Return a deep copy to prevent mutation
-      return {
+      return structuredClone({
         current: state.current,
-        context: { ...state.context },
-        history: [...state.history],
-      }
+        context: state.context,
+        history: state.history,
+      })
     },
 
     set<T = unknown>(key: string, value: T): void {
@@ -444,9 +444,11 @@ export function Workflow(
           break
         case 'cron':
         case 'natural':
-          // Cron/natural need special handling
-          console.log(`[workflow] Cron/natural scheduling not yet implemented: ${interval.type === 'cron' ? interval.expression : interval.description}`)
-          continue
+          // Cron/natural need special handling - throw error to avoid silent failures
+          throw new Error(
+            `Cron scheduling not yet implemented: "${interval.type === 'cron' ? interval.expression : interval.description}". ` +
+            `Use interval-based patterns like $.every.seconds(30), $.every.minutes(5), or $.every.hours(1) instead.`
+          )
       }
 
       if (ms > 0) {

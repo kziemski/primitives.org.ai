@@ -1,20 +1,12 @@
 /**
- * TDD RED Phase: Tests for <TOutput, TInput> generic order
+ * GREEN Phase: Tests for <TOutput, TInput> generic order
  *
  * Issue: primitives.org.ai-z7f
  *
- * These tests verify that the generic type parameters SHOULD follow
+ * These tests verify that the generic type parameters follow
  * the <TOutput, TInput> convention (output first, input second).
  *
- * CURRENT code uses <TInput, TOutput> (input first, output second).
- *
- * This test file documents the DESIRED behavior with the new order.
- * The @ts-expect-error comments mark where the CURRENT types conflict
- * with the NEW desired behavior.
- *
- * When types are fixed to <TOutput, TInput>:
- * - Remove all @ts-expect-error comments
- * - All tests should pass with correct types
+ * The types have been fixed to use <TOutput, TInput> order.
  */
 
 import { describe, it, expect } from 'vitest'
@@ -51,97 +43,69 @@ interface CreateUserInput {
 describe('AIFunctionDefinition<TOutput, TInput> generic order', () => {
   describe('output-only usage (single generic)', () => {
     it('AIFunctionDefinition<string> - first generic should be OUTPUT', () => {
-      // CURRENT order: AIFunctionDefinition<TInput = string, TOutput = unknown>
-      //   handler: (input: string) => unknown
-      //
-      // DESIRED order: AIFunctionDefinition<TOutput = string, TInput = unknown>
-      //   handler: (input: unknown) => string
+      // Order: AIFunctionDefinition<TOutput = string, TInput = unknown>
+      //   handler: (input: unknown) => string | Promise<string>
 
-      // With CURRENT order, this definition has:
-      //   handler: (input: string) => unknown | Promise<unknown>
       const def: AIFunctionDefinition<string> = {
         name: 'test',
         description: 'test',
         parameters: {},
-        // CURRENT: expects handler(string) => unknown
-        // DESIRED: expects handler(unknown) => string
-        // We must satisfy CURRENT types to compile
-        handler: (input: string) => input.toUpperCase(), // returns string, but type says unknown
+        // handler accepts unknown, returns string
+        handler: (input: unknown) => String(input).toUpperCase(),
       }
 
-      // Get the result
+      // Get the result - should be string | Promise<string>
       const result = def.handler('test')
 
-      // With CURRENT order: result is unknown | Promise<unknown>
-      // With DESIRED order: result would be string | Promise<string>
-
-      // This assignment FAILS with current types (unknown not assignable to string)
-      // @ts-expect-error - WILL COMPILE AFTER FIX: result should be string
-      const _s: string = result
+      // This should compile - result is string | Promise<string>
+      const _s: string | Promise<string> = result
+      expect(result).toBe('TEST')
     })
   })
 
   describe('two-generic usage', () => {
     it('AIFunctionDefinition<string, number> - handler signature test', () => {
-      // CURRENT: AIFunctionDefinition<TInput = string, TOutput = number>
-      //   handler: (input: string) => number | Promise<number>
-      //
-      // DESIRED: AIFunctionDefinition<TOutput = string, TInput = number>
+      // Order: AIFunctionDefinition<TOutput = string, TInput = number>
       //   handler: (input: number) => string | Promise<string>
 
-      // This definition compiles with CURRENT types
       const def: AIFunctionDefinition<string, number> = {
         name: 'test',
         description: 'test',
         parameters: {},
-        // CURRENT expects: (string) => number
-        // DESIRED expects: (number) => string
-        handler: (input: string): number => input.length, // satisfies CURRENT
+        // handler accepts number, returns string
+        handler: (input: number): string => `Value: ${input}`,
       }
 
-      // Test: call handler with number (DESIRED behavior)
-      // CURRENT: handler expects string, fails with number
-      // @ts-expect-error - WILL COMPILE AFTER FIX: handler should accept number
-      def.handler(42)
+      // handler should accept number
+      const result = def.handler(42)
 
-      // Test: result should be string (DESIRED behavior)
-      // CURRENT: result is number
-      const result = def.handler('test')
-      // @ts-expect-error - WILL COMPILE AFTER FIX: result should be string
-      const _s: string = result
+      // result should be string | Promise<string>
+      const _s: string | Promise<string> = result
+      expect(result).toBe('Value: 42')
     })
 
     it('AIFunctionDefinition<User, CreateUserInput> - real-world example', () => {
-      // CURRENT: AIFunctionDefinition<TInput = User, TOutput = CreateUserInput>
-      //   handler: (input: User) => CreateUserInput | Promise<CreateUserInput>
-      //
-      // DESIRED: AIFunctionDefinition<TOutput = User, TInput = CreateUserInput>
+      // Order: AIFunctionDefinition<TOutput = User, TInput = CreateUserInput>
       //   handler: (input: CreateUserInput) => User | Promise<User>
 
-      // This satisfies CURRENT types (takes User, returns CreateUserInput)
-      const currentDef: AIFunctionDefinition<User, CreateUserInput> = {
+      const def: AIFunctionDefinition<User, CreateUserInput> = {
         name: 'createUser',
         description: 'Creates a user',
         parameters: {},
-        // CURRENT: (User) => CreateUserInput
-        handler: (input: User): CreateUserInput => ({
+        // handler accepts CreateUserInput, returns User
+        handler: (input: CreateUserInput): User => ({
+          id: '1',
           name: input.name,
           email: input.email,
         }),
       }
 
-      // Test DESIRED behavior: should accept CreateUserInput, not User
-      // @ts-expect-error - WILL COMPILE AFTER FIX: should accept CreateUserInput
-      currentDef.handler({ name: 'Alice', email: 'alice@test.com' })
+      // Should accept CreateUserInput
+      const result = def.handler({ name: 'Alice', email: 'alice@test.com' })
 
-      // Test DESIRED behavior: should return User
-      const result = currentDef.handler({
-        id: '1',
-        name: 'Bob',
-        email: 'bob@test.com',
-      })
-      // @ts-expect-error - WILL COMPILE AFTER FIX: result should be User with id
-      const _id: string = result.id
+      // Should return User with id
+      const _id: string = (result as User).id
+      expect((result as User).id).toBe('1')
     })
   })
 })
@@ -152,28 +116,23 @@ describe('AIFunctionDefinition<TOutput, TInput> generic order', () => {
 
 describe('BaseFunctionDefinition<TOutput, TInput> generic order', () => {
   it('BaseFunctionDefinition<string, number> - args and returnType', () => {
-    // CURRENT: BaseFunctionDefinition<TArgs = string, TReturn = number>
-    //   args: string
-    //   returnType?: number
-    //
-    // DESIRED: BaseFunctionDefinition<TOutput = string, TInput = number>
-    //   args: number
-    //   returnType?: string
+    // Order: BaseFunctionDefinition<TOutput = string, TInput = number>
+    //   args: number (TInput)
+    //   returnType?: string (TOutput)
 
-    // This satisfies CURRENT types
     const def: BaseFunctionDefinition<string, number> = {
       name: 'test',
-      args: 'string-input', // CURRENT: args is string (first generic)
-      returnType: 42, // CURRENT: returnType is number (second generic)
+      args: 42, // args is TInput (number)
+      returnType: 'result', // returnType is TOutput (string)
     }
 
-    // Test DESIRED behavior: args should be number
-    // @ts-expect-error - WILL COMPILE AFTER FIX: args should be number
+    // args should be number
     const _argsNum: number = def.args
+    expect(def.args).toBe(42)
 
-    // Test DESIRED behavior: returnType should be string
-    // @ts-expect-error - WILL COMPILE AFTER FIX: returnType should be string
+    // returnType should be string
     const _retStr: string = def.returnType!
+    expect(def.returnType).toBe('result')
   })
 })
 
@@ -183,25 +142,23 @@ describe('BaseFunctionDefinition<TOutput, TInput> generic order', () => {
 
 describe('CodeFunctionDefinition<TOutput, TInput> generic order', () => {
   it('CodeFunctionDefinition<string, {prompt:string}> - args and returnType', () => {
-    // CURRENT: CodeFunctionDefinition<TArgs = string, TReturn = {prompt:string}>
-    // DESIRED: CodeFunctionDefinition<TOutput = string, TInput = {prompt:string}>
+    // Order: CodeFunctionDefinition<TOutput = string, TInput = {prompt:string}>
 
-    // Satisfies CURRENT types
     const def: CodeFunctionDefinition<string, { prompt: string }> = {
       type: 'code',
       name: 'test',
-      args: 'input', // CURRENT: args is string
-      returnType: { prompt: 'output' }, // CURRENT: returnType is {prompt:string}
+      args: { prompt: 'generate code' }, // args is TInput
+      returnType: 'generated code', // returnType is TOutput
       language: 'typescript',
     }
 
-    // Test DESIRED: args should be {prompt:string}
-    // @ts-expect-error - WILL COMPILE AFTER FIX: args should have prompt property
+    // args should have prompt property
     const _prompt: string = def.args.prompt
+    expect(def.args.prompt).toBe('generate code')
 
-    // Test DESIRED: returnType should be string
-    // @ts-expect-error - WILL COMPILE AFTER FIX: returnType should be string
+    // returnType should be string
     const _ret: string = def.returnType!
+    expect(def.returnType).toBe('generated code')
   })
 })
 
@@ -219,25 +176,23 @@ describe('GenerativeFunctionDefinition<TOutput, TInput> generic order', () => {
       topic: string
     }
 
-    // CURRENT: GenerativeFunctionDefinition<TArgs = Output, TReturn = Input>
-    // DESIRED: GenerativeFunctionDefinition<TOutput = Output, TInput = Input>
+    // Order: GenerativeFunctionDefinition<TOutput = Output, TInput = Input>
 
-    // Satisfies CURRENT types
     const def: GenerativeFunctionDefinition<Output, Input> = {
       type: 'generative',
       name: 'test',
-      args: { title: '', content: '' }, // CURRENT: args is Output
-      returnType: { topic: '' }, // CURRENT: returnType is Input
+      args: { topic: 'AI' }, // args is TInput
+      returnType: { title: 'AI Article', content: '...' }, // returnType is TOutput
       output: 'object',
     }
 
-    // Test DESIRED: args should be Input
-    // @ts-expect-error - WILL COMPILE AFTER FIX: args should have topic
+    // args should have topic
     const _topic: string = def.args.topic
+    expect(def.args.topic).toBe('AI')
 
-    // Test DESIRED: returnType should be Output
-    // @ts-expect-error - WILL COMPILE AFTER FIX: returnType should have title
+    // returnType should have title
     const _title: string = def.returnType!.title
+    expect(def.returnType!.title).toBe('AI Article')
   })
 })
 
@@ -254,22 +209,23 @@ describe('AgenticFunctionDefinition<TOutput, TInput> generic order', () => {
       query: string
     }
 
-    // Satisfies CURRENT types
+    // Order: AgenticFunctionDefinition<TOutput = Output, TInput = Input>
+
     const def: AgenticFunctionDefinition<Output, Input> = {
       type: 'agentic',
       name: 'test',
-      args: { result: '' }, // CURRENT: args is Output
-      returnType: { query: '' }, // CURRENT: returnType is Input
+      args: { query: 'search' }, // args is TInput
+      returnType: { result: 'found' }, // returnType is TOutput
       instructions: 'test',
     }
 
-    // Test DESIRED: args should be Input
-    // @ts-expect-error - WILL COMPILE AFTER FIX: args should have query
+    // args should have query
     const _query: string = def.args.query
+    expect(def.args.query).toBe('search')
 
-    // Test DESIRED: returnType should be Output
-    // @ts-expect-error - WILL COMPILE AFTER FIX: returnType should have result
+    // returnType should have result
     const _result: string = def.returnType!.result
+    expect(def.returnType!.result).toBe('found')
   })
 })
 
@@ -286,23 +242,24 @@ describe('HumanFunctionDefinition<TOutput, TInput> generic order', () => {
       amount: number
     }
 
-    // Satisfies CURRENT types
+    // Order: HumanFunctionDefinition<TOutput = ApprovalResult, TInput = ApprovalInput>
+
     const def: HumanFunctionDefinition<ApprovalResult, ApprovalInput> = {
       type: 'human',
       name: 'test',
-      args: { approved: true }, // CURRENT: args is ApprovalResult
-      returnType: { amount: 100 }, // CURRENT: returnType is ApprovalInput
+      args: { amount: 100 }, // args is TInput
+      returnType: { approved: true }, // returnType is TOutput
       channel: 'workspace',
       instructions: 'test',
     }
 
-    // Test DESIRED: args should be ApprovalInput
-    // @ts-expect-error - WILL COMPILE AFTER FIX: args should have amount
+    // args should have amount
     const _amount: number = def.args.amount
+    expect(def.args.amount).toBe(100)
 
-    // Test DESIRED: returnType should be ApprovalResult
-    // @ts-expect-error - WILL COMPILE AFTER FIX: returnType should have approved
+    // returnType should have approved
     const _approved: boolean = def.returnType!.approved
+    expect(def.returnType!.approved).toBe(true)
   })
 })
 
@@ -312,32 +269,27 @@ describe('HumanFunctionDefinition<TOutput, TInput> generic order', () => {
 
 describe('DefinedFunction<TOutput, TInput> generic order', () => {
   it('DefinedFunction<User, CreateUserInput> - call signature', () => {
-    // CURRENT: DefinedFunction<TArgs = User, TReturn = CreateUserInput>
-    //   call: (args: User) => Promise<CreateUserInput>
-    //
-    // DESIRED: DefinedFunction<TOutput = User, TInput = CreateUserInput>
+    // Order: DefinedFunction<TOutput = User, TInput = CreateUserInput>
     //   call: (args: CreateUserInput) => Promise<User>
 
-    // Create mock satisfying CURRENT types
     const defined: DefinedFunction<User, CreateUserInput> = {
       definition: {} as FunctionDefinition<User, CreateUserInput>,
-      // CURRENT: call takes User, returns Promise<CreateUserInput>
-      call: async (args: User): Promise<CreateUserInput> => ({
+      // call accepts CreateUserInput, returns Promise<User>
+      call: async (args: CreateUserInput): Promise<User> => ({
+        id: '1',
         name: args.name,
         email: args.email,
       }),
       asTool: () => ({}) as AIFunctionDefinition<User, CreateUserInput>,
     }
 
-    // Test DESIRED: call should accept CreateUserInput
-    // @ts-expect-error - WILL COMPILE AFTER FIX: call should accept CreateUserInput
-    defined.call({ name: 'Alice', email: 'alice@test.com' })
+    // call should accept CreateUserInput
+    const promise = defined.call({ name: 'Alice', email: 'alice@test.com' })
 
-    // Test DESIRED: call should return Promise<User>
-    const promise = defined.call({ id: '1', name: 'Bob', email: 'bob@test.com' })
+    // Should return Promise<User>
     promise.then((result) => {
-      // @ts-expect-error - WILL COMPILE AFTER FIX: result should have id
       const _id: string = result.id
+      expect(result.id).toBe('1')
     })
   })
 })
@@ -348,25 +300,23 @@ describe('DefinedFunction<TOutput, TInput> generic order', () => {
 
 describe('FunctionDefinition<TOutput, TInput> union type', () => {
   it('FunctionDefinition<string, number> - args and returnType through union', () => {
-    // CURRENT: FunctionDefinition<TArgs = string, TReturn = number>
-    // DESIRED: FunctionDefinition<TOutput = string, TInput = number>
+    // Order: FunctionDefinition<TOutput = string, TInput = number>
 
-    // Satisfies CURRENT as CodeFunctionDefinition
     const def: FunctionDefinition<string, number> = {
       type: 'code',
       name: 'test',
-      args: 'input', // CURRENT: args is string
-      returnType: 123, // CURRENT: returnType is number
+      args: 42, // args is TInput (number)
+      returnType: 'result', // returnType is TOutput (string)
       language: 'typescript',
     }
 
-    // Test DESIRED: args should be number
-    // @ts-expect-error - WILL COMPILE AFTER FIX: args should be number
+    // args should be number
     const _n: number = def.args
+    expect(def.args).toBe(42)
 
-    // Test DESIRED: returnType should be string
-    // @ts-expect-error - WILL COMPILE AFTER FIX: returnType should be string
+    // returnType should be string
     const _s: string = def.returnType!
+    expect(def.returnType).toBe('result')
   })
 })
 
@@ -379,52 +329,14 @@ describe('type inference in generic contexts', () => {
     // Type to extract handler return from definition
     type HandlerReturn<T> = T extends { handler: (...args: unknown[]) => infer R } ? R : never
 
-    // With CURRENT <TInput, TOutput>: AIFunctionDefinition<string, number>
-    //   handler: (string) => number, so HandlerReturn = number | Promise<number>
-    //
-    // With DESIRED <TOutput, TInput>: would be
+    // With <TOutput, TInput>: AIFunctionDefinition<string, number>
     //   handler: (number) => string, so HandlerReturn = string | Promise<string>
 
     type Def = AIFunctionDefinition<string, number>
     type Result = HandlerReturn<Def>
 
-    // Test DESIRED: Result should be string | Promise<string>
-    // CURRENT: Result is number | Promise<number>
-    const _r: Result = 42 // This compiles with CURRENT (number)
-
-    // @ts-expect-error - WILL COMPILE AFTER FIX: Result should accept string
+    // Result should be string | Promise<string>
     const _s: Result = 'hello'
+    expect('hello').toBe('hello')
   })
 })
-
-// ============================================================================
-// Summary of test expectations
-// ============================================================================
-
-/**
- * Test Summary:
- *
- * All @ts-expect-error comments mark lines that will TYPE-CHECK correctly
- * after the generic order is changed from <TInput, TOutput> to <TOutput, TInput>.
- *
- * To complete the GREEN phase:
- * 1. Change all type definitions in types.ts:
- *    - AIFunctionDefinition<TOutput, TInput>
- *    - BaseFunctionDefinition<TOutput, TInput>
- *    - CodeFunctionDefinition<TOutput, TInput>
- *    - GenerativeFunctionDefinition<TOutput, TInput>
- *    - AgenticFunctionDefinition<TOutput, TInput>
- *    - HumanFunctionDefinition<TOutput, TInput>
- *    - DefinedFunction<TOutput, TInput>
- *    - FunctionDefinition<TOutput, TInput>
- *
- * 2. Update property mappings:
- *    - handler: (input: TInput) => TOutput | Promise<TOutput>
- *    - args: TInput
- *    - returnType: TOutput
- *    - call: (args: TInput) => Promise<TOutput>
- *
- * 3. Remove all @ts-expect-error comments from this file
- *
- * 4. All tests should pass with correct types
- */

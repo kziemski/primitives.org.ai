@@ -31,6 +31,14 @@ import { resolveNestedPending, prefetchContext, resolveInstructions } from './re
  * contextually relevant values for common field names like 'name', 'description',
  * 'headline', 'background', etc.
  *
+ * **PLACEHOLDER IMPLEMENTATION**: This function contains hardcoded test values
+ * and keyword-based generation rules. In a production system, this would be
+ * replaced with actual AI/LLM integration to generate contextually appropriate
+ * content. The current implementation is designed to:
+ * - Provide deterministic, predictable outputs for testing
+ * - Demonstrate the expected behavior and API contract
+ * - Allow tests to make specific assertions about generated content
+ *
  * @param fieldName - The name of the field being generated
  * @param type - The entity type name
  * @param fullContext - Combined context string (instructions, parent data, etc.)
@@ -434,7 +442,11 @@ export async function resolveForwardExact(
 
       if (field.isArray) {
         // Forward array relation - check if we should auto-generate
-        const relatedEntity = schema.entities.get(field.relatedType!)
+        // For union types, use the first union type as the generation target
+        const generateType = field.unionTypes && field.unionTypes.length > 0
+          ? field.unionTypes[0]!
+          : field.relatedType!
+        const relatedEntity = schema.entities.get(generateType)
         if (!relatedEntity) continue
 
         // Check if related entity has a backward ref to this type (symmetric relationship)
@@ -460,17 +472,20 @@ export async function resolveForwardExact(
         // Decide whether to auto-generate:
         // - If there's a symmetric backward ref AND required scalars, skip (prevents duplicates)
         // - Otherwise, generate if the related entity can be meaningfully generated
-        const shouldSkip = hasBackwardRef && hasRequiredScalarFields
+        // - For union types, always allow generation (we have explicit type to generate)
+        const hasUnionTypes = field.unionTypes && field.unionTypes.length > 0
+        const shouldSkip = hasBackwardRef && hasRequiredScalarFields && !hasUnionTypes
         const canGenerate = !shouldSkip && (
           hasBackwardRef ||  // Symmetric ref without required scalars
           field.prompt ||    // Has a generation prompt
-          !hasRequiredScalarFields  // No required fields to worry about
+          !hasRequiredScalarFields ||  // No required fields to worry about
+          hasUnionTypes      // Union types should generate the first type
         )
 
         if (!canGenerate) continue
 
         const generated = await generateEntity(
-          field.relatedType!,
+          generateType,
           field.prompt,
           { parent: typeName, parentData: data, parentId },
           schema
@@ -478,11 +493,15 @@ export async function resolveForwardExact(
 
         // Resolve any pending nested relations in the generated data
         const resolvedGenerated = await resolveNestedPending(generated, relatedEntity, schema, provider)
-        const created = await provider.create(field.relatedType!, undefined, resolvedGenerated)
+        const created = await provider.create(generateType, undefined, {
+          ...resolvedGenerated,
+          $matchedType: generateType
+        })
         resolved[fieldName] = [created.$id]
+        resolved[`${fieldName}$matchedType`] = generateType
 
         // Queue relationship creation for after parent entity is created
-        pendingRelations.push({ fieldName, targetType: field.relatedType!, targetId: created.$id as string })
+        pendingRelations.push({ fieldName, targetType: generateType, targetId: created.$id as string })
       } else {
         // Single non-optional forward relation - generate the related entity
         // Generate single entity

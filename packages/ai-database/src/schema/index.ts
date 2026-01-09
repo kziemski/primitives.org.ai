@@ -870,7 +870,8 @@ function createEntityOperations<T>(
       for (const rel of fuzzyPendingRelations) {
         await provider.relate(typeName, entityId, rel.fieldName, rel.targetType, rel.targetId, {
           matchMode: 'fuzzy',
-          similarity: rel.similarity
+          similarity: rel.similarity,
+          matchedType: rel.matchedType
         })
 
         const edgeId = `${typeName}:${rel.fieldName}:${entityId}:${rel.targetId}`
@@ -884,6 +885,7 @@ function createEntityOperations<T>(
               direction: 'forward',
               matchMode: 'fuzzy',
               similarity: rel.similarity,
+              matchedType: rel.matchedType,
               fromId: entityId,
               toId: rel.targetId,
             })

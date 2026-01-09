@@ -35,10 +35,19 @@ import type { SimpleSchema } from './schema.js'
 // Types
 // ============================================================================
 
-/** Symbol to identify BatchMapPromise instances */
+/**
+ * Symbol to identify BatchMapPromise instances
+ *
+ * Used internally to detect BatchMapPromise objects for proper handling.
+ */
 export const BATCH_MAP_SYMBOL = Symbol.for('ai-batch-map')
 
-/** A captured operation from the map callback */
+/**
+ * A captured operation from the map callback
+ *
+ * When recording mode is active, AI operations are captured instead of executed.
+ * This allows batch processing of multiple operations in a single API call.
+ */
 export interface CapturedOperation {
   /** Unique ID for this operation */
   id: string
@@ -54,7 +63,11 @@ export interface CapturedOperation {
   system?: string
 }
 
-/** Options for batch map */
+/**
+ * Options for batch map
+ *
+ * Control how batch map operations are executed.
+ */
 export interface BatchMapOptions {
   /** Force immediate execution (no batching) */
   immediate?: boolean
@@ -441,6 +454,11 @@ let operationCounter = 0
 
 /**
  * Check if we're in recording mode
+ *
+ * Recording mode is active during batch map callback execution.
+ * When true, AI operations are captured instead of executed.
+ *
+ * @returns true if currently recording operations for batch processing
  */
 export function isInRecordingMode(): boolean {
   return isRecording
@@ -448,6 +466,11 @@ export function isInRecordingMode(): boolean {
 
 /**
  * Get the current item placeholder for template substitution
+ *
+ * During recording mode, this returns a placeholder string that will be
+ * replaced with the actual item value when the batch is executed.
+ *
+ * @returns The placeholder string if in recording mode, null otherwise
  */
 export function getCurrentItemPlaceholder(): string | null {
   return isRecording ? currentItemPlaceholder : null
@@ -455,6 +478,14 @@ export function getCurrentItemPlaceholder(): string | null {
 
 /**
  * Capture an operation during recording
+ *
+ * Called by AI template functions when in recording mode to capture
+ * operations for later batch execution.
+ *
+ * @param prompt - The prompt template
+ * @param type - The operation type (text, object, boolean, list)
+ * @param schema - Optional schema for structured output
+ * @param system - Optional system prompt
  */
 export function captureOperation(
   prompt: string,
@@ -481,7 +512,15 @@ export function captureOperation(
 /**
  * Create a batch map from an array and a callback
  *
- * This is called internally by AIPromise.map()
+ * This is called internally by AIPromise.map() to enable automatic
+ * batch processing of mapped operations.
+ *
+ * @typeParam T - The type of items in the source array
+ * @typeParam U - The return type of the callback
+ * @param items - Array of items to map over
+ * @param callback - Function called for each item (operations are captured, not executed)
+ * @param options - Batch map options
+ * @returns A BatchMapPromise that resolves to an array of results
  */
 export function createBatchMap<T, U>(
   items: T[],
@@ -523,6 +562,9 @@ export function createBatchMap<T, U>(
 
 /**
  * Check if a value is a BatchMapPromise
+ *
+ * @param value - Value to check
+ * @returns true if value is a BatchMapPromise instance
  */
 export function isBatchMapPromise(value: unknown): value is BatchMapPromise<unknown> {
   return (

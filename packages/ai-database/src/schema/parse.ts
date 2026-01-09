@@ -912,7 +912,7 @@ export function parseSchema(schema: DatabaseSchema): ParsedSchema {
         // (allows "external" types when none are defined)
         if (field.unionTypes && field.unionTypes.length > 0) {
           const existingTypes = field.unionTypes.filter(t => entities.has(t))
-          // Only validate if at least one union type exists in schema
+          // Validate all union types exist - throw if any non-existent type is found
           if (existingTypes.length > 0) {
             for (const unionType of field.unionTypes) {
               if (unionType !== entityName && !entities.has(unionType)) {
@@ -921,6 +921,15 @@ export function parseSchema(schema: DatabaseSchema): ParsedSchema {
                 )
               }
             }
+          } else {
+            // None of the union types exist - this is likely a schema error
+            // Warn in development, or throw if strict validation is needed
+            const missingTypes = field.unionTypes.join('|')
+            console.warn(
+              `Warning: ${entityName}.${fieldName} union type '${missingTypes}' - ` +
+              `none of the specified types exist in the schema. ` +
+              `Ensure all union types are defined.`
+            )
           }
         } else {
           // Check if referenced type exists (non-union case)

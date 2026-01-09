@@ -6,9 +6,9 @@
  *   send('Order.completed', order)
  */
 
-import type { ParsedEvent } from './types.js'
 import { getEventHandlers } from './on.js'
 import { createWorkflowContext } from './context.js'
+import { parseEvent } from './workflow.js'
 
 /**
  * Event bus for managing event delivery
@@ -76,21 +76,6 @@ class EventBus {
       })
     )
   }
-}
-
-/**
- * Parse event string into noun and event
- */
-export function parseEvent(event: string): ParsedEvent | null {
-  const parts = event.split('.')
-  if (parts.length !== 2) {
-    return null
-  }
-  const [noun, eventName] = parts
-  if (!noun || !eventName) {
-    return null
-  }
-  return { noun, event: eventName }
 }
 
 /**

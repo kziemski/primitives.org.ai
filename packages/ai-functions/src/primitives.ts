@@ -489,6 +489,23 @@ export const read = createAITemplateFunction<string>('text')
 
 /**
  * Browse a URL with browser automation
+ *
+ * @experimental This function is experimental and returns mock data.
+ * The actual implementation will use Stagehand or Playwright for browser automation.
+ * Do not rely on this function in production code until it is fully implemented.
+ *
+ * @param urlOrStrings - URL string or template literal
+ * @param args - Template literal values
+ * @returns Browser automation interface with do, extract, screenshot, and close methods
+ *
+ * @example
+ * ```ts
+ * const browser = await browse`https://example.com`
+ * await browser.do('click the login button')
+ * const data = await browser.extract('user profile information')
+ * const screenshot = await browser.screenshot()
+ * await browser.close()
+ * ```
  */
 export async function browse(
   urlOrStrings: string | TemplateStringsArray,
@@ -499,7 +516,8 @@ export async function browse(
   screenshot: () => Promise<Buffer>
   close: () => Promise<void>
 }> {
-  // Placeholder - actual implementation would use Stagehand or Playwright
+  // EXPERIMENTAL: This is a placeholder implementation returning mock data.
+  // Actual implementation would use Stagehand or Playwright for browser automation.
   return {
     do: async () => {},
     extract: async () => ({}),

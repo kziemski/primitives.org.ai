@@ -7,10 +7,6 @@
 
 import { RPC, http, ws, type RPCProxy, type RPCPromise as RpcPromiseType } from 'rpc.do'
 
-// Use Promise as RpcPromise for type definitions
-// The actual RPC layer handles pipelining transparently
-type RpcPromise<T> = Promise<T>
-
 /**
  * Base class for RPC service targets
  * This is a placeholder for services that want to expose methods over RPC
@@ -166,12 +162,12 @@ export function AI<T extends Record<string, SimpleSchema>>(
  * const summary = await ai.summarize({ text: longText })
  * ```
  */
-export function AI(options: AIClientOptions): AIClient & Record<string, (...args: unknown[]) => RpcPromise<unknown>>
+export function AI(options: AIClientOptions): AIClient & Record<string, (...args: unknown[]) => Promise<unknown>>
 
 export function AI<T extends Record<string, SimpleSchema>>(
   schemasOrOptions: T | AIClientOptions,
   defaultOptions?: AISchemaOptions
-): SchemaFunctions<T> | (AIClient & Record<string, (...args: unknown[]) => RpcPromise<unknown>>) {
+): SchemaFunctions<T> | (AIClient & Record<string, (...args: unknown[]) => Promise<unknown>>) {
   // Check if this is RPC client mode
   if (isAIClientOptions(schemasOrOptions)) {
     const { model, temperature, maxTokens, functions, wsUrl, httpUrl, token } = schemasOrOptions
@@ -203,7 +199,7 @@ export function AI<T extends Record<string, SimpleSchema>>(
           return client.do(prop, args.length === 1 ? args[0] : args)
         }
       }
-    }) as AIClient & Record<string, (...args: unknown[]) => RpcPromise<unknown>>
+    }) as AIClient & Record<string, (...args: unknown[]) => Promise<unknown>>
   }
 
   // Schema functions mode - create a function for each schema
@@ -291,25 +287,25 @@ function buildPromptFromSchema(schema: SimpleSchema, path = ''): string {
 /**
  * Create a defined function from a function definition
  */
-function createDefinedFunction<TArgs, TReturn>(
-  definition: FunctionDefinition<TArgs, TReturn>
-): DefinedFunction<TArgs, TReturn> {
-  const call = async (args: TArgs): Promise<TReturn> => {
+function createDefinedFunction<TOutput, TInput>(
+  definition: FunctionDefinition<TOutput, TInput>
+): DefinedFunction<TOutput, TInput> {
+  const call = async (args: TInput): Promise<TOutput> => {
     switch (definition.type) {
       case 'code':
-        return executeCodeFunction(definition, args) as Promise<TReturn>
+        return executeCodeFunction(definition, args) as Promise<TOutput>
       case 'generative':
-        return executeGenerativeFunction(definition, args) as Promise<TReturn>
+        return executeGenerativeFunction(definition, args) as Promise<TOutput>
       case 'agentic':
-        return executeAgenticFunction(definition, args) as Promise<TReturn>
+        return executeAgenticFunction(definition, args) as Promise<TOutput>
       case 'human':
-        return executeHumanFunction(definition, args) as Promise<TReturn>
+        return executeHumanFunction(definition, args) as Promise<TOutput>
       default:
         throw new Error(`Unknown function type: ${(definition as FunctionDefinition).type}`)
     }
   }
 
-  const asTool = (): AIFunctionDefinition<TArgs, TReturn> => {
+  const asTool = (): AIFunctionDefinition<TOutput, TInput> => {
     return {
       name: definition.name,
       description: definition.description || `Execute ${definition.name}`,
@@ -408,9 +404,9 @@ function fillTemplate(template: string, args: Record<string, unknown>): string {
 /**
  * Execute a code function - generates code with tests and examples
  */
-async function executeCodeFunction<TArgs>(
-  definition: CodeFunctionDefinition<TArgs>,
-  args: TArgs
+async function executeCodeFunction<TInput>(
+  definition: CodeFunctionDefinition<unknown, TInput>,
+  args: TInput
 ): Promise<CodeFunctionResult> {
   const { name, description, language = 'typescript', instructions, includeTests = true, includeExamples = true } = definition
 
@@ -455,10 +451,10 @@ ${includeExamples ? '- Include example usage showing how to call the function' :
 /**
  * Execute a generative function - uses AI to generate content
  */
-async function executeGenerativeFunction<TArgs, TReturn>(
-  definition: GenerativeFunctionDefinition<TArgs, TReturn>,
-  args: TArgs
-): Promise<TReturn> {
+async function executeGenerativeFunction<TOutput, TInput>(
+  definition: GenerativeFunctionDefinition<TOutput, TInput>,
+  args: TInput
+): Promise<TOutput> {
   const { output, system, promptTemplate, model = 'sonnet', temperature, returnType } = definition
 
   const prompt = promptTemplate
@@ -474,7 +470,7 @@ async function executeGenerativeFunction<TArgs, TReturn>(
         prompt,
         temperature,
       })
-      return (result.object as { text: string }).text as TReturn
+      return (result.object as { text: string }).text as TOutput
     }
 
     case 'object': {
@@ -486,22 +482,17 @@ async function executeGenerativeFunction<TArgs, TReturn>(
         prompt,
         temperature,
       })
-      return result.object as TReturn
+      return result.object as TOutput
     }
 
     case 'image': {
       const client = getDefaultAIClient()
-      return client.image(prompt) as unknown as Promise<TReturn>
+      return client.image(prompt) as unknown as Promise<TOutput>
     }
 
     case 'video': {
       const client = getDefaultAIClient()
-      return client.video(prompt) as unknown as Promise<TReturn>
-    }
-
-    case 'audio': {
-      // Audio generation would need a specific implementation
-      throw new Error('Audio generation not yet implemented')
+      return client.video(prompt) as unknown as Promise<TOutput>
     }
 
     default:
@@ -512,10 +503,10 @@ async function executeGenerativeFunction<TArgs, TReturn>(
 /**
  * Execute an agentic function - runs in a loop with tools
  */
-async function executeAgenticFunction<TArgs, TReturn>(
-  definition: AgenticFunctionDefinition<TArgs, TReturn>,
-  args: TArgs
-): Promise<TReturn> {
+async function executeAgenticFunction<TOutput, TInput>(
+  definition: AgenticFunctionDefinition<TOutput, TInput>,
+  args: TInput
+): Promise<TOutput> {
   const { instructions, promptTemplate, tools = [], maxIterations = 10, model = 'sonnet', returnType } = definition
 
   const prompt = promptTemplate
@@ -564,7 +555,7 @@ What is your next step?`,
     }
 
     if (response.toolCall.name === 'done' || response.finalResult) {
-      return response.finalResult as TReturn
+      return response.finalResult as TOutput
     }
 
     // Execute tool call
@@ -583,11 +574,38 @@ What is your next step?`,
 
 /**
  * Execute a human function - generates UI and waits for human input
+ *
+ * **Note: This function currently returns placeholder/mock data.**
+ *
+ * In a complete implementation, this function would:
+ * 1. Generate channel-specific UI (Slack blocks, email templates, web forms, etc.)
+ * 2. Send the generated UI to the appropriate channel
+ * 3. Wait for human response with optional timeout
+ * 4. Validate and return the human's response
+ *
+ * The current implementation generates the UI artifacts but returns a pending
+ * placeholder instead of actually sending to the channel and waiting for response.
+ * This allows testing the UI generation without requiring actual channel integrations.
+ *
+ * @param definition - The human function definition with channel and instructions
+ * @param args - Arguments to pass to the function
+ * @returns A placeholder result with `_pending: true` and generated artifacts
+ *
+ * @example
+ * ```ts
+ * // The result will be a placeholder, not an actual human response:
+ * // {
+ * //   _pending: true,
+ * //   channel: 'workspace',
+ * //   artifacts: { ... generated UI ... },
+ * //   expectedResponseType: { approved: boolean }
+ * // }
+ * ```
  */
-async function executeHumanFunction<TArgs, TReturn>(
-  definition: HumanFunctionDefinition<TArgs, TReturn>,
-  args: TArgs
-): Promise<TReturn> {
+async function executeHumanFunction<TOutput, TInput>(
+  definition: HumanFunctionDefinition<TOutput, TInput>,
+  args: TInput
+): Promise<TOutput> {
   const { channel, instructions, promptTemplate, returnType } = definition
 
   const prompt = promptTemplate
@@ -643,18 +661,19 @@ ${JSON.stringify(returnType)}
 Generate the appropriate ${channel} UI/content to collect this response from a human.`,
   })
 
+  // NOTE: This is a placeholder implementation.
   // In a real implementation, this would:
-  // 1. Send the generated UI to the appropriate channel
-  // 2. Wait for human response
+  // 1. Send the generated UI to the appropriate channel (Slack, email, etc.)
+  // 2. Wait for human response with optional timeout
   // 3. Return the validated response
-
-  // For now, return the generated artifacts as a placeholder
+  //
+  // Current behavior: Returns generated artifacts as a pending placeholder
   return {
     _pending: true,
     channel,
     artifacts: result.object,
     expectedResponseType: returnType,
-  } as unknown as TReturn
+  } as unknown as TOutput
 }
 
 /**
@@ -727,17 +746,17 @@ function getDefaultAIClient(): AIClient {
  * ```
  */
 export abstract class AIServiceTarget extends RpcTarget implements AIClient {
-  abstract generate(options: AIGenerateOptions): RpcPromise<AIGenerateResult>
-  abstract do(action: string, context?: unknown): RpcPromise<unknown>
-  abstract is(value: unknown, type: string | JSONSchema): RpcPromise<boolean>
-  abstract code(prompt: string, language?: string): RpcPromise<string>
-  abstract decide<T extends string>(options: T[], context?: string): RpcPromise<T>
-  abstract diagram(description: string, format?: 'mermaid' | 'svg' | 'ascii'): RpcPromise<string>
-  abstract image(prompt: string, options?: ImageOptions): RpcPromise<ImageResult>
-  abstract video(prompt: string, options?: VideoOptions): RpcPromise<VideoResult>
-  abstract write(prompt: string, options?: WriteOptions): RpcPromise<string>
-  abstract list(prompt: string): RpcPromise<ListResult>
-  abstract lists(prompt: string): RpcPromise<ListsResult>
+  abstract generate(options: AIGenerateOptions): Promise<AIGenerateResult>
+  abstract do(action: string, context?: unknown): Promise<unknown>
+  abstract is(value: unknown, type: string | JSONSchema): Promise<boolean>
+  abstract code(prompt: string, language?: string): Promise<string>
+  abstract decide<T extends string>(options: T[], context?: string): Promise<T>
+  abstract diagram(description: string, format?: 'mermaid' | 'svg' | 'ascii'): Promise<string>
+  abstract image(prompt: string, options?: ImageOptions): Promise<ImageResult>
+  abstract video(prompt: string, options?: VideoOptions): Promise<VideoResult>
+  abstract write(prompt: string, options?: WriteOptions): Promise<string>
+  abstract list(prompt: string): Promise<ListResult>
+  abstract lists(prompt: string): Promise<ListsResult>
 }
 
 /**
@@ -758,9 +777,9 @@ export abstract class AIServiceTarget extends RpcTarget implements AIClient {
  * const result = await summarize.call({ text: 'Long article...' })
  * ```
  */
-export function defineFunction<TArgs, TReturn>(
-  definition: FunctionDefinition<TArgs, TReturn>
-): DefinedFunction<TArgs, TReturn> {
+export function defineFunction<TOutput, TInput>(
+  definition: FunctionDefinition<TOutput, TInput>
+): DefinedFunction<TOutput, TInput> {
   return createDefinedFunction(definition)
 }
 
@@ -932,7 +951,7 @@ Determine:
       definition = {
         ...baseDefinition,
         type: 'generative' as const,
-        output: (analysis.output || 'object') as 'string' | 'object' | 'image' | 'video' | 'audio',
+        output: (analysis.output || 'object') as 'string' | 'object' | 'image' | 'video',
         system: analysis.system,
         promptTemplate: analysis.promptTemplate || `{{${Object.keys(args)[0] || 'input'}}}`,
       }
@@ -1035,10 +1054,10 @@ export const define = Object.assign(autoDefineImpl, {
   /**
    * Define a code generation function
    */
-  code: <TArgs, TReturn>(
-    definition: Omit<CodeFunctionDefinition<TArgs, TReturn>, 'type'>
-  ): DefinedFunction<TArgs, TReturn> => {
-    const fn = defineFunction({ type: 'code', ...definition } as CodeFunctionDefinition<TArgs, TReturn>)
+  code: <TOutput, TInput>(
+    definition: Omit<CodeFunctionDefinition<TOutput, TInput>, 'type'>
+  ): DefinedFunction<TOutput, TInput> => {
+    const fn = defineFunction({ type: 'code', ...definition } as CodeFunctionDefinition<TOutput, TInput>)
     functions.set(definition.name, fn as DefinedFunction)
     return fn
   },
@@ -1046,10 +1065,10 @@ export const define = Object.assign(autoDefineImpl, {
   /**
    * Define a generative function
    */
-  generative: <TArgs, TReturn>(
-    definition: Omit<GenerativeFunctionDefinition<TArgs, TReturn>, 'type'>
-  ): DefinedFunction<TArgs, TReturn> => {
-    const fn = defineFunction({ type: 'generative', ...definition } as GenerativeFunctionDefinition<TArgs, TReturn>)
+  generative: <TOutput, TInput>(
+    definition: Omit<GenerativeFunctionDefinition<TOutput, TInput>, 'type'>
+  ): DefinedFunction<TOutput, TInput> => {
+    const fn = defineFunction({ type: 'generative', ...definition } as GenerativeFunctionDefinition<TOutput, TInput>)
     functions.set(definition.name, fn as DefinedFunction)
     return fn
   },
@@ -1057,10 +1076,10 @@ export const define = Object.assign(autoDefineImpl, {
   /**
    * Define an agentic function
    */
-  agentic: <TArgs, TReturn>(
-    definition: Omit<AgenticFunctionDefinition<TArgs, TReturn>, 'type'>
-  ): DefinedFunction<TArgs, TReturn> => {
-    const fn = defineFunction({ type: 'agentic', ...definition } as AgenticFunctionDefinition<TArgs, TReturn>)
+  agentic: <TOutput, TInput>(
+    definition: Omit<AgenticFunctionDefinition<TOutput, TInput>, 'type'>
+  ): DefinedFunction<TOutput, TInput> => {
+    const fn = defineFunction({ type: 'agentic', ...definition } as AgenticFunctionDefinition<TOutput, TInput>)
     functions.set(definition.name, fn as DefinedFunction)
     return fn
   },
@@ -1068,10 +1087,10 @@ export const define = Object.assign(autoDefineImpl, {
   /**
    * Define a human-in-the-loop function
    */
-  human: <TArgs, TReturn>(
-    definition: Omit<HumanFunctionDefinition<TArgs, TReturn>, 'type'>
-  ): DefinedFunction<TArgs, TReturn> => {
-    const fn = defineFunction({ type: 'human', ...definition } as HumanFunctionDefinition<TArgs, TReturn>)
+  human: <TOutput, TInput>(
+    definition: Omit<HumanFunctionDefinition<TOutput, TInput>, 'type'>
+  ): DefinedFunction<TOutput, TInput> => {
+    const fn = defineFunction({ type: 'human', ...definition } as HumanFunctionDefinition<TOutput, TInput>)
     functions.set(definition.name, fn as DefinedFunction)
     return fn
   },
