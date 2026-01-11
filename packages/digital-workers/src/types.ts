@@ -11,11 +11,13 @@
  * - **Contacts**: How a worker can be reached (email, slack, phone, etc.)
  * - **Action**: Durable workflow action (notify, ask, approve, decide)
  * - **Team**: Group of workers with shared contacts
+ * - **CapabilityTier**: Agent capability level (code, generative, agentic, human)
  *
  * @packageDocumentation
  */
 
 import type { SimpleSchema } from 'ai-functions'
+import type { CapabilityTier, CapabilityProfile } from './capability-tiers.js'
 
 // ============================================================================
 // Worker Types
@@ -233,6 +235,10 @@ export interface Worker {
   teams?: string[]
   skills?: string[]
   tools?: string[]
+  /** Capability tier (code, generative, agentic, human) */
+  capabilityTier?: CapabilityTier
+  /** Full capability profile for detailed configuration */
+  capabilityProfile?: CapabilityProfile
   metadata?: Record<string, unknown>
 }
 
@@ -244,6 +250,8 @@ export interface WorkerRef {
   type?: WorkerType
   name?: string
   role?: string
+  /** Capability tier for routing decisions */
+  capabilityTier?: CapabilityTier
 }
 
 // ============================================================================

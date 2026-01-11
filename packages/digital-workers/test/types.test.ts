@@ -76,6 +76,41 @@ describe('Worker Types', () => {
       const statuses: WorkerStatus[] = ['available', 'busy', 'away', 'offline']
       expect(statuses).toHaveLength(4)
     })
+
+    it('should support capability tier', () => {
+      const agent: Worker = {
+        id: 'agent_1',
+        name: 'Agentic Worker',
+        type: 'agent',
+        status: 'available',
+        contacts: {
+          api: { endpoint: 'https://api.internal/agent', auth: 'bearer' },
+        },
+        capabilityTier: 'agentic',
+      }
+
+      expect(agent.capabilityTier).toBe('agentic')
+    })
+
+    it('should support full capability profile', () => {
+      const agent: Worker = {
+        id: 'agent_2',
+        name: 'Code Worker',
+        type: 'agent',
+        status: 'available',
+        contacts: { api: 'https://api.internal/agent' },
+        capabilityTier: 'code',
+        capabilityProfile: {
+          name: 'basic-calculator',
+          tier: 'code',
+          complexityRating: 1,
+          tools: ['calculate', 'lookup'],
+        },
+      }
+
+      expect(agent.capabilityProfile?.tier).toBe('code')
+      expect(agent.capabilityProfile?.tools).toContain('calculate')
+    })
   })
 
   describe('WorkerRef interface', () => {

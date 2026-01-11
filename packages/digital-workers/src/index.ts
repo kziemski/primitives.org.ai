@@ -84,6 +84,36 @@ export { kpis, okrs } from './kpis.js'
 // Export verb definitions
 export { WorkerVerbs } from './types.js'
 
+// Export capability tiers
+export {
+  CAPABILITY_TIERS,
+  TIER_ORDER,
+  compareTiers,
+  isHigherTier,
+  isLowerTier,
+  getNextTier,
+  getPreviousTier,
+  getTierConfig,
+  getToolsForTier,
+  matchTierToComplexity,
+  canExecuteAtTier,
+  validateTierEscalation,
+  createCapabilityProfile,
+  TierRegistry,
+} from './capability-tiers.js'
+
+export type {
+  CapabilityTier,
+  CapabilityProfile,
+  TierConfig,
+  TierToolset,
+  TaskComplexity,
+  TierMatchResult,
+  TierEscalation,
+  EscalationValidationResult,
+  ProfileConstraints,
+} from './capability-tiers.js'
+
 // Export transport bridge (connects to digital-tools)
 export type {
   Transport,
@@ -116,3 +146,42 @@ export {
   MessageTypeMapping,
   CallTypeMapping,
 } from './transports.js'
+
+// Export cascade context for agent coordination
+export {
+  // Functions
+  createCascadeContext,
+  validateContext,
+  enrichContext,
+  serializeContext,
+  deserializeContext,
+  mergeContexts,
+  diffContexts,
+  createContextVersion,
+  // Schemas
+  AgentCascadeContextSchema,
+  AgentTierSchema,
+  ContextVersionSchema,
+  AgentRefSchema,
+  TaskPrioritySchema,
+  TaskInfoSchema,
+  ExecutionPhaseSchema,
+  ExecutionStateSchema,
+  TraceEntrySchema,
+} from './cascade-context.js'
+
+export type {
+  AgentCascadeContext,
+  AgentTier,
+  AgentRef,
+  ContextVersion,
+  ContextEnrichment,
+  ValidationResult,
+  TaskPriority,
+  TaskInfo,
+  ExecutionPhase,
+  ExecutionState,
+  TraceEntry,
+  ContextChange,
+  ContextDiff,
+} from './cascade-context.js'
