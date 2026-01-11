@@ -415,6 +415,51 @@ export interface HumanStore {
 }
 
 /**
+ * Retry configuration options
+ */
+export interface RetryOptions {
+  /** Maximum number of retries */
+  maxRetries?: number
+  /** Backoff configuration */
+  backoff?: {
+    /** Base delay in milliseconds */
+    baseDelayMs?: number
+    /** Multiplier for each retry (default: 2) */
+    multiplier?: number
+    /** Maximum delay cap in milliseconds */
+    maxDelayMs?: number
+    /** Jitter factor (0-1) for randomization */
+    jitterFactor?: number
+  }
+  /** Error types that should trigger a retry */
+  retryableErrors?: string[]
+}
+
+/**
+ * Circuit breaker configuration
+ */
+export interface CircuitBreakerOptions {
+  /** Number of failures before opening circuit */
+  failureThreshold?: number
+  /** Time in ms before attempting to close circuit */
+  resetTimeoutMs?: number
+  /** Maximum attempts allowed in half-open state */
+  halfOpenMaxAttempts?: number
+}
+
+/**
+ * SLA configuration options
+ */
+export interface SLAOptions {
+  /** Default deadline in milliseconds */
+  deadlineMs?: number
+  /** Warning threshold in milliseconds before deadline */
+  warningThresholdMs?: number
+  /** Priority-based SLA tiers */
+  tiers?: Record<Priority, { deadlineMs: number }>
+}
+
+/**
  * Options for human interactions
  */
 export interface HumanOptions {
@@ -428,4 +473,10 @@ export interface HumanOptions {
   escalationPolicies?: EscalationPolicy[]
   /** Auto-escalate on timeout */
   autoEscalate?: boolean
+  /** Retry configuration */
+  retry?: RetryOptions
+  /** Circuit breaker configuration */
+  circuitBreaker?: CircuitBreakerOptions
+  /** SLA tracking configuration */
+  sla?: SLAOptions
 }

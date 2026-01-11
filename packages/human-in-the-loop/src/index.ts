@@ -67,6 +67,34 @@ export {
 // Export store implementations
 export { InMemoryHumanStore } from './store.js'
 
+// Export timeout/retry utilities
+export {
+  // Classes
+  ExponentialBackoff,
+  HumanRetryPolicy,
+  HumanCircuitBreaker,
+  SLATracker,
+  // Error types
+  RetryError,
+  CircuitOpenError,
+  SLAViolationError,
+  // Functions
+  withRetry,
+} from './timeout-retry.js'
+
+export type {
+  BackoffConfig,
+  RetryConfig,
+  CircuitBreakerConfig,
+  SLAConfig,
+  WithRetryOptions,
+  CircuitState,
+  EscalationContext,
+  RetryExhaustedContext,
+  SLAWarningContext,
+  SLAViolationContext,
+} from './timeout-retry.js'
+
 // Export webhook functionality
 export {
   createWebhookRegistry,
@@ -82,7 +110,7 @@ export type {
   WebhookEventType,
   WebhookRegistryOptions,
   DeliveryResult,
-  RetryOptions,
+  RetryOptions as WebhookRetryOptions,
   DeadLetterItem,
 } from './webhooks.js'
 
@@ -100,6 +128,37 @@ export type {
   FailureInfo,
   PriorityMapping,
 } from './tier-registry.js'
+
+// Export fallback resolution patterns for human decisions
+export {
+  DecisionLogger,
+  FeedbackLoop,
+  FallbackChain,
+  DecisionAnalytics,
+} from './fallback-resolution.js'
+
+export type {
+  // Decision logging
+  DecisionContext,
+  DecisionLog,
+  LogDecisionInput,
+  ComplianceReportFilters,
+  ComplianceReport,
+  // Feedback loop
+  FeedbackSignal,
+  GenerateSignalInput,
+  TrainingBatch,
+  AccuracyMetrics,
+  // Fallback chain
+  FallbackHandler,
+  EscalationRecord,
+  EscalationAudit,
+  ExecuteWithFallbackResult,
+  // Analytics
+  DecisionPattern,
+  TimePatterns,
+  DashboardData,
+} from './fallback-resolution.js'
 
 // Export all types
 export type {
@@ -134,4 +193,9 @@ export type {
   // Store interface
   HumanStore,
   HumanOptions,
+
+  // Retry/Circuit Breaker/SLA options
+  RetryOptions,
+  CircuitBreakerOptions,
+  SLAOptions,
 } from './types.js'

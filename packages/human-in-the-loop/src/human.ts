@@ -24,8 +24,18 @@ import type {
   ApprovalWorkflow,
   Priority,
   HumanRequest,
+  RetryOptions,
+  CircuitBreakerOptions,
+  SLAOptions,
 } from './types.js'
 import { InMemoryHumanStore } from './store.js'
+import {
+  HumanRetryPolicy,
+  HumanCircuitBreaker,
+  SLATracker,
+  withRetry,
+  type BackoffConfig,
+} from './timeout-retry.js'
 
 /**
  * Human-in-the-loop manager
@@ -56,12 +66,21 @@ import { InMemoryHumanStore } from './store.js'
  */
 export class HumanManager {
   private store: HumanStore
-  private options: Required<HumanOptions>
+  private options: Required<Omit<HumanOptions, 'retry' | 'circuitBreaker' | 'sla'>> & {
+    retry?: RetryOptions
+    circuitBreaker?: CircuitBreakerOptions
+    sla?: SLAOptions
+  }
   private roles = new Map<string, Role>()
   private teams = new Map<string, Team>()
   private humans = new Map<string, HumanType>()
   private escalationPolicies = new Map<string, EscalationPolicy>()
   private workflows = new Map<string, ApprovalWorkflow>()
+
+  // Timeout/Retry components
+  private retryPolicy?: HumanRetryPolicy
+  private circuitBreaker?: HumanCircuitBreaker
+  private slaTracker?: SLATracker
 
   constructor(options: HumanOptions = {}) {
     this.store = options.store || new InMemoryHumanStore()
@@ -71,12 +90,77 @@ export class HumanManager {
       defaultPriority: options.defaultPriority || 'normal',
       escalationPolicies: options.escalationPolicies || [],
       autoEscalate: options.autoEscalate ?? false,
+      retry: options.retry,
+      circuitBreaker: options.circuitBreaker,
+      sla: options.sla,
     }
 
     // Register escalation policies
     for (const policy of this.options.escalationPolicies) {
       this.escalationPolicies.set(policy.id, policy)
     }
+
+    // Initialize retry/circuit breaker/SLA components
+    this.initializeRetryComponents(options)
+  }
+
+  /**
+   * Initialize timeout/retry components based on options
+   */
+  private initializeRetryComponents(options: HumanOptions): void {
+    // Initialize retry policy
+    if (options.retry) {
+      this.retryPolicy = new HumanRetryPolicy({
+        maxRetries: options.retry.maxRetries ?? 5,
+        retryableErrors: options.retry.retryableErrors,
+      })
+    }
+
+    // Initialize circuit breaker
+    if (options.circuitBreaker) {
+      this.circuitBreaker = new HumanCircuitBreaker({
+        failureThreshold: options.circuitBreaker.failureThreshold ?? 5,
+        resetTimeoutMs: options.circuitBreaker.resetTimeoutMs,
+        halfOpenMaxAttempts: options.circuitBreaker.halfOpenMaxAttempts,
+      })
+    }
+
+    // Initialize SLA tracker
+    if (options.sla) {
+      this.slaTracker = new SLATracker({
+        deadlineMs: options.sla.deadlineMs,
+        warningThresholdMs: options.sla.warningThresholdMs,
+        tiers: options.sla.tiers,
+        onWarning: (requestId, ctx) => {
+          // Could be extended to emit events or call callbacks
+          console.warn(`SLA warning for request ${requestId}: ${ctx.remainingMs}ms remaining`)
+        },
+        onViolation: (requestId, ctx) => {
+          console.error(`SLA violated for request ${requestId}`)
+        },
+      })
+    }
+  }
+
+  /**
+   * Get the retry policy instance
+   */
+  getRetryPolicy(): HumanRetryPolicy | undefined {
+    return this.retryPolicy
+  }
+
+  /**
+   * Get the circuit breaker instance
+   */
+  getCircuitBreaker(): HumanCircuitBreaker | undefined {
+    return this.circuitBreaker
+  }
+
+  /**
+   * Get the SLA tracker instance
+   */
+  getSLATracker(): SLATracker | undefined {
+    return this.slaTracker
   }
 
   /**
