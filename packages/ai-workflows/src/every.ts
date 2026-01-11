@@ -9,7 +9,8 @@
  *   every('first Monday of the month at 9am', $ => { ... })
  */
 
-import type { ScheduleHandler, ScheduleRegistration, ScheduleInterval } from './types.js'
+import type { ScheduleHandler, ScheduleRegistration, ScheduleInterval, EveryProxyTarget, EveryProxy } from './types.js'
+import { PLURAL_UNITS, isPluralUnitKey } from './types.js'
 
 /**
  * Registry of schedule handlers
@@ -182,16 +183,11 @@ function createEveryProxy() {
       }
 
       // Check for plural time units (e.g., seconds(5), minutes(30))
-      const pluralUnits: Record<string, string> = {
-        seconds: 'second',
-        minutes: 'minute',
-        hours: 'hour',
-        days: 'day',
-        weeks: 'week',
-      }
-      if (pluralUnits[prop]) {
+      // Using type guard and typed constant for type-safe interval creation
+      if (isPluralUnitKey(prop)) {
+        const intervalType = PLURAL_UNITS[prop]
         return (value: number) => (handlerFn: ScheduleHandler) => {
-          registerScheduleHandler({ type: pluralUnits[prop] as any, value, natural: `${value} ${prop}` }, handlerFn)
+          registerScheduleHandler({ type: intervalType, value, natural: `${value} ${prop}` }, handlerFn)
         }
       }
 
@@ -209,7 +205,12 @@ function createEveryProxy() {
     }
   }
 
-  return new Proxy(function() {} as any, handler)
+  // Create callable target with proper typing
+  // The function serves as the Proxy target - actual behavior is in the handler's apply trap
+  // Cast to EveryProxy is safe: Proxy handler implements all EveryProxy behaviors dynamically
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const target: EveryProxyTarget = function(_description: string, _handler: ScheduleHandler) {}
+  return new Proxy(target, handler) as unknown as EveryProxy
 }
 
 /**

@@ -2,7 +2,7 @@
  * Workflow context implementation
  */
 
-import type { WorkflowContext, WorkflowState, WorkflowHistoryEntry, OnProxy, EveryProxy } from './types.js'
+import type { WorkflowContext, WorkflowState, WorkflowHistoryEntry, OnProxy, EveryProxy, EveryProxyTarget, ScheduleHandler } from './types.js'
 
 /**
  * Event bus interface (imported from send.ts to avoid circular dependency)
@@ -38,12 +38,17 @@ export function createWorkflowContext(eventBus: EventBusLike): WorkflowContext {
     }
   })
 
-  const noOpEveryProxy = new Proxy(function() {} as any, {
-    get() {
-      return () => () => {}
-    },
-    apply() {}
-  }) as EveryProxy
+  // Cast to EveryProxy is safe: Proxy handler implements all EveryProxy behaviors dynamically
+  const noOpEveryProxy = new Proxy(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    ((_description: string, _handler: ScheduleHandler) => {}) as EveryProxyTarget,
+    {
+      get() {
+        return () => () => {}
+      },
+      apply() {}
+    }
+  ) as EveryProxy
 
   return {
     async send<T = unknown>(event: string, data: T): Promise<void> {

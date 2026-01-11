@@ -249,6 +249,14 @@ export type EveryProxy = {
 }
 
 /**
+ * Callable target type for EveryProxy
+ * Used as a properly-typed Proxy target that supports both call and property access
+ */
+export type EveryProxyTarget = {
+  (description: string, handler: ScheduleHandler): void
+}
+
+/**
  * Workflow state
  */
 export interface WorkflowState {
@@ -314,6 +322,48 @@ export interface ScheduleRegistration {
   handler: ScheduleHandler
   source: string
 }
+
+/**
+ * Time-based interval types (singular form)
+ * Used as discriminant values in ScheduleInterval
+ */
+export type TimeIntervalType = 'second' | 'minute' | 'hour' | 'day' | 'week'
+
+/**
+ * Mapping from plural unit names to their singular interval types
+ * Used for type-safe conversion in every.units(value) patterns
+ */
+export type PluralUnitMapping = {
+  seconds: 'second'
+  minutes: 'minute'
+  hours: 'hour'
+  days: 'day'
+  weeks: 'week'
+}
+
+/**
+ * Plural unit keys
+ */
+export type PluralUnitKey = keyof PluralUnitMapping
+
+/**
+ * Type guard to check if a string is a valid plural unit key
+ */
+export function isPluralUnitKey(key: string): key is PluralUnitKey {
+  return key === 'seconds' || key === 'minutes' || key === 'hours' || key === 'days' || key === 'weeks'
+}
+
+/**
+ * Constant mapping object with strict typing
+ * Maps plural forms to their singular interval type values
+ */
+export const PLURAL_UNITS: Readonly<PluralUnitMapping> = {
+  seconds: 'second',
+  minutes: 'minute',
+  hours: 'hour',
+  days: 'day',
+  weeks: 'week',
+} as const
 
 /**
  * Schedule intervals

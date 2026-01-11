@@ -1,0 +1,51 @@
+{
+  "name": "@org.ai/examples",
+  "version": "0.0.1",
+  "description": "Example code for ai-functions - Getting Started Guide",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./basic-generation": {
+      "import": "./dist/basic-generation.js",
+      "types": "./dist/basic-generation.d.ts"
+    },
+    "./promise-pipelining": {
+      "import": "./dist/promise-pipelining.js",
+      "types": "./dist/promise-pipelining.d.ts"
+    },
+    "./error-handling": {
+      "import": "./dist/error-handling.js",
+      "types": "./dist/error-handling.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "test": "vitest",
+    "test:unit": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "ai-functions": "workspace:*"
+  },
+  "devDependencies": {
+    "ai": "^5.0.0",
+    "ai-providers": "workspace:*",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "keywords": [
+    "ai",
+    "examples",
+    "getting-started",
+    "documentation"
+  ],
+  "license": "MIT"
+}

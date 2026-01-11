@@ -27,9 +27,11 @@ import type {
   WorkflowOptions,
   OnProxy,
   EveryProxy,
+  EveryProxyTarget,
   ParsedEvent,
   DatabaseContext,
 } from './types.js'
+import { PLURAL_UNITS, isPluralUnitKey } from './types.js'
 
 /**
  * Well-known cron patterns for common schedules
@@ -246,17 +248,12 @@ export function Workflow(
         }
 
         // Plural units (seconds, minutes, hours, days, weeks)
-        const pluralUnits: Record<string, string> = {
-          seconds: 'second',
-          minutes: 'minute',
-          hours: 'hour',
-          days: 'day',
-          weeks: 'week',
-        }
-        if (pluralUnits[prop]) {
+        // Using type guard and typed constant for type-safe interval creation
+        if (isPluralUnitKey(prop)) {
+          const intervalType = PLURAL_UNITS[prop]
           return (value: number) => (handlerFn: ScheduleHandler) => {
             registerScheduleHandler(
-              { type: pluralUnits[prop] as any, value, natural: `${value} ${prop}` },
+              { type: intervalType, value, natural: `${value} ${prop}` },
               handlerFn
             )
           }
@@ -273,7 +270,12 @@ export function Workflow(
       }
     }
 
-    return new Proxy(function() {} as any, handler)
+    // Create callable target with proper typing
+    // The function serves as the Proxy target - actual behavior is in the handler's apply trap
+    // Cast to EveryProxy is safe: Proxy handler implements all EveryProxy behaviors dynamically
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const target: EveryProxyTarget = function(_description: string, _handler: ScheduleHandler) {}
+    return new Proxy(target, handler) as unknown as EveryProxy
   }
 
   /**
@@ -533,12 +535,17 @@ export function createTestContext(): WorkflowContext & { emittedEvents: Array<{ 
       }
     }),
 
-    every: new Proxy(function() {} as any, {
-      get() {
-        return () => () => {} // No-op for testing
-      },
-      apply() {}
-    }),
+    // Cast to EveryProxy is safe: Proxy handler implements all EveryProxy behaviors dynamically
+    every: new Proxy(
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      ((_description: string, _handler: ScheduleHandler) => {}) as EveryProxyTarget,
+      {
+        get() {
+          return () => () => {} // No-op for testing
+        },
+        apply() {}
+      }
+    ) as unknown as EveryProxy,
 
     state: stateContext,
 

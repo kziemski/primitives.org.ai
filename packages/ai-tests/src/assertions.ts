@@ -12,13 +12,64 @@ import { RpcTarget } from 'cloudflare:workers'
 chai.should()
 
 /**
+ * Type for constructor functions that can be used with instanceof assertions.
+ * Matches any class or function that can construct instances.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Constructor<T = unknown> = new (...args: any[]) => T
+
+/**
+ * Type for error-like values that can be used with throw assertions.
+ * Chai's throw() accepts:
+ * - Error constructor (e.g., TypeError, RangeError)
+ * - Error instance (e.g., new Error('message'))
+ * - String for message matching
+ * - RegExp for pattern matching
+ */
+type ThrowableMatch = string | RegExp | Error | Constructor<Error>
+
+/**
+ * Internal type for Chai assertion chain.
+ *
+ * @remarks
+ * **Why we use Chai.Assertion here:**
+ *
+ * Chai's fluent API uses a chainable pattern where each flag (.not, .deep, .nested, etc.)
+ * returns a different TypeScript interface:
+ * - Chai.Assertion: Base type from expect()
+ * - Chai.Deep: Returned after .deep (has subset of properties)
+ * - Chai.Nested, Chai.Own, etc.: Other flag-specific types
+ *
+ * These types form a complex hierarchy where not all methods exist on all types.
+ * For example, Chai.Deep has .equal() but not .ok, while Chai.KeyFilter has
+ * .keys() but not .equal().
+ *
+ * Our wrapper class stores the current assertion state and calls methods on it.
+ * At runtime, all these methods exist because Chai's actual implementation always
+ * has them - the type restrictions are for API guidance, not runtime behavior.
+ *
+ * We use Chai.Assertion (the most complete type) because:
+ * 1. It has all the methods we need to call
+ * 2. The assignment from flag types to Chai.Assertion is unsound in strict TS,
+ *    but at runtime these objects have all the methods we need
+ * 3. We wrap the result in our own Assertion class, so the internal type
+ *    doesn't leak to consumers
+ *
+ * The type assertions in the flag getters (.deep, .nested, etc.) are intentional
+ * and documented. They bridge Chai's complex type hierarchy to our simpler wrapper.
+ */
+type ChaiAssertionChain = Chai.Assertion
+
+/**
  * Wrapper around Chai's expect that extends RpcTarget
  * This allows the assertion chain to work over RPC with promise pipelining
  */
 export class Assertion extends RpcTarget {
-  // Using 'any' to avoid complex type gymnastics with Chai's chainable types
-  // (Deep, Nested, etc. don't match Chai.Assertion directly)
-  private assertion: any
+  /**
+   * Internal Chai assertion chain.
+   * @see ChaiAssertionChain for explanation of the type choice.
+   */
+  private assertion: ChaiAssertionChain
 
   constructor(value: unknown, message?: string) {
     super()
@@ -44,51 +95,79 @@ export class Assertion extends RpcTarget {
   get still() { return this }
   get also() { return this }
 
-  // Negation
+  /**
+   * Negation flag - inverts the assertion.
+   * @remarks Type cast needed: Chai's .not returns Chai.Assertion, which matches our type.
+   */
   get not(): Assertion {
     this.assertion = this.assertion.not
     return this
   }
 
-  // Deep flag
+  /**
+   * Deep flag - enables deep equality comparisons.
+   * @remarks Type cast needed: Chai's .deep returns Chai.Deep, but at runtime
+   * it has all the methods we need. We cast to maintain our wrapper's type.
+   */
   get deep(): Assertion {
-    this.assertion = this.assertion.deep
+    this.assertion = this.assertion.deep as ChaiAssertionChain
     return this
   }
 
-  // Nested flag
+  /**
+   * Nested flag - enables nested property access with dot notation.
+   * @remarks Type cast needed: Chai's .nested returns Chai.Nested, cast to our chain type.
+   */
   get nested(): Assertion {
-    this.assertion = this.assertion.nested
+    this.assertion = this.assertion.nested as ChaiAssertionChain
     return this
   }
 
-  // Own flag
+  /**
+   * Own flag - only checks own properties, not inherited.
+   * @remarks Type cast needed: Chai's .own returns Chai.Own, cast to our chain type.
+   */
   get own(): Assertion {
-    this.assertion = this.assertion.own
+    this.assertion = this.assertion.own as ChaiAssertionChain
     return this
   }
 
-  // Ordered flag
+  /**
+   * Ordered flag - requires members to be in order.
+   * @remarks Type cast needed: Chai's .ordered returns Chai.Ordered, cast to our chain type.
+   */
   get ordered(): Assertion {
-    this.assertion = this.assertion.ordered
+    this.assertion = this.assertion.ordered as ChaiAssertionChain
     return this
   }
 
-  // Any flag
+  /**
+   * Any flag - requires at least one key match.
+   * @remarks Type cast needed: Chai's .any returns Chai.KeyFilter, cast to our chain type.
+   */
   get any(): Assertion {
-    this.assertion = this.assertion.any
+    this.assertion = this.assertion.any as ChaiAssertionChain
     return this
   }
 
-  // All flag
+  /**
+   * All flag - requires all keys to match.
+   * @remarks Type cast needed: Chai's .all returns Chai.KeyFilter, cast to our chain type.
+   */
   get all(): Assertion {
-    this.assertion = this.assertion.all
+    this.assertion = this.assertion.all as ChaiAssertionChain
     return this
   }
 
-  // Length chain
+  /**
+   * Length chain - for asserting on length property.
+   * @remarks Type cast needed: Chai's .length returns Chai.Length which is quite different
+   * from Chai.Assertion (it's also callable). We cast through unknown because Length
+   * doesn't directly overlap with Assertion in TypeScript's structural type system,
+   * but at runtime the object has all methods we need.
+   */
   get length(): Assertion {
-    this.assertion = this.assertion.length
+    this.assertion = this.assertion.length as unknown as ChaiAssertionChain
     return this
   }
 
@@ -183,12 +262,12 @@ export class Assertion extends RpcTarget {
     return this
   }
 
-  instanceof(constructor: unknown, message?: string) {
-    this.assertion.instanceof(constructor as any, message)
+  instanceof(constructor: Constructor, message?: string) {
+    this.assertion.instanceof(constructor, message)
     return this
   }
 
-  instanceOf(constructor: unknown, message?: string) {
+  instanceOf(constructor: Constructor, message?: string) {
     return this.instanceof(constructor, message)
   }
 
@@ -211,7 +290,11 @@ export class Assertion extends RpcTarget {
   }
 
   ownPropertyDescriptor(name: string, descriptor?: PropertyDescriptor, message?: string) {
-    this.assertion.ownPropertyDescriptor(name, descriptor, message)
+    if (descriptor !== undefined) {
+      this.assertion.ownPropertyDescriptor(name, descriptor, message)
+    } else {
+      this.assertion.ownPropertyDescriptor(name, message)
+    }
     return this
   }
 
@@ -243,16 +326,37 @@ export class Assertion extends RpcTarget {
     return this.keys(...keys)
   }
 
-  throw(errorLike?: unknown, errMsgMatcher?: string | RegExp, message?: string) {
-    this.assertion.throw(errorLike as any, errMsgMatcher, message)
+  /**
+   * Asserts that the function throws an error.
+   *
+   * @param errorLike - Error constructor, instance, string, or RegExp to match
+   * @param errMsgMatcher - String or RegExp to match error message (when errorLike is constructor/instance)
+   * @param message - Custom assertion message
+   *
+   * @remarks
+   * Chai's throw() has two overloads that TypeScript can't resolve with our union type.
+   * We use runtime type checking to call the appropriate overload, then use a type
+   * assertion to satisfy TypeScript. This is safe because Chai accepts all these
+   * combinations at runtime.
+   */
+  throw(errorLike?: ThrowableMatch, errMsgMatcher?: string | RegExp, message?: string) {
+    if (errorLike === undefined) {
+      this.assertion.throw()
+    } else if (typeof errorLike === 'string' || errorLike instanceof RegExp) {
+      // First overload: (expected?: string | RegExp, message?: string)
+      this.assertion.throw(errorLike, errMsgMatcher as string | undefined)
+    } else {
+      // Second overload: (constructor: Error | Function, expected?: string | RegExp, message?: string)
+      this.assertion.throw(errorLike as Error | Function, errMsgMatcher, message)
+    }
     return this
   }
 
-  throws(errorLike?: unknown, errMsgMatcher?: string | RegExp, message?: string) {
+  throws(errorLike?: ThrowableMatch, errMsgMatcher?: string | RegExp, message?: string) {
     return this.throw(errorLike, errMsgMatcher, message)
   }
 
-  Throw(errorLike?: unknown, errMsgMatcher?: string | RegExp, message?: string) {
+  Throw(errorLike?: ThrowableMatch, errMsgMatcher?: string | RegExp, message?: string) {
     return this.throw(errorLike, errMsgMatcher, message)
   }
 
@@ -398,11 +502,18 @@ export class Assertion extends RpcTarget {
     return this
   }
 
-  toThrow(expected?: string | RegExp | Error) {
-    if (expected) {
-      this.assertion.throw(expected as any)
-    } else {
+  /**
+   * Vitest-compatible: Asserts that the function throws.
+   * @remarks Uses same runtime type checking as throw() to handle Chai's overloads.
+   */
+  toThrow(expected?: ThrowableMatch) {
+    if (expected === undefined) {
       this.assertion.throw()
+    } else if (typeof expected === 'string' || expected instanceof RegExp) {
+      this.assertion.throw(expected)
+    } else {
+      // Error instance or constructor
+      this.assertion.throw(expected as Error | Function)
     }
     return this
   }
@@ -433,8 +544,8 @@ export class Assertion extends RpcTarget {
     return this
   }
 
-  toBeInstanceOf(cls: unknown) {
-    this.assertion.instanceof(cls as any)
+  toBeInstanceOf(cls: Constructor) {
+    this.assertion.instanceof(cls)
     return this
   }
 
