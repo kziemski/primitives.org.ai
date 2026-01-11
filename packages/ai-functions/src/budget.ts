@@ -457,7 +457,10 @@ export class BudgetTracker {
   getTotalCost(): number {
     let total = 0
     for (const model of Object.keys(this.usageByModel)) {
-      total += this.usageByModel[model].cost
+      const usage = this.usageByModel[model]
+      if (usage) {
+        total += usage.cost
+      }
     }
     return total
   }
@@ -468,7 +471,10 @@ export class BudgetTracker {
   getCostByModel(): Record<string, number> {
     const result: Record<string, number> = {}
     for (const model of Object.keys(this.usageByModel)) {
-      result[model] = this.usageByModel[model].cost
+      const usage = this.usageByModel[model]
+      if (usage) {
+        result[model] = usage.cost
+      }
     }
     return result
   }
@@ -529,17 +535,19 @@ export class BudgetTracker {
    */
   private getPricing(model: string): ModelPricing {
     // Check custom pricing first
-    if (this.config.customPricing?.[model]) {
-      return this.config.customPricing[model]
+    const customPrice = this.config.customPricing?.[model]
+    if (customPrice) {
+      return customPrice
     }
 
     // Check default pricing
-    if (DEFAULT_MODEL_PRICING[model]) {
-      return DEFAULT_MODEL_PRICING[model]
+    const defaultPrice = DEFAULT_MODEL_PRICING[model]
+    if (defaultPrice) {
+      return defaultPrice
     }
 
-    // Fallback to default
-    return DEFAULT_MODEL_PRICING['default']
+    // Fallback to default (always defined)
+    return DEFAULT_MODEL_PRICING['default']!
   }
 
   /**
