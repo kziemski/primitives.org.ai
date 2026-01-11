@@ -67,6 +67,40 @@ export {
 // Export store implementations
 export { InMemoryHumanStore } from './store.js'
 
+// Export webhook functionality
+export {
+  createWebhookRegistry,
+  getDefaultWebhookRegistry,
+  signPayload,
+  verifySignature,
+} from './webhooks.js'
+
+export type {
+  WebhookRegistry,
+  WebhookConfig,
+  WebhookEvent,
+  WebhookEventType,
+  WebhookRegistryOptions,
+  DeliveryResult,
+  RetryOptions,
+  DeadLetterItem,
+} from './webhooks.js'
+
+// Export cascade tier registry for failure type routing
+export { TierRegistry } from './tier-registry.js'
+
+export type {
+  CascadeTier,
+  TierConfig,
+  TierHandler,
+  TierHandlerResult,
+  TierMetrics,
+  FailureType,
+  FailurePattern,
+  FailureInfo,
+  PriorityMapping,
+} from './tier-registry.js'
+
 // Export all types
 export type {
   // Status and enums
