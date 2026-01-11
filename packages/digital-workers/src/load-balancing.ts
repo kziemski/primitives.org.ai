@@ -118,6 +118,11 @@ export interface CompositeBalancerConfig {
   strategies: Array<BalancerStrategy | { strategy: BalancerStrategy; weight: number }>
   fallbackBehavior?: 'next-strategy' | 'none'
   customStrategies?: Record<string, (task: TaskRequest, agents: AgentInfo[]) => AgentInfo | null>
+  /**
+   * Optional metrics collector for isolated metrics tracking.
+   * If not provided, uses the default global collector.
+   */
+  metricsCollector?: MetricsCollector
 }
 
 /**
@@ -130,65 +135,162 @@ export interface LoadBalancer {
   getAgents(): AgentInfo[]
 }
 
+/**
+ * Metrics collector interface for thread-safe metrics collection.
+ *
+ * Each MetricsCollector instance maintains its own isolated state,
+ * allowing multiple balancers to either share a collector for
+ * aggregated metrics or use separate collectors for isolated tracking.
+ *
+ * @remarks
+ * Thread-safety is achieved through instance isolation. Each collector
+ * maintains its own metrics state, eliminating race conditions between
+ * different balancer instances. For shared metrics across multiple
+ * balancers, pass the same collector instance to each balancer.
+ */
+export interface MetricsCollector {
+  /**
+   * Record a routing event.
+   * @internal This method is called by balancers during routing.
+   */
+  record(result: RouteResult, latencyMs: number, strategy: BalancerStrategy): void
+
+  /**
+   * Collect current routing metrics.
+   * @returns A copy of the current metrics state
+   */
+  collect(): RoutingMetrics
+
+  /**
+   * Reset all metrics to initial state.
+   */
+  reset(): void
+}
+
 // ============================================================================
-// Global Metrics State
+// MetricsCollector Implementation
 // ============================================================================
 
-let metricsState: RoutingMetrics = {
-  totalRouted: 0,
-  failedRoutes: 0,
-  averageLatencyMs: 0,
-  perAgent: {},
-  strategyUsage: {},
-}
-
-let totalLatency = 0
-
 /**
- * Record a routing event for metrics
+ * Create a new MetricsCollector instance with isolated state.
+ *
+ * This factory function creates a thread-safe metrics collector that
+ * encapsulates all metrics state within the returned instance. Multiple
+ * collectors can be used independently without interference.
+ *
+ * @example
+ * ```typescript
+ * // Create isolated collectors for different environments
+ * const prodCollector = createMetricsCollector()
+ * const testCollector = createMetricsCollector()
+ *
+ * // Balancers with separate metrics
+ * const prodBalancer = createRoundRobinBalancer(agents, { metricsCollector: prodCollector })
+ * const testBalancer = createRoundRobinBalancer(agents, { metricsCollector: testCollector })
+ * ```
+ *
+ * @example
+ * ```typescript
+ * // Shared collector for aggregated metrics
+ * const sharedCollector = createMetricsCollector()
+ * const balancer1 = createRoundRobinBalancer(agents, { metricsCollector: sharedCollector })
+ * const balancer2 = createLeastBusyBalancer(agents, { metricsCollector: sharedCollector })
+ *
+ * // Get combined metrics
+ * const metrics = sharedCollector.collect()
+ * ```
+ *
+ * @returns A new MetricsCollector instance
  */
-function recordRouting(
-  result: RouteResult,
-  latencyMs: number,
-  strategy: BalancerStrategy
-): void {
-  metricsState.totalRouted++
-  totalLatency += latencyMs
-  metricsState.averageLatencyMs = totalLatency / metricsState.totalRouted
-
-  if (!result.agent) {
-    metricsState.failedRoutes++
-  } else {
-    const agentId = result.agent.id
-    if (!metricsState.perAgent[agentId]) {
-      metricsState.perAgent[agentId] = { routedCount: 0 }
-    }
-    metricsState.perAgent[agentId].routedCount++
-    metricsState.perAgent[agentId].lastRouted = new Date()
-  }
-
-  metricsState.strategyUsage[strategy] = (metricsState.strategyUsage[strategy] || 0) + 1
-}
-
-/**
- * Collect current routing metrics
- */
-export function collectRoutingMetrics(): RoutingMetrics {
-  return { ...metricsState }
-}
-
-/**
- * Reset all routing metrics
- */
-export function resetRoutingMetrics(): void {
-  metricsState = {
+export function createMetricsCollector(): MetricsCollector {
+  // Instance-local state - each collector has its own isolated metrics
+  let metricsState: RoutingMetrics = {
     totalRouted: 0,
     failedRoutes: 0,
     averageLatencyMs: 0,
     perAgent: {},
     strategyUsage: {},
   }
-  totalLatency = 0
+  let totalLatency = 0
+
+  function record(
+    result: RouteResult,
+    latencyMs: number,
+    strategy: BalancerStrategy
+  ): void {
+    metricsState.totalRouted++
+    totalLatency += latencyMs
+    metricsState.averageLatencyMs = totalLatency / metricsState.totalRouted
+
+    if (!result.agent) {
+      metricsState.failedRoutes++
+    } else {
+      const agentId = result.agent.id
+      if (!metricsState.perAgent[agentId]) {
+        metricsState.perAgent[agentId] = { routedCount: 0 }
+      }
+      metricsState.perAgent[agentId].routedCount++
+      metricsState.perAgent[agentId].lastRouted = new Date()
+    }
+
+    metricsState.strategyUsage[strategy] = (metricsState.strategyUsage[strategy] || 0) + 1
+  }
+
+  function collect(): RoutingMetrics {
+    // Return a deep copy to prevent external mutation
+    return {
+      ...metricsState,
+      perAgent: { ...metricsState.perAgent },
+      strategyUsage: { ...metricsState.strategyUsage },
+    }
+  }
+
+  function reset(): void {
+    metricsState = {
+      totalRouted: 0,
+      failedRoutes: 0,
+      averageLatencyMs: 0,
+      perAgent: {},
+      strategyUsage: {},
+    }
+    totalLatency = 0
+  }
+
+  return { record, collect, reset }
+}
+
+// ============================================================================
+// Default Global Metrics Collector (Backward Compatibility)
+// ============================================================================
+
+/**
+ * Default metrics collector singleton for backward compatibility.
+ * Used when no explicit collector is provided to balancer factories.
+ */
+const defaultMetricsCollector = createMetricsCollector()
+
+/**
+ * Collect current routing metrics from the default global collector.
+ *
+ * @remarks
+ * This function is provided for backward compatibility. For new code,
+ * consider using explicit MetricsCollector instances for better isolation.
+ *
+ * @returns Current routing metrics
+ */
+export function collectRoutingMetrics(): RoutingMetrics {
+  return defaultMetricsCollector.collect()
+}
+
+/**
+ * Reset all routing metrics in the default global collector.
+ *
+ * @remarks
+ * This function is provided for backward compatibility. For new code,
+ * consider using explicit MetricsCollector instances for better isolation.
+ */
+export function resetRoutingMetrics(): void {
+  defaultMetricsCollector.reset()
 }
 
 // ============================================================================
@@ -196,13 +298,32 @@ export function resetRoutingMetrics(): void {
 // ============================================================================
 
 /**
+ * Options for round-robin load balancer
+ */
+interface RoundRobinBalancerOptions {
+  /**
+   * Optional metrics collector for isolated metrics tracking.
+   * If not provided, uses the default global collector.
+   */
+  metricsCollector?: MetricsCollector
+}
+
+/**
  * Create a round-robin load balancer
  *
  * Distributes tasks evenly across all available agents in order.
+ *
+ * @param initialAgents - Initial set of agents to balance across
+ * @param options - Optional configuration including metricsCollector
+ * @returns A LoadBalancer instance
  */
-export function createRoundRobinBalancer(initialAgents: AgentInfo[]): LoadBalancer {
+export function createRoundRobinBalancer(
+  initialAgents: AgentInfo[],
+  options: RoundRobinBalancerOptions = {}
+): LoadBalancer {
   let agents = [...initialAgents]
   let currentIndex = 0
+  const collector = options.metricsCollector ?? defaultMetricsCollector
 
   function getAvailableAgents(): AgentInfo[] {
     return agents.filter(a => a.status === 'available' || a.status === 'busy')
@@ -220,7 +341,7 @@ export function createRoundRobinBalancer(initialAgents: AgentInfo[]): LoadBalanc
         timestamp: new Date(),
         reason: 'no-available-agents',
       }
-      recordRouting(result, performance.now() - start, 'round-robin')
+      collector.record(result, performance.now() - start, 'round-robin')
       return result
     }
 
@@ -237,7 +358,7 @@ export function createRoundRobinBalancer(initialAgents: AgentInfo[]): LoadBalanc
           strategy: 'round-robin',
           timestamp: new Date(),
         }
-        recordRouting(result, performance.now() - start, 'round-robin')
+        collector.record(result, performance.now() - start, 'round-robin')
         return result
       }
       attempts++
@@ -250,7 +371,7 @@ export function createRoundRobinBalancer(initialAgents: AgentInfo[]): LoadBalanc
       timestamp: new Date(),
       reason: 'no-available-agents',
     }
-    recordRouting(result, performance.now() - start, 'round-robin')
+    collector.record(result, performance.now() - start, 'round-robin')
     return result
   }
 
@@ -280,14 +401,33 @@ interface LeastBusyBalancer extends LoadBalancer {
 }
 
 /**
+ * Options for least-busy load balancer
+ */
+interface LeastBusyBalancerOptions {
+  /**
+   * Optional metrics collector for isolated metrics tracking.
+   * If not provided, uses the default global collector.
+   */
+  metricsCollector?: MetricsCollector
+}
+
+/**
  * Create a least-busy load balancer
  *
  * Routes tasks to agents with the lowest current load.
+ *
+ * @param initialAgents - Initial set of agents to balance across
+ * @param options - Optional configuration including metricsCollector
+ * @returns A LeastBusyBalancer instance
  */
-export function createLeastBusyBalancer(initialAgents: AgentInfo[]): LeastBusyBalancer {
+export function createLeastBusyBalancer(
+  initialAgents: AgentInfo[],
+  options: LeastBusyBalancerOptions = {}
+): LeastBusyBalancer {
   let agents = [...initialAgents]
   const loadTracking = new Map<string, number>()
   let lastRoutedIndex = -1
+  const collector = options.metricsCollector ?? defaultMetricsCollector
 
   // Initialize load tracking
   agents.forEach(a => loadTracking.set(a.id, a.currentLoad))
@@ -312,7 +452,7 @@ export function createLeastBusyBalancer(initialAgents: AgentInfo[]): LeastBusyBa
         timestamp: new Date(),
         reason: 'no-available-agents',
       }
-      recordRouting(result, performance.now() - start, 'least-busy')
+      collector.record(result, performance.now() - start, 'least-busy')
       return result
     }
 
@@ -344,7 +484,7 @@ export function createLeastBusyBalancer(initialAgents: AgentInfo[]): LeastBusyBa
       strategy: 'least-busy',
       timestamp: new Date(),
     }
-    recordRouting(result, performance.now() - start, 'least-busy')
+    collector.record(result, performance.now() - start, 'least-busy')
     return result
   }
 
@@ -389,8 +529,19 @@ export function createLeastBusyBalancer(initialAgents: AgentInfo[]): LeastBusyBa
 // Capability-Based Router
 // ============================================================================
 
+/**
+ * Options for capability-based router
+ */
 interface CapabilityRouterOptions {
+  /**
+   * Prefer agents with exact skill match over agents with additional skills
+   */
   preferExactMatch?: boolean
+  /**
+   * Optional metrics collector for isolated metrics tracking.
+   * If not provided, uses the default global collector.
+   */
+  metricsCollector?: MetricsCollector
 }
 
 interface CapabilityRouter extends LoadBalancer {
@@ -402,12 +553,17 @@ interface CapabilityRouter extends LoadBalancer {
  * Create a capability-based router
  *
  * Routes tasks to agents that have the required skills.
+ *
+ * @param initialAgents - Initial set of agents to route to
+ * @param options - Optional configuration including metricsCollector
+ * @returns A CapabilityRouter instance
  */
 export function createCapabilityRouter(
   initialAgents: AgentInfo[],
   options: CapabilityRouterOptions = {}
 ): CapabilityRouter {
   let agents = [...initialAgents]
+  const collector = options.metricsCollector ?? defaultMetricsCollector
 
   function getAvailableAgents(): AgentInfo[] {
     return agents.filter(a => a.status === 'available' || a.status === 'busy')
@@ -438,7 +594,7 @@ export function createCapabilityRouter(
         timestamp: new Date(),
         reason: 'no-matching-capability',
       }
-      recordRouting(result, performance.now() - start, 'capability')
+      collector.record(result, performance.now() - start, 'capability')
       return result
     }
 
@@ -462,7 +618,7 @@ export function createCapabilityRouter(
       timestamp: new Date(),
       matchScore,
     }
-    recordRouting(result, performance.now() - start, 'capability')
+    collector.record(result, performance.now() - start, 'capability')
     return result
   }
 
@@ -499,10 +655,27 @@ export function createCapabilityRouter(
 // Priority Queue Balancer
 // ============================================================================
 
+/**
+ * Options for priority queue balancer
+ */
 interface PriorityQueueOptions {
+  /**
+   * Enable priority aging to prevent task starvation
+   */
   enableAging?: boolean
+  /**
+   * Priority boost per second when aging is enabled
+   */
   agingBoostPerSecond?: number
+  /**
+   * Maximum wait time before task is promoted to highest priority
+   */
   maxWaitTime?: number
+  /**
+   * Optional metrics collector for isolated metrics tracking.
+   * If not provided, uses the default global collector.
+   */
+  metricsCollector?: MetricsCollector
 }
 
 interface PriorityQueueBalancer extends LoadBalancer {
@@ -518,6 +691,10 @@ interface PriorityQueueBalancer extends LoadBalancer {
  * Create a priority queue balancer
  *
  * Processes tasks in priority order with optional aging to prevent starvation.
+ *
+ * @param initialAgents - Initial set of agents to balance across
+ * @param options - Optional configuration including metricsCollector
+ * @returns A PriorityQueueBalancer instance
  */
 export function createPriorityQueueBalancer(
   initialAgents: AgentInfo[],
@@ -526,6 +703,7 @@ export function createPriorityQueueBalancer(
   let agents = [...initialAgents]
   const queue: TaskRequest[] = []
   const { enableAging = false, agingBoostPerSecond = 1, maxWaitTime } = options
+  const collector = options.metricsCollector ?? defaultMetricsCollector
 
   function getAvailableAgents(): AgentInfo[] {
     return agents.filter(a => a.status === 'available' || a.status === 'busy')
@@ -592,7 +770,7 @@ export function createPriorityQueueBalancer(
         timestamp: new Date(),
         reason: 'no-available-agents',
       }
-      recordRouting(result, performance.now() - start, 'priority-queue')
+      collector.record(result, performance.now() - start, 'priority-queue')
       return result
     }
 
@@ -605,7 +783,7 @@ export function createPriorityQueueBalancer(
       strategy: 'priority-queue',
       timestamp: new Date(),
     }
-    recordRouting(result, performance.now() - start, 'priority-queue')
+    collector.record(result, performance.now() - start, 'priority-queue')
     return result
   }
 
@@ -621,7 +799,7 @@ export function createPriorityQueueBalancer(
         timestamp: new Date(),
         reason: 'no-available-agents',
       }
-      recordRouting(result, performance.now() - start, 'priority-queue')
+      collector.record(result, performance.now() - start, 'priority-queue')
       return result
     }
 
@@ -632,7 +810,7 @@ export function createPriorityQueueBalancer(
       strategy: 'priority-queue',
       timestamp: new Date(),
     }
-    recordRouting(result, performance.now() - start, 'priority-queue')
+    collector.record(result, performance.now() - start, 'priority-queue')
     return result
   }
 
@@ -860,8 +1038,19 @@ export function createAgentAvailabilityTracker(
 // Routing Rule Engine
 // ============================================================================
 
+/**
+ * Options for routing rule engine
+ */
 interface RoutingRuleEngineOptions {
+  /**
+   * Default strategy to use when no rules match
+   */
   defaultStrategy?: 'round-robin' | 'least-busy' | 'capability'
+  /**
+   * Optional metrics collector for isolated metrics tracking.
+   * If not provided, uses the default global collector.
+   */
+  metricsCollector?: MetricsCollector
 }
 
 interface RoutingRuleEngine extends LoadBalancer {
@@ -877,6 +1066,10 @@ interface RoutingRuleEngine extends LoadBalancer {
  * Create a routing rule engine
  *
  * Evaluates routing rules in priority order to determine task routing.
+ *
+ * @param initialAgents - Initial set of agents to route to
+ * @param options - Optional configuration including metricsCollector
+ * @returns A RoutingRuleEngine instance
  */
 export function createRoutingRuleEngine(
   initialAgents: AgentInfo[],
@@ -885,21 +1078,23 @@ export function createRoutingRuleEngine(
   let agents = [...initialAgents]
   const rules: RoutingRule[] = []
   const { defaultStrategy = 'round-robin' } = options
+  const collector = options.metricsCollector ?? defaultMetricsCollector
 
   // Create default balancer for fallback
   let defaultBalancer: LoadBalancer
 
   function getDefaultBalancer(): LoadBalancer {
     if (!defaultBalancer) {
+      const balancerOptions = { metricsCollector: collector }
       switch (defaultStrategy) {
         case 'least-busy':
-          defaultBalancer = createLeastBusyBalancer(agents)
+          defaultBalancer = createLeastBusyBalancer(agents, balancerOptions)
           break
         case 'capability':
-          defaultBalancer = createCapabilityRouter(agents)
+          defaultBalancer = createCapabilityRouter(agents, balancerOptions)
           break
         default:
-          defaultBalancer = createRoundRobinBalancer(agents)
+          defaultBalancer = createRoundRobinBalancer(agents, balancerOptions)
       }
     }
     return defaultBalancer
@@ -957,7 +1152,7 @@ export function createRoutingRuleEngine(
             timestamp: new Date(),
             matchedRule: rule.name,
           }
-          recordRouting(result, performance.now() - start, 'custom')
+          collector.record(result, performance.now() - start, 'custom')
           return result
         }
       }
@@ -1054,6 +1249,10 @@ interface CompositeBalancer extends LoadBalancer {
  * Create a composite load balancer
  *
  * Combines multiple balancing strategies for sophisticated routing decisions.
+ *
+ * @param initialAgents - Initial set of agents to balance across
+ * @param config - Configuration including strategies and optional metricsCollector
+ * @returns A CompositeBalancer instance
  */
 export function createCompositeBalancer(
   initialAgents: AgentInfo[],
@@ -1061,25 +1260,27 @@ export function createCompositeBalancer(
 ): CompositeBalancer {
   let agents = [...initialAgents]
   const balancers = new Map<BalancerStrategy, LoadBalancer>()
+  const collector = config.metricsCollector ?? defaultMetricsCollector
 
   // Initialize balancers
   function getOrCreateBalancer(strategy: BalancerStrategy): LoadBalancer {
     if (!balancers.has(strategy)) {
+      const balancerOptions = { metricsCollector: collector }
       switch (strategy) {
         case 'round-robin':
-          balancers.set(strategy, createRoundRobinBalancer(agents))
+          balancers.set(strategy, createRoundRobinBalancer(agents, balancerOptions))
           break
         case 'least-busy':
-          balancers.set(strategy, createLeastBusyBalancer(agents))
+          balancers.set(strategy, createLeastBusyBalancer(agents, balancerOptions))
           break
         case 'capability':
-          balancers.set(strategy, createCapabilityRouter(agents))
+          balancers.set(strategy, createCapabilityRouter(agents, balancerOptions))
           break
         case 'custom':
           // Custom strategies are handled separately
           break
         default:
-          balancers.set(strategy, createRoundRobinBalancer(agents))
+          balancers.set(strategy, createRoundRobinBalancer(agents, balancerOptions))
       }
     }
     return balancers.get(strategy)!
@@ -1116,7 +1317,7 @@ export function createCompositeBalancer(
               strategies,
               strategyScores,
             }
-            recordRouting(result, performance.now() - start, 'custom')
+            collector.record(result, performance.now() - start, 'custom')
             return result
           }
         }
@@ -1136,7 +1337,7 @@ export function createCompositeBalancer(
           strategyScores,
           usedFallback,
         }
-        recordRouting(finalResult, performance.now() - start, strategy)
+        collector.record(finalResult, performance.now() - start, strategy)
         return finalResult
       }
 
@@ -1158,7 +1359,7 @@ export function createCompositeBalancer(
       strategyScores,
       usedFallback,
     }
-    recordRouting(result, performance.now() - start, 'custom')
+    collector.record(result, performance.now() - start, 'custom')
     return result
   }
 

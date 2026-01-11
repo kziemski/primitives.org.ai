@@ -23,6 +23,17 @@
 
 import { Semaphore } from './memory-provider.js'
 import type { DBProvider } from './schema.js'
+import {
+  hasEntityMarker,
+  isValueOfable,
+  isEntityArray,
+  extractEntityId,
+  extractMarkerType,
+  hasId,
+  isPlainObject,
+  hasRelationElements,
+  asRecord,
+} from './type-guards.js'
 
 // Provider resolver - will be set by schema.ts
 let providerResolver: (() => Promise<DBProvider>) | null = null
@@ -405,6 +416,7 @@ export class DBPromise<T> implements PromiseLike<T> {
           const recordingProxy = createRecordingProxy(item, recording)
 
           // Execute callback with recording proxy to discover accesses
+          // Note: as any required - recordingProxy is a Proxy that doesn't match generic type I
           try {
             callback(recordingProxy as any, i)
           } catch {
@@ -424,6 +436,7 @@ export class DBPromise<T> implements PromiseLike<T> {
         }
 
         // Execute callback again with enriched data
+        // Note: as any required - enrichedItems are plain objects, not the exact generic type I
         const results: U[] = []
         for (let i = 0; i < enrichedItems.length; i++) {
           results.push(callback(enrichedItems[i] as any, i))
@@ -448,6 +461,7 @@ export class DBPromise<T> implements PromiseLike<T> {
         if (!Array.isArray(items)) {
           return items
         }
+        // Note: as any required - predicate type doesn't match exact array item type
         return items.filter(predicate as any) as T
       },
     })
@@ -468,6 +482,7 @@ export class DBPromise<T> implements PromiseLike<T> {
         if (!Array.isArray(items)) {
           return items
         }
+        // Note: as any required - compareFn type doesn't match exact array item type
         return [...items].sort(compareFn as any) as T
       },
     })
@@ -572,7 +587,7 @@ export class DBPromise<T> implements PromiseLike<T> {
     // Persistence state
     let processedIds = new Set<string>()
     let persistCounter = 0
-    const getItemId = (item: any) => item?.$id ?? item?.id ?? String(item)
+    const getItemId = (item: unknown): string => extractEntityId(item) ?? String(item)
 
     // Get actions API from options (injected by wrapEntityOperations)
     const actionsAPI = this._options.actionsAPI
@@ -892,28 +907,40 @@ export class DBPromise<T> implements PromiseLike<T> {
 // Proxy Handlers
 // =============================================================================
 
+/**
+ * Proxy handlers for DBPromise property access tracking.
+ *
+ * Note: Several `as any` casts are intentionally used here because we need to access
+ * class methods and properties from within a ProxyHandler where the target type is
+ * DBPromise<unknown>. These casts are safe because we know the target is a DBPromise
+ * instance with these methods/properties available.
+ */
 const DB_PROXY_HANDLERS: ProxyHandler<DBPromise<unknown>> = {
   get(target, prop: string | symbol, receiver) {
-    // Handle symbols
+    // Handle symbols - access internal symbol-keyed properties
     if (typeof prop === 'symbol') {
       if (prop === DB_PROMISE_SYMBOL) return true
       if (prop === RAW_DB_PROMISE_SYMBOL) return target
       if (prop === Symbol.asyncIterator) return target[Symbol.asyncIterator].bind(target)
+      // Intentional: accessing symbol properties on class instance
       return (target as any)[prop]
     }
 
-    // Handle promise methods
+    // Handle promise methods - these exist on DBPromise but aren't in ProxyHandler's target type
     if (prop === 'then' || prop === 'catch' || prop === 'finally') {
+      // Intentional: accessing class methods that exist but aren't typed on target
       return (target as any)[prop].bind(target)
     }
 
-    // Handle DBPromise methods
+    // Handle DBPromise methods - public methods for chaining operations
     if (['map', 'filter', 'sort', 'limit', 'first', 'forEach', 'resolve'].includes(prop)) {
+      // Intentional: accessing class methods that exist but aren't typed on target
       return (target as any)[prop].bind(target)
     }
 
-    // Handle internal properties
+    // Handle internal properties - private properties and getters
     if (prop.startsWith('_') || ['accessedProps', 'path', 'isResolved'].includes(prop)) {
+      // Intentional: accessing private/internal properties for proxy functionality
       return (target as any)[prop]
     }
 
@@ -1130,8 +1157,8 @@ function createRecordingProxy(
 
       // If accessing a relation (identified by $type marker from hydration)
       // Note: proxies may not expose $type in 'has' trap, so check via property access
-      const maybeType = value && typeof value === 'object' ? (value as any).$type : undefined
-      if (maybeType && typeof maybeType === 'string') {
+      const maybeType = extractMarkerType(value)
+      if (maybeType) {
         const relationType = maybeType
 
         // Get or create the relation recording
@@ -1153,20 +1180,19 @@ function createRecordingProxy(
       // Handle arrays with potential relation elements (like members: ['->User'])
       if (Array.isArray(value)) {
         // Check if the array itself is a relation array (has $type marker from thenableArray)
-        const arrayType = (value as any).$type
-        const isArrayRelation = arrayType !== undefined || (value as any).$isArrayRelation
+        const arrayMarker = isEntityArray(value) ? value : null
+        const arrayType = arrayMarker?.$type
+        const isArrayRelationFlag = arrayMarker !== null
 
         // Also check if array contains relation proxies (for backwards compatibility)
-        const hasRelationElements = !isArrayRelation && value.some(v =>
-          v && typeof v === 'object' && (v as any).$type !== undefined
-        )
+        const hasRelationElementsFlag = !isArrayRelationFlag && hasRelationElements(value)
 
-        if (isArrayRelation || hasRelationElements) {
+        if (isArrayRelationFlag || hasRelationElementsFlag) {
           // Get the type from the array $type or first element
           let relationType = arrayType
           if (!relationType) {
-            const firstRelation = value.find(v => v && typeof v === 'object' && (v as any).$type !== undefined)
-            relationType = firstRelation ? (firstRelation as any).$type : 'unknown'
+            const firstRelation = value.find(v => extractMarkerType(v) !== undefined)
+            relationType = firstRelation ? extractMarkerType(firstRelation) ?? 'unknown' : 'unknown'
           }
 
           let relationRecording = recording.relations.get(prop)
@@ -1249,31 +1275,16 @@ function analyzeBatchLoads(
         // Handle array relations (e.g., members: ['id1', 'id2'])
         if (Array.isArray(relationValue)) {
           for (const element of relationValue) {
-            if (typeof element === 'string') {
-              ids.push(element)
-            } else if (element && typeof element === 'object') {
-              // Try valueOf() for thenable proxies
-              if (typeof (element as any).valueOf === 'function') {
-                const val = (element as any).valueOf()
-                if (typeof val === 'string') {
-                  ids.push(val)
-                }
-              } else if ((element as any).$id) {
-                ids.push((element as any).$id)
-              }
+            const elementId = extractEntityId(element)
+            if (elementId) {
+              ids.push(elementId)
             }
           }
-        } else if (typeof relationValue === 'string') {
-          ids.push(relationValue)
-        } else if (relationValue && typeof relationValue === 'object') {
-          // Try valueOf() for thenable proxies (single relation)
-          if (typeof (relationValue as any).valueOf === 'function') {
-            const val = (relationValue as any).valueOf()
-            if (typeof val === 'string') {
-              ids.push(val)
-            }
-          } else if ((relationValue as any).$id) {
-            ids.push((relationValue as any).$id)
+        } else {
+          // Handle single relations - string ID or proxy object
+          const relationId = extractEntityId(relationValue)
+          if (relationId) {
+            ids.push(relationId)
           }
         }
       }
@@ -1401,17 +1412,15 @@ async function executeBatchLoads(
                 nestedType = getRelatedType(entityType, nestedPath)
               }
             }
-          } else if (nestedValue && typeof nestedValue === 'object') {
+          } else if (isPlainObject(nestedValue)) {
             // Check if it has a $type marker (for already-hydrated proxies)
-            const valueType = (nestedValue as any).$type
-            if (valueType && typeof valueType === 'string') {
+            const valueType = extractMarkerType(nestedValue)
+            if (valueType) {
               nestedType = valueType
-              // Try to get the ID
-              if (typeof (nestedValue as any).valueOf === 'function') {
-                const val = (nestedValue as any).valueOf()
-                if (typeof val === 'string') {
-                  nestedIds.push(val)
-                }
+              // Try to get the ID via valueOf or $id
+              const nestedId = extractEntityId(nestedValue)
+              if (nestedId) {
+                nestedIds.push(nestedId)
               }
             }
           }
@@ -1470,22 +1479,7 @@ function enrichItemWithLoadedRelations(
     if (Array.isArray(relationValue)) {
       const loadedArray: unknown[] = []
       for (const element of relationValue) {
-        let idStr: string | undefined
-        if (typeof element === 'string') {
-          idStr = element
-        } else if (element && typeof element === 'object') {
-          // Try valueOf for thenable proxies
-          if (typeof (element as any).valueOf === 'function') {
-            const val = (element as any).valueOf()
-            if (typeof val === 'string') {
-              idStr = val
-            }
-          }
-          if (!idStr && (element as any).$id) {
-            idStr = (element as any).$id
-          }
-        }
-
+        const idStr = extractEntityId(element)
         if (idStr) {
           const loaded = relationData.get(idStr)
           if (loaded) {
@@ -1496,24 +1490,7 @@ function enrichItemWithLoadedRelations(
       enriched[relationName] = loadedArray
     } else {
       // Handle single relations - get the ID from the thenable proxy or direct value
-      let relationId: string | undefined
-
-      if (typeof relationValue === 'string') {
-        relationId = relationValue
-      } else if (relationValue && typeof relationValue === 'object') {
-        // Try to get ID from proxy's valueOf or toString
-        if ('valueOf' in relationValue && typeof (relationValue as any).valueOf === 'function') {
-          const val = (relationValue as any).valueOf()
-          if (typeof val === 'string') {
-            relationId = val
-          }
-        }
-        // Also check for $id
-        if (!relationId && '$id' in relationValue) {
-          relationId = (relationValue as any).$id
-        }
-      }
-
+      const relationId = extractEntityId(relationValue)
       if (relationId) {
         const loaded = relationData.get(relationId)
         if (loaded) {
@@ -1550,7 +1527,7 @@ export function isDBPromise(value: unknown): value is DBPromise<unknown> {
     value !== null &&
     typeof value === 'object' &&
     DB_PROMISE_SYMBOL in value &&
-    (value as any)[DB_PROMISE_SYMBOL] === true
+    (value as Record<symbol, unknown>)[DB_PROMISE_SYMBOL] === true
   )
 }
 
@@ -1559,7 +1536,7 @@ export function isDBPromise(value: unknown): value is DBPromise<unknown> {
  */
 export function getRawDBPromise<T>(value: DBPromise<T>): DBPromise<T> {
   if (RAW_DB_PROMISE_SYMBOL in value) {
-    return (value as any)[RAW_DB_PROMISE_SYMBOL]
+    return (value as Record<symbol, DBPromise<T>>)[RAW_DB_PROMISE_SYMBOL]
   }
   return value
 }
