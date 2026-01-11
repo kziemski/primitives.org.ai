@@ -110,6 +110,20 @@ export {
   type EventRegistrationWithDeps,
 } from './dependency-graph.js'
 
+// Topological Sort - Execution ordering algorithms
+export {
+  topologicalSort,
+  topologicalSortKahn,
+  topologicalSortDFS,
+  getExecutionLevels,
+  CycleDetectedError,
+  MissingNodeError,
+  type SortableNode,
+  type ExecutionLevel,
+  type TopologicalSortOptions,
+  type TopologicalSortResult,
+} from './graph/topological-sort.js'
+
 // Barrier/Join Semantics - Parallel step coordination
 export {
   Barrier,

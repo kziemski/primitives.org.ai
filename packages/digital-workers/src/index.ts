@@ -273,3 +273,69 @@ export type {
   // Composite Types
   CompositeBalancerConfig,
 } from './load-balancing.js'
+
+// Export error escalation for multi-level error handling
+export {
+  // Error Classification
+  getErrorSeverity,
+  getErrorCategory,
+  createClassifiedError,
+  classifyError,
+  isEscalatable,
+  preserveContext,
+  buildErrorChain,
+  // Escalation Routing
+  createEscalationPolicy,
+  getNextEscalationTier,
+  determineEscalationPath,
+  shouldEscalate,
+  detectCircularEscalation,
+  validateEscalationPath,
+  // Recovery Patterns
+  calculateBackoff,
+  createRetryState,
+  shouldRetry,
+  selectFallbackAgent,
+  getDegradationLevel,
+  createRecoveryState,
+  updateRecoveryState,
+  isRecoverable,
+  // Escalation Engine
+  createEscalationEngine,
+} from './error-escalation.js'
+
+export type {
+  // Error Classification Types
+  ErrorSeverity,
+  ErrorCategory,
+  ClassifiedError,
+  ErrorContext,
+  ErrorChain,
+  SeverityOptions,
+  ErrorChainOptions,
+  // Escalation Routing Types
+  EscalationPath,
+  EscalationPolicy,
+  EscalationPolicyOptions,
+  EscalationRule,
+  EscalationThreshold,
+  EscalationResult,
+  EscalationValidationResult as ErrorEscalationValidationResult,
+  TierPolicyConfig,
+  ErrorHistoryEntry,
+  // Recovery Pattern Types
+  RetryConfig,
+  RetryState,
+  FallbackConfig,
+  AgentForFallback,
+  DegradationLevel,
+  DegradationOptions,
+  RecoveryState,
+  RecoveryStateOptions,
+  RecoveryStateUpdate,
+  // Engine Types
+  EscalationEngine,
+  EscalationEngineOptions,
+  HandleErrorOptions,
+  EscalationMetrics,
+} from './error-escalation.js'
