@@ -63,6 +63,8 @@ export {
   AI_PROMISE_SYMBOL,
   RAW_PROMISE_SYMBOL,
   type AIPromiseOptions,
+  type StreamingAIPromise,
+  type StreamOptions,
 } from './ai-promise.js'
 
 // Export AI primitives
@@ -151,4 +153,129 @@ export {
   shouldUseBatchAPI,
   type ExecutionContext,
   type BatchMode,
+  type ContextBudgetConfig,
 } from './context.js'
+
+// Export budget tracking and request tracing
+export {
+  BudgetTracker,
+  TokenCounter,
+  RequestContext,
+  BudgetExceededError,
+  createRequestContext,
+  withBudget,
+  type BudgetConfig,
+  type BudgetAlert,
+  type BudgetSnapshot,
+  type TokenUsage,
+  type RequestInfo,
+  type RequestContextOptions,
+  type ModelPricing,
+  type WithBudgetOptions,
+  type RemainingBudget,
+  type CheckBudgetOptions,
+} from './budget.js'
+
+// Export agentic tool orchestration
+export {
+  // Core classes
+  AgenticLoop,
+  ToolRouter,
+  ToolValidator,
+
+  // Tool composition utilities
+  createTool,
+  createToolset,
+  wrapTool,
+  cachedTool,
+  rateLimitedTool,
+  timeoutTool,
+  createAgenticLoop,
+
+  // Types
+  type Tool,
+  type ToolCall,
+  type ToolResult,
+  type FormattedToolResult,
+  type ValidationResult,
+  type ModelResponse,
+  type Message,
+  type StepInfo,
+  type LoopOptions,
+  type RunOptions,
+  type ToolCallResult,
+  type SDKToolResult,
+  type LoopResult,
+  type LoopStreamEvent,
+} from './tool-orchestration.js'
+
+// Export caching layer for embeddings and generations
+export {
+  // Core cache storage
+  MemoryCache,
+
+  // Specialized caches
+  EmbeddingCache,
+  GenerationCache,
+
+  // Cache wrapper
+  withCache,
+
+  // Utilities
+  hashKey,
+  createCacheKey,
+
+  // Types
+  type CacheStorage,
+  type CacheEntry,
+  type CacheOptions,
+  type CacheStats,
+  type MemoryCacheOptions,
+  type CacheKeyType,
+  type EmbeddingCacheOptions,
+  type BatchEmbeddingResult,
+  type GenerationParams,
+  type GenerationCacheGetOptions,
+  type WithCacheOptions,
+  type CachedFunction,
+} from './cache.js'
+
+// Export retry/fallback patterns with exponential backoff
+export {
+  // Error types and classification
+  RetryableError,
+  NonRetryableError,
+  NetworkError,
+  RateLimitError,
+  CircuitOpenError,
+  ErrorCategory,
+  classifyError,
+
+  // Backoff calculation
+  calculateBackoff,
+
+  // Retry policy
+  RetryPolicy,
+
+  // Circuit breaker
+  CircuitBreaker,
+
+  // Fallback chain
+  FallbackChain,
+
+  // Convenience helper
+  withRetry,
+
+  // Types
+  type JitterStrategy,
+  type BackoffOptions,
+  type RetryOptions,
+  type RetryInfo,
+  type BatchItemResult,
+  type CircuitState,
+  type CircuitBreakerOptions,
+  type CircuitBreakerMetrics,
+  type FallbackModel,
+  type FallbackOptions,
+  type FallbackMetrics,
+} from './retry.js'
