@@ -84,6 +84,32 @@ export { send, getEventBus } from './send.js'
 // Context
 export { createWorkflowContext, createIsolatedContext } from './context.js'
 
+// Cascade Context - Correlation IDs and step metadata
+export {
+  createCascadeContext,
+  recordStep,
+  withCascadeContext,
+  type CascadeContext,
+  type CascadeStep,
+  type CascadeContextOptions,
+  type SerializedCascadeContext,
+  type SerializedCascadeStep,
+  type TraceContext,
+  type FiveWHEvent,
+  type StepStatus,
+} from './cascade-context.js'
+
+// Dependency Graph
+export {
+  DependencyGraph,
+  CircularDependencyError,
+  MissingDependencyError,
+  type GraphNode,
+  type ParallelGroup,
+  type GraphJSON,
+  type EventRegistrationWithDeps,
+} from './dependency-graph.js'
+
 // Types
 export type {
   EventHandler,
@@ -103,4 +129,6 @@ export type {
   DatabaseContext,
   ActionData,
   ArtifactData,
+  DependencyConfig,
+  DependencyType,
 } from './types.js'

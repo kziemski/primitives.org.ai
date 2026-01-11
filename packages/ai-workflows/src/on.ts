@@ -5,9 +5,13 @@
  *   on.Customer.created(customer => { ... })
  *   on.Order.completed(order => { ... })
  *   on.Payment.failed(payment => { ... })
+ *
+ * With dependencies:
+ *   on.Step2.complete(handler, { dependsOn: 'Step1.complete' })
+ *   on.Step3.complete(handler, { dependsOn: ['Step1.complete', 'Step2.complete'] })
  */
 
-import type { EventHandler, EventRegistration } from './types.js'
+import type { EventHandler, EventRegistration, DependencyConfig } from './types.js'
 
 /**
  * Registry of event handlers
@@ -34,22 +38,25 @@ export function clearEventHandlers(): void {
 export function registerEventHandler(
   noun: string,
   event: string,
-  handler: EventHandler
+  handler: EventHandler,
+  dependencies?: DependencyConfig
 ): void {
   eventRegistry.push({
     noun,
     event,
     handler,
     source: handler.toString(),
+    dependencies,
   })
 }
 
 /**
  * Event proxy type for on.Noun.event pattern
+ * Supports optional dependency configuration as second argument
  */
 type EventProxy = {
   [noun: string]: {
-    [event: string]: (handler: EventHandler) => void
+    [event: string]: (handler: EventHandler, dependencies?: DependencyConfig) => void
   }
 }
 
@@ -70,9 +77,9 @@ function createOnProxy(): EventProxy {
       // Return a proxy for the event level
       return new Proxy({}, {
         get(_eventTarget, event: string) {
-          // Return a function that registers the handler
-          return (handler: EventHandler) => {
-            registerEventHandler(noun, event, handler)
+          // Return a function that registers the handler with optional dependencies
+          return (handler: EventHandler, dependencies?: DependencyConfig) => {
+            registerEventHandler(noun, event, handler, dependencies)
           }
         }
       })

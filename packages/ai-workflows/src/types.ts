@@ -271,6 +271,30 @@ export interface WorkflowHistoryEntry {
 }
 
 /**
+ * Dependency type: hard (must succeed) or soft (can proceed on failure)
+ */
+export type DependencyType = 'hard' | 'soft'
+
+/**
+ * Configuration for step dependencies
+ */
+export interface DependencyConfig {
+  /**
+   * Step(s) that must complete before this step runs
+   * Can be a single step ID or array of step IDs
+   * Format: 'Noun.event' (e.g., 'Step1.complete')
+   */
+  dependsOn: string | string[]
+
+  /**
+   * Type of dependency (default: 'hard')
+   * - 'hard': Dependency must complete successfully
+   * - 'soft': Step can proceed even if dependency fails
+   */
+  type?: DependencyType
+}
+
+/**
  * Event registration with source
  */
 export interface EventRegistration {
@@ -278,6 +302,8 @@ export interface EventRegistration {
   event: string
   handler: EventHandler
   source: string
+  /** Optional dependency configuration for workflow step ordering */
+  dependencies?: DependencyConfig
 }
 
 /**
