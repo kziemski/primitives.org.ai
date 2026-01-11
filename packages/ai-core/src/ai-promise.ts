@@ -4,8 +4,9 @@
  * Inspired by capnweb's RpcPromise, this enables:
  * - Property access tracking for dynamic schema inference
  * - Promise pipelining without await
- * - Magical .map() for batch processing
  * - Dependency graph resolution
+ *
+ * Note: For .map() batch processing support, use the full AIPromise from ai-functions.
  *
  * @example
  * ```ts
@@ -14,14 +15,6 @@
  *
  * // Pipeline without await
  * const isValid = is`${conclusion} is solid given ${keyPoints}`
- *
- * // Batch process with map
- * const ideas = list`startup ideas`
- * const evaluated = await ideas.map(idea => ({
- *   idea,
- *   viable: is`${idea} is viable`,
- *   market: ai`market size for ${idea}`,
- * }))
  *
  * // Only await at the end
  * if (await isValid) { ... }
@@ -33,13 +26,6 @@
 import { generateObject, streamObject, streamText } from './generate.js'
 import type { SimpleSchema } from './schema.js'
 import type { FunctionOptions } from './template.js'
-import {
-  isInRecordingMode,
-  getCurrentItemPlaceholder,
-  captureOperation,
-  createBatchMap,
-  BatchMapPromise,
-} from './batch-map.js'
 import { getModel } from './context.js'
 
 // ============================================================================
@@ -91,16 +77,6 @@ interface Dependency {
   path: string[]
 }
 
-/** Map callback recording */
-interface MapRecording {
-  operations: Array<{
-    type: 'ai' | 'is' | 'list' | 'lists' | 'extract' | 'other'
-    prompt: string
-    dependencies: Dependency[]
-  }>
-  capturedStubs: AIPromise<unknown>[]
-}
-
 /** Options for AIPromise creation */
 export interface AIPromiseOptions extends FunctionOptions {
   /** The type of generation */
@@ -117,14 +93,8 @@ export interface AIPromiseOptions extends FunctionOptions {
 // Global State
 // ============================================================================
 
-/** Current recording context for map() */
-let currentRecording: MapRecording | null = null
-
 /** Pending promises for batch resolution */
 const pendingPromises = new Set<AIPromise<unknown>>()
-
-/** Promise resolution queue */
-let resolutionScheduled = false
 
 // ============================================================================
 // AIPromise Implementation
@@ -136,7 +106,6 @@ let resolutionScheduled = false
  * Acts as both a Promise AND a stub that:
  * - Tracks property accesses for dynamic schema inference
  * - Records dependencies for promise pipelining
- * - Supports .map() for batch processing
  */
 export class AIPromise<T> implements PromiseLike<T> {
   /** Marker to identify AIPromise instances */
@@ -168,9 +137,6 @@ export class AIPromise<T> implements PromiseLike<T> {
 
   /** Whether this promise has been resolved */
   private _isResolved = false
-
-  /** Whether we're in recording mode */
-  private _isRecording = false
 
   constructor(prompt: string, options: AIPromiseOptions = {}) {
     this._prompt = prompt
@@ -351,111 +317,6 @@ export class AIPromise<T> implements PromiseLike<T> {
   }
 
   /**
-   * Map over array results - automatically batches operations!
-   *
-   * When you map over a list, the operations are captured and
-   * automatically batched when resolved. Uses provider batch APIs
-   * for cost savings (50% discount) when beneficial.
-   *
-   * @example
-   * ```ts
-   * // Simple map - each title becomes a blog post
-   * const titles = await list`10 blog post titles`
-   * const posts = titles.map(title => write`blog post: # ${title}`)
-   * console.log(await posts) // 10 blog posts via batch API
-   *
-   * // Complex map - multiple operations per item
-   * const ideas = await list`startup ideas`
-   * const evaluated = await ideas.map(idea => ({
-   *   idea,
-   *   viable: is`${idea} is viable`,
-   *   market: ai`market size for ${idea}`,
-   * }))
-   * ```
-   */
-  map<U>(
-    callback: (item: T extends (infer I)[] ? I : T, index: number) => U
-  ): BatchMapPromise<U> {
-    // Create a wrapper that resolves this promise first, then maps
-    const mapPromise = new BatchMapPromise<U>([], [], {})
-
-    // Override the resolve to first get the list items
-    const originalResolve = mapPromise.resolve.bind(mapPromise)
-    ;(mapPromise as any).resolve = async () => {
-      // First, resolve the list
-      const items = await this.resolve()
-
-      if (!Array.isArray(items)) {
-        throw new Error('Cannot map over non-array result')
-      }
-
-      // Now create the actual batch map with the resolved items
-      const actualBatchMap = createBatchMap(
-        items as (T extends (infer I)[] ? I : T)[],
-        callback
-      )
-
-      return actualBatchMap.resolve()
-    }
-
-    return mapPromise
-  }
-
-  /**
-   * Map with explicit batch options
-   *
-   * @example
-   * ```ts
-   * // Force immediate execution (no batch API)
-   * const posts = titles.mapImmediate(title => write`blog post: ${title}`)
-   *
-   * // Force batch API (even for small lists)
-   * const posts = titles.mapDeferred(title => write`blog post: ${title}`)
-   * ```
-   */
-  mapImmediate<U>(
-    callback: (item: T extends (infer I)[] ? I : T, index: number) => U
-  ): BatchMapPromise<U> {
-    const mapPromise = new BatchMapPromise<U>([], [], { immediate: true })
-
-    ;(mapPromise as any).resolve = async () => {
-      const items = await this.resolve()
-      if (!Array.isArray(items)) {
-        throw new Error('Cannot map over non-array result')
-      }
-      const actualBatchMap = createBatchMap(
-        items as (T extends (infer I)[] ? I : T)[],
-        callback,
-        { immediate: true }
-      )
-      return actualBatchMap.resolve()
-    }
-
-    return mapPromise
-  }
-
-  mapDeferred<U>(
-    callback: (item: T extends (infer I)[] ? I : T, index: number) => U
-  ): BatchMapPromise<U> {
-    const mapPromise = new BatchMapPromise<U>([], [], { deferred: true })
-
-    ;(mapPromise as any).resolve = async () => {
-      const items = await this.resolve()
-      if (!Array.isArray(items)) {
-        throw new Error('Cannot map over non-array result')
-      }
-      const actualBatchMap = createBatchMap(
-        items as (T extends (infer I)[] ? I : T)[],
-        callback,
-        { deferred: true }
-      )
-      return actualBatchMap.resolve()
-    }
-
-    return mapPromise
-  }
-
-  /**
    * ForEach with automatic batching
    *
    * @example
@@ -474,21 +335,21 @@ export class AIPromise<T> implements PromiseLike<T> {
         await callback(items[i], i)
       }
     } else {
-      await callback(items as any, 0)
+      await callback(items as T extends (infer I)[] ? I : T, 0)
     }
   }
 
   /**
-   * Async iterator support with smart batching
+   * Async iterator support
    */
   async *[Symbol.asyncIterator](): AsyncIterator<T extends (infer I)[] ? I : T> {
     const items = await this.resolve()
     if (Array.isArray(items)) {
       for (const item of items) {
-        yield item as any
+        yield item as T extends (infer I)[] ? I : T
       }
     } else {
-      yield items as any
+      yield items as T extends (infer I)[] ? I : T
     }
   }
 
@@ -576,43 +437,40 @@ export class AIPromise<T> implements PromiseLike<T> {
 // ============================================================================
 
 const PROXY_HANDLERS: ProxyHandler<AIPromise<unknown>> = {
-  get(target, prop: string | symbol, receiver) {
+  get(target, prop: string | symbol, _receiver) {
     // Handle symbols
     if (typeof prop === 'symbol') {
       if (prop === AI_PROMISE_SYMBOL) return true
       if (prop === RAW_PROMISE_SYMBOL) return target
       if (prop === Symbol.asyncIterator) return target[Symbol.asyncIterator].bind(target)
-      return (target as any)[prop]
+      return (target as unknown as Record<symbol, unknown>)[prop]
     }
 
     // Handle promise methods
     if (prop === 'then' || prop === 'catch' || prop === 'finally') {
-      return (target as any)[prop].bind(target)
+      const method = (target as unknown as Record<string, (...args: unknown[]) => unknown>)[prop]
+      return method?.bind(target)
     }
 
     // Handle AIPromise methods
-    if (prop === 'map' || prop === 'forEach' || prop === 'resolve' || prop === 'stream' || prop === 'addDependency' || prop === 'mapImmediate' || prop === 'mapDeferred') {
-      return (target as any)[prop].bind(target)
+    if (prop === 'forEach' || prop === 'resolve' || prop === 'stream' || prop === 'addDependency') {
+      const method = (target as unknown as Record<string, (...args: unknown[]) => unknown>)[prop]
+      return method?.bind(target)
     }
 
     // Handle internal properties
     if (prop.startsWith('_') || prop === 'prompt' || prop === 'path' || prop === 'isResolved' || prop === 'accessedProps') {
-      return (target as any)[prop]
+      return (target as unknown as Record<string, unknown>)[prop]
     }
 
     // Track property access for schema inference
     target.accessedProps.add(prop)
 
-    // If we're in recording mode, record this access
-    if (currentRecording) {
-      // Just track the access, don't create new promise
-    }
-
     // Return a new AIPromise for the property path
     return new AIPromise<unknown>(
       target.prompt,
       {
-        ...target['_options'],
+        ...(target as unknown as { _options: AIPromiseOptions })._options,
         parent: target,
         propertyPath: [...target.path, prop],
       }
@@ -629,10 +487,11 @@ const PROXY_HANDLERS: ProxyHandler<AIPromise<unknown>> = {
   },
 
   // Handle function calls (for chained methods)
-  apply(target, thisArg, args) {
+  apply(target, _thisArg, args) {
     // If the target is callable (e.g., from a template function), call it
-    if (typeof (target as any)._call === 'function') {
-      return (target as any)._call(...args)
+    const call = (target as unknown as Record<string, unknown>)._call
+    if (typeof call === 'function') {
+      return (call as (...args: unknown[]) => unknown)(...args)
     }
     throw new Error('AIPromise is not callable')
   },
@@ -656,53 +515,6 @@ function getNestedValue(obj: unknown, path: string[]): unknown {
 }
 
 /**
- * Analyze the result of a map callback to build batch schema
- */
-function analyzeRecordingResult(result: unknown, recording: MapRecording): SimpleSchema {
-  if (result === null || result === undefined) {
-    return { result: 'The result' }
-  }
-
-  if (typeof result !== 'object') {
-    return { result: 'The result' }
-  }
-
-  // Build schema from the result structure
-  const schema: Record<string, SimpleSchema> = {}
-
-  for (const [key, value] of Object.entries(result)) {
-    if (isAIPromise(value)) {
-      // This is a reference to an AI operation
-      const aiPromise = getRawPromise(value as AIPromise<unknown>)
-
-      // Infer schema from the promise's accessed properties or type
-      if (aiPromise.accessedProps.size > 0) {
-        schema[key] = Object.fromEntries(
-          Array.from(aiPromise.accessedProps).map(p => [p, `The ${p}`])
-        )
-      } else {
-        const type = (aiPromise as any)._options?.type
-        if (type === 'boolean') {
-          schema[key] = 'true | false'
-        } else if (type === 'list') {
-          schema[key] = ['List items']
-        } else {
-          schema[key] = `The ${key}`
-        }
-      }
-    } else if (typeof value === 'object' && value !== null) {
-      // Recursively analyze nested objects
-      schema[key] = analyzeRecordingResult(value, recording) as SimpleSchema
-    } else {
-      // Literal value - include as-is
-      schema[key] = `Value: ${JSON.stringify(value)}`
-    }
-  }
-
-  return schema
-}
-
-/**
  * Check if a value is an AIPromise
  */
 export function isAIPromise(value: unknown): value is AIPromise<unknown> {
@@ -710,7 +522,7 @@ export function isAIPromise(value: unknown): value is AIPromise<unknown> {
     value !== null &&
     typeof value === 'object' &&
     AI_PROMISE_SYMBOL in value &&
-    (value as any)[AI_PROMISE_SYMBOL] === true
+    (value as Record<symbol, unknown>)[AI_PROMISE_SYMBOL] === true
   )
 }
 
@@ -718,10 +530,8 @@ export function isAIPromise(value: unknown): value is AIPromise<unknown> {
  * Get the raw AIPromise from a proxied value
  */
 export function getRawPromise<T>(value: AIPromise<T>): AIPromise<T> {
-  if (RAW_PROMISE_SYMBOL in value) {
-    return (value as any)[RAW_PROMISE_SYMBOL]
-  }
-  return value
+  const raw = (value as unknown as Record<symbol, AIPromise<T> | undefined>)[RAW_PROMISE_SYMBOL]
+  return raw ?? value
 }
 
 // ============================================================================
@@ -836,12 +646,6 @@ export function createAITemplateFunction<T>(
       }
     }
 
-    // If we're in recording mode (inside a .map() callback), capture this operation
-    if (isInRecordingMode()) {
-      const batchType = type === 'text' ? 'text' : type === 'boolean' ? 'boolean' : type === 'list' ? 'list' : 'object'
-      captureOperation(prompt, batchType, (options as any).baseSchema, options.system)
-    }
-
     const promise = new AIPromise<T>(prompt, { ...options, type })
 
     // Add dependencies
@@ -852,7 +656,8 @@ export function createAITemplateFunction<T>(
     return promise
   }
 
-  return templateFn as any
+  return templateFn as ((strings: TemplateStringsArray, ...values: unknown[]) => AIPromise<T>) &
+    ((prompt: string, options?: FunctionOptions) => AIPromise<T>)
 }
 
 // ============================================================================
@@ -873,8 +678,8 @@ function createStreamingAIPromise<T>(
   options?: StreamOptions
 ): StreamingAIPromise<T> {
   const rawPromise = getRawPromise(promise)
-  const promiseOptions = (rawPromise as any)._options as AIPromiseOptions
-  const dependencies = (rawPromise as any)._dependencies as Dependency[]
+  const promiseOptions = (rawPromise as unknown as { _options: AIPromiseOptions })._options
+  const dependencies = (rawPromise as unknown as { _dependencies: Dependency[] })._dependencies
 
   // Result promise state
   let resultResolve: (value: T) => void
@@ -914,7 +719,7 @@ function createStreamingAIPromise<T>(
 
   // Build schema from accessed properties
   const buildSchema = (): SimpleSchema => {
-    return (rawPromise as any)._buildSchema()
+    return (rawPromise as unknown as { _buildSchema: () => SimpleSchema })._buildSchema()
   }
 
   // Extract value based on type (same logic as resolve())
@@ -1027,7 +832,7 @@ function createStreamingAIPromise<T>(
   async function* createMainStream(): AsyncGenerator<T extends string ? string : Partial<T>> {
     if (promiseOptions.type === 'text') {
       for await (const chunk of createTextStream()) {
-        yield chunk as any
+        yield chunk as T extends string ? string : Partial<T>
       }
     } else if (promiseOptions.type === 'list') {
       // For lists, yield new items as they appear
@@ -1035,13 +840,13 @@ function createStreamingAIPromise<T>(
       for await (const partial of createPartialObjectStream()) {
         const items = (partial as { items?: string[] }).items || []
         for (let i = lastLength; i < items.length; i++) {
-          yield items[i] as any
+          yield items[i] as T extends string ? string : Partial<T>
         }
         lastLength = items.length
       }
     } else {
       for await (const partial of createPartialObjectStream()) {
-        yield partial as any
+        yield partial as T extends string ? string : Partial<T>
       }
     }
   }

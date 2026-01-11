@@ -1,39 +1,67 @@
 /**
- * ai-functions - Core AI primitives for building intelligent applications
+ * ai-functions - Full-featured AI primitives for building intelligent applications
  *
- * This is the foundational package that all other primitives depend on.
- * It provides:
- * - RPC primitives via rpc.do
- * - AI function types and interfaces
- * - Core AI() and ai() constructors
- * - Embedding utilities from AI SDK
- * - Cloudflare Workers AI provider (default for embeddings)
- * - Tagged template literal support for all functions
- * - Async iterator support for list/extract
+ * This package provides the complete feature set including:
+ * - Core primitives from ai-core (generate, AIPromise, templates, context)
+ * - Batch processing (BatchQueue, BatchMapPromise)
+ * - Retry/resilience patterns (RetryPolicy, CircuitBreaker, FallbackChain)
+ * - Budget tracking (BudgetTracker, TokenCounter)
+ * - Caching (MemoryCache, EmbeddingCache, GenerationCache)
+ * - Tool orchestration (AgenticLoop, ToolRouter)
+ * - Embeddings
+ * - Provider integrations
+ *
+ * For lightweight usage with just core primitives, use ai-core directly.
  *
  * @packageDocumentation
  */
 
-// TODO: Re-enable RPC exports when rpc.do is published
-// export * from 'rpc.do'
+// ============================================================================
+// Re-export core primitives from ai-core for backward compatibility
+// ============================================================================
 
-// Export AI function types and interfaces
-export * from './types.js'
-export * from './ai.js'
+// Types from ai-core
+export type {
+  AIFunctionDefinition,
+  JSONSchema,
+  AIGenerateOptions,
+  AIGenerateResult,
+  AIFunctionCall,
+  AIClient,
+  ImageOptions,
+  ImageResult,
+  VideoOptions,
+  VideoResult,
+  WriteOptions,
+  TemplateFunction as CoreTemplateFunction,
+  ListItem,
+  ListResult,
+  NamedList,
+  ListsResult,
+  CodeLanguage,
+  GenerativeOutputType,
+  HumanChannel,
+  LegacyHumanChannel,
+  SchemaLimitations,
+  BaseFunctionDefinition,
+  CodeFunctionDefinition,
+  CodeFunctionResult,
+  GenerativeFunctionDefinition,
+  GenerativeFunctionResult,
+  AgenticFunctionDefinition,
+  AgenticExecutionState,
+  HumanFunctionDefinition,
+  HumanFunctionResult,
+  FunctionDefinition,
+  DefinedFunction,
+  FunctionRegistry,
+  AutoDefineResult,
+} from 'ai-core'
 
-// Export embedding utilities
-export * from './embeddings.js'
+// Schema exports from ai-core
+export { schema, type SimpleSchema } from 'ai-core'
 
-// Export generation functions with smart model routing
-export { generateObject, generateText, streamObject, streamText } from './generate.js'
-
-// Export simplified schema helper
-export { schema, type SimpleSchema } from './schema.js'
-
-// Export providers
-export * from './providers/index.js'
-
-// Export template utilities
+// Template exports from ai-core
 export {
   parseTemplate,
   createTemplateFunction,
@@ -45,9 +73,9 @@ export {
   type BatchableFunction,
   type StreamableList,
   type ChainablePromise,
-} from './template.js'
+} from 'ai-core'
 
-// Export AIPromise utilities for promise pipelining
+// AIPromise exports from ai-core
 export {
   AIPromise,
   isAIPromise,
@@ -65,17 +93,17 @@ export {
   type AIPromiseOptions,
   type StreamingAIPromise,
   type StreamOptions,
-} from './ai-promise.js'
+} from 'ai-core'
 
-// Export AI primitives
+// Generation exports from ai-core
+export { generateObject, generateText, streamObject, streamText } from 'ai-core'
+
+// Primitives from ai-core
 export {
-  // Core generate primitive
   generate,
   type GenerateType,
   type GenerateOptions,
-
-  // Generative functions
-  ai as aiPrompt, // Renamed to avoid conflict with AIProxy from ai.ts
+  ai,
   write,
   code,
   list,
@@ -87,25 +115,49 @@ export {
   slides,
   image,
   video,
-
-  // Agentic functions
   do,
   research,
-
-  // Web functions
   read,
   browse,
-
-  // Decision functions
   decide,
-
-  // Human-in-the-loop functions
   ask,
   approve,
   review,
   type HumanOptions,
   type HumanResult,
-} from './primitives.js'
+} from 'ai-core'
+
+// Context exports from ai-core (basic version)
+export {
+  configure,
+  getContext,
+  withContext,
+  getGlobalContext,
+  resetContext,
+  getModel,
+  getProvider,
+  type ExecutionContext,
+} from 'ai-core'
+
+// ============================================================================
+// Export AI Proxy (the AI class/proxy from ai.ts)
+// This is separate from the core 'ai' template function
+// ============================================================================
+
+export { AI, define, defineFunction, type AIProxy } from './ai.js'
+
+// Also export 'ai' primitive as 'aiPrompt' to avoid conflict with AIProxy
+export { ai as aiPrompt } from 'ai-core'
+
+// Export embedding utilities (not in ai-core)
+export * from './embeddings.js'
+
+// Export providers (not in ai-core)
+export * from './providers/index.js'
+
+// ============================================================================
+// Extended exports (NOT in ai-core)
+// ============================================================================
 
 // Export batch processing
 export {
@@ -139,21 +191,17 @@ export {
   type BatchMapOptions,
 } from './batch-map.js'
 
-// Export execution context
+// Export additional execution context features (full version with batch/budget)
 export {
-  configure,
-  getContext,
-  withContext,
-  getGlobalContext,
-  resetContext,
-  getModel,
-  getProvider,
   getBatchMode,
   getBatchThreshold,
   shouldUseBatchAPI,
-  type ExecutionContext,
+  getFlexThreshold,
+  getExecutionTier,
+  isFlexAvailable,
   type BatchMode,
   type ContextBudgetConfig,
+  type ExecutionTier,
 } from './context.js'
 
 // Export budget tracking and request tracing

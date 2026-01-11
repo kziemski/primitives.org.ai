@@ -38,6 +38,28 @@ importers:
 
   examples: {}
 
+  packages/ai-core:
+    dependencies:
+      ai:
+        specifier: ^5.0.0
+        version: 5.0.108(zod@3.25.76)
+      ai-providers:
+        specifier: workspace:^
+        version: link:../ai-providers
+      language-models:
+        specifier: workspace:*
+        version: link:../language-models
+      yaml:
+        specifier: ^2.8.0
+        version: 2.8.2
+      zod:
+        specifier: ^3.23.0
+        version: 3.25.76
+    devDependencies:
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@24.10.1)(lightningcss@1.30.2)(terser@5.16.9)
+
   packages/ai-database:
     dependencies:
       ai-functions:
@@ -93,6 +115,9 @@ importers:
       ai:
         specifier: ^5.0.0
         version: 5.0.108(zod@3.25.76)
+      ai-core:
+        specifier: workspace:^
+        version: link:../ai-core
       ai-providers:
         specifier: workspace:^
         version: link:../ai-providers
