@@ -9,7 +9,15 @@
  *   every('first Monday of the month at 9am', $ => { ... })
  */
 
-import type { ScheduleHandler, ScheduleRegistration, ScheduleInterval, EveryProxyTarget, EveryProxy } from './types.js'
+import type {
+  ScheduleHandler,
+  ScheduleRegistration,
+  ScheduleInterval,
+  EveryProxyTarget,
+  EveryProxy,
+  EveryProxyHandler,
+  DayScheduleProxyHandler,
+} from './types.js'
 import { PLURAL_UNITS, isPluralUnitKey } from './types.js'
 
 /**
@@ -152,34 +160,82 @@ export async function toCron(description: string): Promise<string> {
 }
 
 /**
- * Create the `every` proxy
+ * Schedule registration callback type
+ * Used by createTypedEveryProxy to customize handler registration
  */
-function createEveryProxy() {
-  const handler = {
-    get(_target: unknown, prop: string) {
+export type EveryProxyRegistrationCallback = (
+  interval: ScheduleInterval,
+  handler: ScheduleHandler
+) => void
+
+/**
+ * Create a typed EveryProxy with proper TypeScript generics
+ *
+ * This factory function creates a callable proxy that supports:
+ *   - Direct calls: every('natural language', handler)
+ *   - Simple patterns: every.hour(handler)
+ *   - Day + time: every.Monday.at9am(handler)
+ *   - Intervals: every.minutes(30)(handler)
+ *
+ * @param registerCallback - Function called when a handler is registered
+ * @returns A properly typed EveryProxy
+ *
+ * @example
+ * ```ts
+ * // Create proxy with custom registration
+ * const myEvery = createTypedEveryProxy((interval, handler) => {
+ *   myRegistry.push({ interval, handler })
+ * })
+ *
+ * myEvery.hour(handler) // Properly typed!
+ * myEvery.Monday.at9am(handler) // Chained access typed!
+ * ```
+ */
+export function createTypedEveryProxy(registerCallback: EveryProxyRegistrationCallback): EveryProxy {
+  // Create typed handler for day schedule patterns with time modifiers
+  const createDayScheduleHandler = (
+    pattern: string,
+    prop: string
+  ): DayScheduleProxyHandler => ({
+    get(
+      _target: (handler: ScheduleHandler) => void,
+      timeKey: string,
+      _receiver: unknown
+    ): ((handler: ScheduleHandler) => void) | undefined {
+      const time = TIME_PATTERNS[timeKey]
+      if (time) {
+        const cron = combineWithTime(pattern, time)
+        return (handlerFn: ScheduleHandler) => {
+          registerCallback({ type: 'cron', expression: cron, natural: `${prop}.${timeKey}` }, handlerFn)
+        }
+      }
+      return undefined
+    },
+    apply(
+      _target: (handler: ScheduleHandler) => void,
+      _thisArg: unknown,
+      args: [ScheduleHandler]
+    ): void {
+      registerCallback({ type: 'cron', expression: pattern, natural: prop }, args[0])
+    }
+  })
+
+  // Create the main EveryProxy handler
+  const everyHandler: EveryProxyHandler = {
+    get(
+      _target: EveryProxyTarget,
+      prop: string,
+      _receiver: unknown
+    ): unknown {
       // Check if it's a known pattern
       const pattern = KNOWN_PATTERNS[prop]
       if (pattern) {
         // Return an object that can either be called directly or have time accessors
         const result = (handlerFn: ScheduleHandler) => {
-          registerScheduleHandler({ type: 'cron', expression: pattern, natural: prop }, handlerFn)
+          registerCallback({ type: 'cron', expression: pattern, natural: prop }, handlerFn)
         }
-        // Add time accessors
-        return new Proxy(result, {
-          get(_t, timeKey: string) {
-            const time = TIME_PATTERNS[timeKey]
-            if (time) {
-              const cron = combineWithTime(pattern, time)
-              return (handlerFn: ScheduleHandler) => {
-                registerScheduleHandler({ type: 'cron', expression: cron, natural: `${prop}.${timeKey}` }, handlerFn)
-              }
-            }
-            return undefined
-          },
-          apply(_t, _thisArg, args) {
-            registerScheduleHandler({ type: 'cron', expression: pattern, natural: prop }, args[0])
-          }
-        })
+        // Add time accessors with typed handler
+        return new Proxy(result, createDayScheduleHandler(pattern, prop))
       }
 
       // Check for plural time units (e.g., seconds(5), minutes(30))
@@ -187,30 +243,42 @@ function createEveryProxy() {
       if (isPluralUnitKey(prop)) {
         const intervalType = PLURAL_UNITS[prop]
         return (value: number) => (handlerFn: ScheduleHandler) => {
-          registerScheduleHandler({ type: intervalType, value, natural: `${value} ${prop}` }, handlerFn)
+          registerCallback({ type: intervalType, value, natural: `${value} ${prop}` }, handlerFn)
         }
       }
 
       return undefined
     },
 
-    apply(_target: unknown, _thisArg: unknown, args: unknown[]) {
+    apply(
+      _target: EveryProxyTarget,
+      _thisArg: unknown,
+      args: [string, ScheduleHandler]
+    ): void {
       // Called as every('natural language description', handler)
-      const [description, handler] = args as [string, ScheduleHandler]
+      const [description, handler] = args
 
       if (typeof description === 'string' && typeof handler === 'function') {
         // Register with natural language - will be converted to cron at runtime
-        registerScheduleHandler({ type: 'natural', description }, handler)
+        registerCallback({ type: 'natural', description }, handler)
       }
     }
   }
 
   // Create callable target with proper typing
   // The function serves as the Proxy target - actual behavior is in the handler's apply trap
-  // Cast to EveryProxy is safe: Proxy handler implements all EveryProxy behaviors dynamically
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const target: EveryProxyTarget = function(_description: string, _handler: ScheduleHandler) {}
-  return new Proxy(target, handler) as unknown as EveryProxy
+  return new Proxy(target, everyHandler) as EveryProxy
+}
+
+/**
+ * Create the `every` proxy using the global schedule registry
+ *
+ * This is the default implementation that uses registerScheduleHandler
+ * for backward compatibility with the standalone `every` export.
+ */
+function createEveryProxy(): EveryProxy {
+  return createTypedEveryProxy(registerScheduleHandler)
 }
 
 /**

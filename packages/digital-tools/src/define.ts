@@ -7,7 +7,7 @@
  * @packageDocumentation
  */
 
-import type { JSONSchema } from 'ai-functions'
+import { isZodSchema, type JSONSchema } from 'ai-functions'
 import type {
   AnyTool,
   Tool,
@@ -18,18 +18,6 @@ import type {
   Schema,
 } from './types.js'
 import { registry } from './registry.js'
-
-/**
- * Check if a schema is a Zod schema
- */
-function isZodSchema(schema: Schema): schema is { _def: unknown; parse: unknown } {
-  return (
-    typeof schema === 'object' &&
-    schema !== null &&
-    '_def' in schema &&
-    'parse' in schema
-  )
-}
 
 /**
  * Convert a schema to JSON Schema format

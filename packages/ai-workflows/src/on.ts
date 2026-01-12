@@ -11,7 +11,15 @@
  *   on.Step3.complete(handler, { dependsOn: ['Step1.complete', 'Step2.complete'] })
  */
 
-import type { EventHandler, EventRegistration, DependencyConfig } from './types.js'
+import type {
+  EventHandler,
+  EventRegistration,
+  DependencyConfig,
+  OnProxy,
+  NounEventProxy,
+  OnProxyHandler,
+  NounEventProxyHandler,
+} from './types.js'
 
 /**
  * Registry of event handlers
@@ -51,40 +59,81 @@ export function registerEventHandler(
 }
 
 /**
- * Event proxy type for on.Noun.event pattern
- * Supports optional dependency configuration as second argument
+ * Handler registration callback type
+ * Used by createTypedOnProxy to customize handler registration
  */
-type EventProxy = {
-  [noun: string]: {
-    [event: string]: (handler: EventHandler, dependencies?: DependencyConfig) => void
-  }
-}
+export type OnProxyRegistrationCallback = (
+  noun: string,
+  event: string,
+  handler: EventHandler,
+  dependencies?: DependencyConfig
+) => void
 
 /**
- * Create the `on` proxy
+ * Create a typed OnProxy with proper TypeScript generics
  *
- * This creates a proxy that allows:
- *   on.Customer.created(handler)
- *   on.Order.shipped(handler)
+ * This factory function creates a two-level proxy that allows:
+ *   proxy.Customer.created(handler)
+ *   proxy.Order.shipped(handler)
  *
  * The first property access captures the noun (Customer, Order)
  * The second property access captures the event (created, shipped)
- * The function call registers the handler
+ * The function call invokes the registration callback
+ *
+ * @param registerCallback - Function called when a handler is registered
+ * @returns A properly typed OnProxy
+ *
+ * @example
+ * ```ts
+ * // Create proxy with custom registration
+ * const myOn = createTypedOnProxy((noun, event, handler, deps) => {
+ *   myRegistry.push({ noun, event, handler, deps })
+ * })
+ *
+ * myOn.Customer.created(handler) // Properly typed!
+ * ```
  */
-function createOnProxy(): EventProxy {
-  return new Proxy({} as EventProxy, {
-    get(_target, noun: string) {
-      // Return a proxy for the event level
-      return new Proxy({}, {
-        get(_eventTarget, event: string) {
-          // Return a function that registers the handler with optional dependencies
-          return (handler: EventHandler, dependencies?: DependencyConfig) => {
-            registerEventHandler(noun, event, handler, dependencies)
-          }
-        }
-      })
+export function createTypedOnProxy(registerCallback: OnProxyRegistrationCallback): OnProxy {
+  // Create typed handler for the noun level (event accessors)
+  const createNounHandler = (noun: string): NounEventProxyHandler => ({
+    get(
+      _target: Record<string, (handler: EventHandler, dependencies?: DependencyConfig) => void>,
+      event: string,
+      _receiver: unknown
+    ): (handler: EventHandler, dependencies?: DependencyConfig) => void {
+      // Return a function that registers the handler with optional dependencies
+      return (handler: EventHandler, dependencies?: DependencyConfig) => {
+        registerCallback(noun, event, handler, dependencies)
+      }
     }
   })
+
+  // Create typed handler for the top-level proxy (noun accessors)
+  const onHandler: OnProxyHandler = {
+    get(
+      _target: Record<string, NounEventProxy>,
+      noun: string,
+      _receiver: unknown
+    ): NounEventProxy {
+      // Return a proxy for the event level with typed handler
+      const eventTarget: Record<string, (handler: EventHandler, dependencies?: DependencyConfig) => void> = {}
+      return new Proxy(eventTarget, createNounHandler(noun)) as NounEventProxy
+    }
+  }
+
+  // Create and return the typed OnProxy
+  const target: Record<string, NounEventProxy> = {}
+  return new Proxy(target, onHandler) as OnProxy
+}
+
+/**
+ * Create the `on` proxy using the global event registry
+ *
+ * This is the default implementation that uses registerEventHandler
+ * for backward compatibility with the standalone `on` export.
+ */
+function createOnProxy(): OnProxy {
+  return createTypedOnProxy(registerEventHandler)
 }
 
 /**

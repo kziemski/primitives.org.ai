@@ -139,6 +139,9 @@ export {
   type ExecutionContext,
 } from 'ai-core'
 
+// Type guards from ai-core
+export { isZodSchema } from 'ai-core'
+
 // ============================================================================
 // Export AI Proxy (the AI class/proxy from ai.ts)
 // This is separate from the core 'ai' template function

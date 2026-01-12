@@ -257,6 +257,51 @@ export type EveryProxyTarget = {
 }
 
 /**
+ * ProxyHandler type for OnProxy
+ * Provides proper typing for the two-level noun.event proxy pattern
+ */
+export interface OnProxyHandler extends ProxyHandler<Record<string, NounEventProxy>> {
+  get(target: Record<string, NounEventProxy>, noun: string, receiver: unknown): NounEventProxy
+}
+
+/**
+ * ProxyHandler type for the inner noun level (event accessors)
+ */
+export interface NounEventProxyHandler extends ProxyHandler<Record<string, (handler: EventHandler, dependencies?: DependencyConfig) => void>> {
+  get(
+    target: Record<string, (handler: EventHandler, dependencies?: DependencyConfig) => void>,
+    event: string,
+    receiver: unknown
+  ): (handler: EventHandler, dependencies?: DependencyConfig) => void
+}
+
+/**
+ * ProxyHandler type for EveryProxy
+ * Handles both function calls and property access for schedule patterns
+ */
+export interface EveryProxyHandler extends ProxyHandler<EveryProxyTarget> {
+  get(target: EveryProxyTarget, prop: string, receiver: unknown): unknown
+  apply(target: EveryProxyTarget, thisArg: unknown, args: [string, ScheduleHandler]): void
+}
+
+/**
+ * ProxyHandler type for day schedule patterns with time modifiers
+ * Handles $.every.Monday.at9am pattern
+ */
+export interface DayScheduleProxyHandler extends ProxyHandler<(handler: ScheduleHandler) => void> {
+  get(
+    target: (handler: ScheduleHandler) => void,
+    timeKey: string,
+    receiver: unknown
+  ): ((handler: ScheduleHandler) => void) | undefined
+  apply(
+    target: (handler: ScheduleHandler) => void,
+    thisArg: unknown,
+    args: [ScheduleHandler]
+  ): void
+}
+
+/**
  * Workflow state
  */
 export interface WorkflowState {

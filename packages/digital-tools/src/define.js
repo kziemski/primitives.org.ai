@@ -6,16 +6,8 @@
  *
  * @packageDocumentation
  */
+import { isZodSchema } from 'ai-functions';
 import { registry } from './registry.js';
-/**
- * Check if a schema is a Zod schema
- */
-function isZodSchema(schema) {
-    return (typeof schema === 'object' &&
-        schema !== null &&
-        '_def' in schema &&
-        'parse' in schema);
-}
 /**
  * Convert a schema to JSON Schema format
  */

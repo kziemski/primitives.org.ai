@@ -21,6 +21,7 @@ import {
   type LanguageModel
 } from 'ai'
 import { schema as convertSchema, type SimpleSchema } from './schema.js'
+import { isZodSchema } from './type-guards.js'
 import type { ZodTypeAny } from 'zod'
 
 type ModelArg = string | LanguageModel
@@ -80,16 +81,6 @@ async function resolveModel(modelArg: ModelArg): Promise<LanguageModel> {
   // Use ai-providers for model resolution
   const { model } = await import('ai-providers')
   return model(modelArg)
-}
-
-/**
- * Check if value is a Zod schema
- */
-function isZodSchema(value: unknown): value is ZodTypeAny {
-  return value !== null &&
-    typeof value === 'object' &&
-    '_def' in value &&
-    'parse' in value
 }
 
 /**

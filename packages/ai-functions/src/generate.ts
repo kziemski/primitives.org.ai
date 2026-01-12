@@ -21,6 +21,7 @@ import {
   type LanguageModel
 } from 'ai'
 import { schema as convertSchema, type SimpleSchema } from './schema.js'
+import { isZodSchema } from 'ai-core'
 import type { ZodTypeAny } from 'zod'
 
 type ModelArg = string | LanguageModel
@@ -80,16 +81,6 @@ async function resolveModel(modelArg: ModelArg): Promise<LanguageModel> {
   // Use ai-providers for model resolution
   const { model } = await import('ai-providers')
   return model(modelArg)
-}
-
-/**
- * Check if value is a Zod schema
- */
-function isZodSchema(value: unknown): value is ZodTypeAny {
-  return value !== null &&
-    typeof value === 'object' &&
-    '_def' in value &&
-    'parse' in value
 }
 
 /**
@@ -208,13 +199,17 @@ export async function streamObject<T>(
 ): Promise<StreamObjectResult<T, T, never>> {
   const model = await resolveModel(options.model)
   const schema = resolveSchema(options.schema as SchemaArg)
-  // Use 'as any' to handle AI SDK API variance
+  // NOTE: Type assertion required due to AI SDK's complex conditional return types.
+  // The SDK uses different return types based on output mode ('object' | 'array' | 'enum' | 'no-schema')
+  // and schema definition presence. Our wrapper simplifies this to always use 'object' output mode.
+  // This cast is safe because we control the input parameters.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return sdkStreamObject({
     ...options,
     model,
     schema,
     output: 'object'
-  } as any) as unknown as StreamObjectResult<T, T, never>
+  } as any) as StreamObjectResult<T, T, never>
 }
 
 /**

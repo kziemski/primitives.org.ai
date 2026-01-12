@@ -490,11 +490,15 @@ async function executeGenerativeFunction<TOutput, TInput>(
 
     case 'image': {
       const client = getDefaultAIClient()
+      // Cast required: client.image() returns ImageResult but TOutput is determined by the
+      // output parameter at runtime. TypeScript can't narrow TOutput based on output='image'.
       return client.image(prompt) as unknown as Promise<TOutput>
     }
 
     case 'video': {
       const client = getDefaultAIClient()
+      // Cast required: client.video() returns VideoResult but TOutput is determined by the
+      // output parameter at runtime. TypeScript can't narrow TOutput based on output='video'.
       return client.video(prompt) as unknown as Promise<TOutput>
     }
 
@@ -671,6 +675,9 @@ Generate the appropriate ${channel} UI/content to collect this response from a h
   // 3. Return the validated response
   //
   // Current behavior: Returns generated artifacts as a pending placeholder
+  // Cast required: This is a placeholder implementation that returns a different shape
+  // than TOutput. When fully implemented, this would return actual TOutput from human input.
+  // The _pending flag allows consumers to detect placeholder vs real responses.
   return {
     _pending: true,
     channel,
@@ -695,6 +702,9 @@ export function withTemplate<TArgs extends unknown[], TReturn>(
       const strings = promptOrStrings as TemplateStringsArray
       const values = args
       const prompt = strings.reduce((acc, str, i) => acc + str + (values[i] ?? ''), '')
+      // Cast required: When called as a tagged template, additional args aren't provided.
+      // TArgs represents optional parameters that default to empty. TypeScript can't express
+      // that TArgs can be satisfied by an empty array when all elements are optional.
       return fn(prompt, ...([] as unknown as TArgs))
     }
     // Regular function call
@@ -722,9 +732,14 @@ function getDefaultAIClient(): AIClient {
     const httpUrl = typeof process !== 'undefined' ? process.env?.AI_HTTP_URL : undefined
 
     if (wsUrl) {
-      defaultClient = AI({ wsUrl } as AIClientOptions) as unknown as AIClient
+      // Explicitly type the options to call the correct AI() overload.
+      // Without this, TypeScript might incorrectly match the schema overload.
+      const options: AIClientOptions = { wsUrl }
+      defaultClient = AI(options)
     } else if (httpUrl) {
-      defaultClient = AI({ httpUrl } as AIClientOptions) as unknown as AIClient
+      // Explicitly type the options to call the correct AI() overload.
+      const options: AIClientOptions = { httpUrl }
+      defaultClient = AI(options)
     } else {
       throw new Error(
         'AI client not configured. Call configureAI() first or set AI_WS_URL/AI_HTTP_URL environment variables.'

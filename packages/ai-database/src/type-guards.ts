@@ -293,3 +293,42 @@ export function asCallback<T, U>(
 ): (item: unknown, index: number) => U {
   return fn as (item: unknown, index: number) => U
 }
+
+/**
+ * Assert that a predicate is properly typed for array filter operations.
+ * Used when TypeScript can't infer the exact array element type.
+ */
+export function asPredicate<T>(
+  fn: (item: T, index: number) => boolean
+): (item: unknown, index: number) => boolean {
+  return fn as (item: unknown, index: number) => boolean
+}
+
+/**
+ * Assert that a comparator is properly typed for array sort operations.
+ * Used when TypeScript can't infer the exact array element type.
+ */
+export function asComparator<T>(
+  fn: ((a: T, b: T) => number) | undefined
+): ((a: unknown, b: unknown) => number) | undefined {
+  return fn as ((a: unknown, b: unknown) => number) | undefined
+}
+
+/**
+ * Type-safe access to symbol-keyed properties on objects.
+ * Used in proxy handlers where we need to access symbol properties.
+ */
+export function getSymbolProperty<T = unknown>(
+  obj: object,
+  sym: symbol
+): T | undefined {
+  return (obj as Record<symbol, unknown>)[sym] as T | undefined
+}
+
+/**
+ * Cast an item to the expected type.
+ * Used when the item type is known but TypeScript sees it as unknown.
+ */
+export function asItem<T>(value: unknown): T {
+  return value as T
+}

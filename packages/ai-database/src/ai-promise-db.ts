@@ -24,15 +24,16 @@
 import { Semaphore } from './memory-provider.js'
 import type { DBProvider } from './schema.js'
 import {
-  hasEntityMarker,
-  isValueOfable,
   isEntityArray,
   extractEntityId,
   extractMarkerType,
-  hasId,
   isPlainObject,
   hasRelationElements,
-  asRecord,
+  asCallback,
+  asPredicate,
+  asComparator,
+  getSymbolProperty,
+  asItem,
 } from './type-guards.js'
 
 // Provider resolver - will be set by schema.ts
@@ -416,9 +417,9 @@ export class DBPromise<T> implements PromiseLike<T> {
           const recordingProxy = createRecordingProxy(item, recording)
 
           // Execute callback with recording proxy to discover accesses
-          // Note: as any required - recordingProxy is a Proxy that doesn't match generic type I
+          // Use asCallback to convert the callback to accept unknown items
           try {
-            callback(recordingProxy as any, i)
+            asCallback(callback)(recordingProxy, i)
           } catch {
             // Ignore errors during recording phase - they'll surface in Phase 3
           }
@@ -436,10 +437,11 @@ export class DBPromise<T> implements PromiseLike<T> {
         }
 
         // Execute callback again with enriched data
-        // Note: as any required - enrichedItems are plain objects, not the exact generic type I
+        // Use asCallback to convert the callback to accept unknown items
         const results: U[] = []
+        const typedCallback = asCallback(callback)
         for (let i = 0; i < enrichedItems.length; i++) {
-          results.push(callback(enrichedItems[i] as any, i))
+          results.push(typedCallback(enrichedItems[i], i))
         }
         return results
       },
@@ -461,8 +463,8 @@ export class DBPromise<T> implements PromiseLike<T> {
         if (!Array.isArray(items)) {
           return items
         }
-        // Note: as any required - predicate type doesn't match exact array item type
-        return items.filter(predicate as any) as T
+        // Use asPredicate to convert the predicate to accept unknown items
+        return items.filter(asPredicate(predicate)) as T
       },
     })
   }
@@ -482,8 +484,8 @@ export class DBPromise<T> implements PromiseLike<T> {
         if (!Array.isArray(items)) {
           return items
         }
-        // Note: as any required - compareFn type doesn't match exact array item type
-        return [...items].sort(compareFn as any) as T
+        // Use asComparator to convert the compareFn to accept unknown items
+        return [...items].sort(asComparator(compareFn)) as T
       },
     })
   }
@@ -675,14 +677,14 @@ export class DBPromise<T> implements PromiseLike<T> {
       return typeof retryDelay === 'function' ? retryDelay(attempt) : retryDelay
     }
 
-    // Helper to handle error
+    // Helper to handle error - use asItem for type conversion
     const handleError = async (
       error: Error,
       item: unknown,
       attempt: number
     ): Promise<ForEachErrorAction> => {
       if (typeof onError === 'function') {
-        return onError(error, item as any, attempt)
+        return onError(error, asItem(item), attempt)
       }
       return onError
     }
@@ -695,7 +697,7 @@ export class DBPromise<T> implements PromiseLike<T> {
       }
 
       // Check if already processed (for resume)
-      const itemId = getItemId(item as any)
+      const itemId = getItemId(item)
       if (processedIds.has(itemId)) {
         skipped++
         return
@@ -704,24 +706,25 @@ export class DBPromise<T> implements PromiseLike<T> {
       let attempt = 0
       while (true) {
         try {
-          // Create timeout wrapper if needed
+          // Create timeout wrapper if needed - use asCallback for type conversion
           let result: U
+          const typedCallback = asCallback(callback)
           if (timeout) {
             const timeoutPromise = new Promise<never>((_, reject) => {
               setTimeout(() => reject(new Error(`Timeout after ${timeout}ms`)), timeout)
             })
             result = await Promise.race([
-              Promise.resolve(callback(item as any, index)),
+              Promise.resolve(typedCallback(item, index)),
               timeoutPromise,
             ])
           } else {
-            result = await callback(item as any, index)
+            result = await typedCallback(item, index)
           }
 
           // Success
           completed++
           await persistProgress(itemId)
-          await onComplete?.(item as any, result, index)
+          await onComplete?.(asItem(item), result, index)
           onProgress?.(getProgress(index, item))
           return
 
@@ -842,15 +845,19 @@ export class DBPromise<T> implements PromiseLike<T> {
 
   /**
    * Async iteration
+   *
+   * The yield casts use a local type alias because TypeScript cannot narrow
+   * the conditional type `T extends (infer I)[] ? I : T` at runtime.
    */
   async *[Symbol.asyncIterator](): AsyncIterator<T extends (infer I)[] ? I : T> {
+    type IterItem = T extends (infer I)[] ? I : T
     const items = await this.resolve()
     if (Array.isArray(items)) {
       for (const item of items) {
-        yield item as any
+        yield item as IterItem
       }
     } else {
-      yield items as any
+      yield items as IterItem
     }
   }
 
@@ -908,48 +915,84 @@ export class DBPromise<T> implements PromiseLike<T> {
 // =============================================================================
 
 /**
+ * Known DBPromise methods that need proxy handling.
+ */
+const DBPROMISE_METHODS = new Set([
+  'map', 'filter', 'sort', 'limit', 'first', 'forEach', 'resolve',
+  'then', 'catch', 'finally'
+])
+
+/**
+ * Known internal properties that need proxy handling.
+ */
+const INTERNAL_PROPS = new Set(['accessedProps', 'path', 'isResolved'])
+
+/**
+ * Type-safe interface for accessing DBPromise internals in proxy context.
+ */
+interface DBPromiseInternals {
+  _options: { type?: string }
+  accessedProps: Set<string>
+  path: string[]
+  isResolved: boolean
+  [key: string]: unknown
+}
+
+/**
+ * Access a property on DBPromise by name, with type safety.
+ */
+function getDBPromiseProperty(target: DBPromise<unknown>, prop: string): unknown {
+  return (target as unknown as DBPromiseInternals)[prop]
+}
+
+/**
+ * Get and bind a method from DBPromise by name.
+ */
+function bindDBPromiseMethod(
+  target: DBPromise<unknown>,
+  prop: string
+): (...args: unknown[]) => unknown {
+  const method = getDBPromiseProperty(target, prop)
+  if (typeof method === 'function') {
+    return method.bind(target) as (...args: unknown[]) => unknown
+  }
+  throw new Error(`${prop} is not a method on DBPromise`)
+}
+
+/**
  * Proxy handlers for DBPromise property access tracking.
  *
- * Note: Several `as any` casts are intentionally used here because we need to access
- * class methods and properties from within a ProxyHandler where the target type is
- * DBPromise<unknown>. These casts are safe because we know the target is a DBPromise
- * instance with these methods/properties available.
+ * Uses type-safe helper functions to access class methods and properties
+ * from within the ProxyHandler where the target type is DBPromise<unknown>.
  */
 const DB_PROXY_HANDLERS: ProxyHandler<DBPromise<unknown>> = {
-  get(target, prop: string | symbol, receiver) {
+  get(target, prop: string | symbol) {
     // Handle symbols - access internal symbol-keyed properties
     if (typeof prop === 'symbol') {
       if (prop === DB_PROMISE_SYMBOL) return true
       if (prop === RAW_DB_PROMISE_SYMBOL) return target
       if (prop === Symbol.asyncIterator) return target[Symbol.asyncIterator].bind(target)
-      // Intentional: accessing symbol properties on class instance
-      return (target as any)[prop]
+      // Use getSymbolProperty for type-safe symbol access
+      return getSymbolProperty(target, prop)
     }
 
-    // Handle promise methods - these exist on DBPromise but aren't in ProxyHandler's target type
-    if (prop === 'then' || prop === 'catch' || prop === 'finally') {
-      // Intentional: accessing class methods that exist but aren't typed on target
-      return (target as any)[prop].bind(target)
-    }
-
-    // Handle DBPromise methods - public methods for chaining operations
-    if (['map', 'filter', 'sort', 'limit', 'first', 'forEach', 'resolve'].includes(prop)) {
-      // Intentional: accessing class methods that exist but aren't typed on target
-      return (target as any)[prop].bind(target)
+    // Handle promise and DBPromise methods
+    if (DBPROMISE_METHODS.has(prop)) {
+      return bindDBPromiseMethod(target, prop)
     }
 
     // Handle internal properties - private properties and getters
-    if (prop.startsWith('_') || ['accessedProps', 'path', 'isResolved'].includes(prop)) {
-      // Intentional: accessing private/internal properties for proxy functionality
-      return (target as any)[prop]
+    if (prop.startsWith('_') || INTERNAL_PROPS.has(prop)) {
+      return getDBPromiseProperty(target, prop)
     }
 
     // Track property access
     target.accessedProps.add(prop)
 
     // Return a new DBPromise for the property path
+    const internals = target as unknown as DBPromiseInternals
     return new DBPromise<unknown>({
-      type: target['_options']?.type,
+      type: internals._options?.type,
       parent: target,
       propertyPath: [...target.path, prop],
       executor: async () => {
@@ -1148,7 +1191,8 @@ function createRecordingProxy(
   return new Proxy(item as Record<string, unknown>, {
     get(target, prop: string | symbol) {
       if (typeof prop === 'symbol') {
-        return target[prop as any]
+        // Use getSymbolProperty for type-safe symbol access
+        return getSymbolProperty(target, prop)
       }
 
       recording.paths.add(prop)
@@ -1536,7 +1580,9 @@ export function isDBPromise(value: unknown): value is DBPromise<unknown> {
  */
 export function getRawDBPromise<T>(value: DBPromise<T>): DBPromise<T> {
   if (RAW_DB_PROMISE_SYMBOL in value) {
-    return (value as Record<symbol, DBPromise<T>>)[RAW_DB_PROMISE_SYMBOL]
+    // We know the symbol exists from the check above, so this cast is safe
+    const raw = (value as Record<symbol, unknown>)[RAW_DB_PROMISE_SYMBOL]
+    return raw as DBPromise<T>
   }
   return value
 }
@@ -1697,7 +1743,13 @@ export function wrapEntityOperations<T>(
         executor: () => operations.list(listOptions),
         actionsAPI,
       })
-      return listPromise.forEach(callback as any, options as any)
+      // The callback and options are properly typed for T, but DBPromise.forEach
+      // uses a conditional type. Use asCallback for the callback conversion.
+      type ItemType = T[] extends (infer I)[] ? I : T
+      return listPromise.forEach(
+        asCallback(callback) as (item: ItemType, index: number) => U | Promise<U>,
+        options as ForEachOptions<ItemType>
+      )
     },
 
     // Semantic search methods

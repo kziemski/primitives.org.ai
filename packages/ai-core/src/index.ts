@@ -108,3 +108,6 @@ export {
   getProvider,
   type ExecutionContext,
 } from './context.js'
+
+// Export type guards
+export { isZodSchema } from './type-guards.js'

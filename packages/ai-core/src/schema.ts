@@ -15,6 +15,7 @@
  */
 
 import { z, type ZodTypeAny } from 'zod'
+import { isZodSchema } from './type-guards.js'
 
 /**
  * Simplified schema types
@@ -26,16 +27,6 @@ export type SimpleSchema =
   | [SimpleSchema]                   // z.array(converted).describe(value)
   | { [key: string]: SimpleSchema }  // z.object() recursively
   | ZodTypeAny                       // Pass-through for actual Zod schemas
-
-/**
- * Check if value is a Zod schema
- */
-function isZodSchema(value: unknown): value is ZodTypeAny {
-  return value !== null &&
-    typeof value === 'object' &&
-    '_def' in value &&
-    'parse' in value
-}
 
 /**
  * Convert a simplified schema to a Zod schema

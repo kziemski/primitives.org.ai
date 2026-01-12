@@ -25,7 +25,8 @@ export interface EvalScore {
 export interface EvalResult<TOutput = unknown> {
   model: EvalModel
   case: EvalCase
-  output: TOutput
+  /** The output from the task. Will be null if an error occurred. */
+  output: TOutput | null
   scores: EvalScore[]
   latencyMs: number
   cost: number
@@ -153,7 +154,7 @@ export async function runEval<TInput, TOutput, TExpected>(
           return {
             model: job.model,
             case: job.case,
-            output: null as unknown as TOutput,
+            output: null,
             scores: scorers.map(s => ({ name: s.name, score: 0 })),
             latencyMs: Date.now() - caseStart,
             cost: 0,
