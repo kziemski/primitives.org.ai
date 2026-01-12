@@ -37,14 +37,17 @@
     }
   },
   "scripts": {
-    "build": "tsc",
+    "build": "echo 'Skipping examples build (private package)'",
     "dev": "tsc --watch",
     "test": "vitest",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "clean": "rm -rf dist"
   },
-  "dependencies": {},
+  "dependencies": {
+    "ai-functions": "workspace:*",
+    "ai-providers": "workspace:*"
+  },
   "devDependencies": {},
   "keywords": ["examples", "saas", "api", "marketplace", "directory", "startup", "vc"],
   "license": "MIT"
