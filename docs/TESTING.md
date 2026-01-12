@@ -325,6 +325,68 @@ Required for certain test suites:
 | `MODEL` | Specific model for eval tests |
 | `EVAL_TIERS` | Comma-separated: `fast`, `standard`, `comprehensive` |
 
+## Deterministic AI Testing
+
+AI tests should be **truly deterministic**. Flaky AI tests waste time and erode confidence.
+
+### The Four Principles
+
+1. **AI Gateway Caching**: Route all AI calls through Cloudflare AI Gateway with caching enabled (1 month TTL). Same prompt = same cached response = deterministic results.
+
+2. **Self-Validating Pattern**: Generate content, then verify each item with `is()`:
+   ```typescript
+   const colors = await list`exactly 5 colors`
+   expect(colors).toHaveLength(5)  // Exact count
+
+   for (const color of colors) {
+     expect(await is`${color} a color`).toBe(true)  // Self-validation
+   }
+   ```
+
+3. **Exact Count Validation**: When asking for N items, expect exactly N—no ranges:
+   ```typescript
+   // ❌ Bad - allows flakiness
+   expect(colors.length).toBeGreaterThanOrEqual(3)
+   expect(colors.length).toBeLessThanOrEqual(10)
+
+   // ✅ Good - deterministic
+   const colors = await list`exactly 5 colors`
+   expect(colors).toHaveLength(5)
+   ```
+
+4. **Objectively Deterministic Questions**: Use questions with unambiguous answers:
+   ```typescript
+   // ✅ Objectively true/false
+   expect(await is`red a color`).toBe(true)
+   expect(await is`JavaScript a programming language`).toBe(true)
+   expect(await is`banana a programming language`).toBe(false)
+   expect(await is`Paris the capital of France`).toBe(true)
+
+   // ❌ Subjective/ambiguous
+   expect(await is`this code good`).toBe(true)  // Subjective
+   expect(await is`the weather nice`).toBe(true)  // Depends on context
+   ```
+
+### Running Deterministic Tests
+
+```bash
+# Run deterministic eval suite
+pnpm test -- test/evals/deterministic.eval.test.ts
+
+# With specific model
+TEST_MODEL=haiku pnpm test -- test/evals/deterministic.eval.test.ts
+```
+
+### Test File: `deterministic.eval.test.ts`
+
+Location: `packages/ai-functions/test/evals/deterministic.eval.test.ts`
+
+This file demonstrates all patterns:
+- `is()` with objectively deterministic questions
+- `list()` with exact counts and self-validation
+- `extract()` from known text (deterministic input)
+- Chained validation (generate topic content, verify each item is about topic)
+
 ## Eval Test Patterns
 
 Eval tests validate AI output quality across models:
@@ -355,6 +417,7 @@ for (const model of models) {
 - Use reasonable assertions (contains keyword, length bounds)
 - Set appropriate timeouts for AI calls
 - Group by model for clear failure attribution
+- **Prefer deterministic patterns** (see above) when possible
 
 ## Coverage Expectations
 
