@@ -1,254 +1,456 @@
 # ai-functions
 
-Call AI like you'd talk to a colleague. No prompts. No configuration. Just say what you need.
+**Calling AI models shouldn't require 50 lines of boilerplate.**
+
+You just want to get a response from Claude, GPT, or Gemini. Instead, you're drowning in SDK initialization, error handling, retry logic, JSON parsing, and type coercion. Every AI call becomes a small engineering project.
 
 ```typescript
-import { ai, list, is } from 'ai-functions'
+// What you're doing now
+import Anthropic from '@anthropic-ai/sdk'
+const client = new Anthropic()
+try {
+  const response = await client.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 1024,
+    messages: [{ role: 'user', content: 'List 5 startup ideas' }],
+  })
+  const text = response.content[0].type === 'text'
+    ? response.content[0].text
+    : ''
+  const ideas = JSON.parse(text) // Pray it's valid JSON
+} catch (e) {
+  if (e.status === 429) { /* rate limit logic */ }
+  if (e.status === 500) { /* retry logic */ }
+  // ... 30 more lines
+}
+```
 
-// Ask for anything - it reads like English
-const qualified = is`${lead} a good fit for our enterprise plan?`
-const ideas = list`blog posts that would resonate with ${persona}`
-const { summary, nextSteps } = ai`analyze this sales call: ${transcript}`
+```typescript
+// What you could be doing
+import { list } from 'ai-functions'
+
+const ideas = await list`5 startup ideas`
 ```
 
 ## Installation
 
 ```bash
-pnpm add ai-functions
+npm install ai-functions
 ```
 
-## The Magic: Promise Pipelining
+Set your API key:
 
-Chain operations naturally—no `await` needed until you actually need the result:
-
-```typescript
-// Destructure to get exactly what you need
-const { qualified, score, reason } = ai`qualify this lead: ${lead}`
-
-// Chain functions together—dependencies resolve automatically
-const followUp = ai`write follow-up email based on: ${reason}`
-const subject = ai`subject line for: ${followUp}`
-
-// Only await when you need the actual value
-if (await qualified) {
-  await sendEmail({ to: lead.email, subject: await subject, body: await followUp })
-}
+```bash
+export ANTHROPIC_API_KEY=sk-...  # or OPENAI_API_KEY
 ```
 
-## Real-World Examples
+## Quick Start
 
-### Lead Qualification
+### Template Literals for Natural AI Calls
 
 ```typescript
-const { score, qualified, reasoning } = ai`
-  qualify ${lead} for our product
-  considering: ${idealCustomerProfile}
-`
+import { ai, list, is, write } from 'ai-functions'
 
-if (await qualified) {
-  await assignToSales(lead)
-}
+// Generate text
+const poem = await write`a haiku about TypeScript`
+
+// Generate lists
+const ideas = await list`10 startup ideas in healthcare`
+
+// Yes/no decisions
+const isValid = await is`"john@example" is a valid email`
+
+// Structured objects with auto-inferred schema
+const { title, summary, tags } = await ai`analyze this article: ${articleText}`
 ```
 
-### Content Marketing
+### The `list` Primitive with `.map()`
+
+Process lists with automatic batching - one prompt generates items, then each item is processed in parallel:
 
 ```typescript
-// Generate topic ideas for your audience
-const topics = list`content ideas for ${persona} in ${industry}`
-
-// Evaluate each in parallel—single LLM call!
-const evaluated = await topics.map(topic => ({
-  topic,
-  potential: is`${topic} would drive signups?`,
-  difficulty: ai`content difficulty for: ${topic}`,
+const ideas = await list`5 startup ideas`.map(idea => ({
+  idea,
+  viable: is`${idea} is technically feasible`,
+  market: ai`estimate market size for ${idea}`,
 }))
 
-// Pick the best
-const winner = evaluated.find(t => t.potential && t.difficulty === 'easy')
+// Result: Array of { idea, viable, market } objects
 ```
 
-### Sales Intelligence
+### Boolean Checks with `is`
 
 ```typescript
-const { pros, cons, objections } = lists`
-  competitive analysis: ${ourProduct} vs ${competitor}
-`
+// Simple validation
+const isColor = await is`"turquoise" is a color`  // true
 
-const battleCard = ai`
-  sales battlecard addressing: ${objections}
-  highlighting: ${pros}
-`
+// Content moderation
+const isSafe = await is`${userContent} is safe for work`
+
+// Quality checks
+const { conclusion } = await ai`write about ${topic}`
+const isWellArgumented = await is`${conclusion} is well-argued`
 ```
 
-### Customer Success
+### Task Execution with `do`
 
 ```typescript
-// Analyze customer health
-const { healthy, churnRisk, opportunities } = ai`
-  analyze customer health for ${customer}
-  based on: ${usageData}
-`
+const { summary, actions } = await do`send welcome email to ${user.email}`
+// Returns: { summary: "...", actions: ["Created email", "Sent via SMTP", ...] }
+```
 
-if (await churnRisk) {
-  const outreach = ai`retention outreach for ${customer} addressing ${churnRisk}`
-  await scheduleCall(customer, await outreach)
+## Features
+
+### Batch Processing (50% Cost Savings)
+
+Process large workloads at half the cost using provider batch APIs:
+
+```typescript
+import { createBatch, write } from 'ai-functions'
+
+// Create a batch queue
+const batch = createBatch({ provider: 'openai' })
+
+// Add items (deferred, not executed)
+const posts = titles.map(title =>
+  batch.add(`Write a blog post about ${title}`)
+)
+
+// Submit for batch processing
+const { job } = await batch.submit()
+console.log(job.id) // batch_abc123
+
+// Wait for results (up to 24hr turnaround)
+const results = await batch.wait()
+```
+
+Or use the `withBatch` helper:
+
+```typescript
+import { withBatch } from 'ai-functions'
+
+const results = await withBatch(async (batch) => {
+  return ['TypeScript', 'React', 'Next.js'].map(topic =>
+    batch.add(`Write tutorial about ${topic}`)
+  )
+})
+```
+
+### Retry & Circuit Breaker
+
+Built-in resilience for production workloads:
+
+```typescript
+import { withRetry, RetryPolicy, CircuitBreaker, FallbackChain } from 'ai-functions'
+
+// Simple retry wrapper
+const reliableAI = withRetry(myAIFunction, {
+  maxRetries: 3,
+  baseDelay: 1000,
+  jitter: 0.2,  // Prevent thundering herd
+})
+
+// Advanced retry policy
+const policy = new RetryPolicy({
+  maxRetries: 5,
+  baseDelay: 1000,
+  maxDelay: 30000,
+  jitterStrategy: 'decorrelated',
+  respectRetryAfter: true,  // Honor rate limit headers
+})
+
+await policy.execute(async () => {
+  return await ai`generate content`
+})
+
+// Circuit breaker for fail-fast
+const breaker = new CircuitBreaker({
+  failureThreshold: 5,
+  resetTimeout: 30000,
+})
+
+await breaker.execute(async () => {
+  return await ai`generate content`
+})
+
+// Model fallback chain
+const fallback = new FallbackChain([
+  { name: 'claude-sonnet', execute: () => generateWithClaude(prompt) },
+  { name: 'gpt-4o', execute: () => generateWithGPT(prompt) },
+  { name: 'gemini-pro', execute: () => generateWithGemini(prompt) },
+])
+
+const result = await fallback.execute()
+```
+
+### Caching
+
+Avoid redundant API calls with intelligent caching:
+
+```typescript
+import { GenerationCache, EmbeddingCache, withCache, MemoryCache } from 'ai-functions'
+
+// Generation cache
+const cache = new GenerationCache({
+  defaultTTL: 3600000, // 1 hour
+  maxSize: 1000,       // LRU eviction
+})
+
+// Check cache first
+const cached = await cache.get({ prompt, model: 'sonnet' })
+if (!cached) {
+  const result = await ai`${prompt}`
+  await cache.set({ prompt, model: 'sonnet' }, result)
 }
+
+// Embedding cache with batch support
+const embedCache = new EmbeddingCache()
+const { hits, misses } = await embedCache.getMany(texts, { model: 'text-embedding-3-small' })
+
+// Wrap any function with caching
+const cachedGenerate = withCache(
+  new MemoryCache(),
+  generateContent,
+  { keyFn: (prompt) => prompt, ttl: 3600000 }
+)
 ```
 
-### Recruiting
+### Budget Tracking
+
+Monitor and limit spending:
 
 ```typescript
-const candidates = list`source ${role} candidates from ${jobBoards}`
+import { BudgetTracker, withBudget, BudgetExceededError } from 'ai-functions'
 
-const evaluated = await candidates.map(candidate => ({
-  candidate,
-  fit: is`${candidate} matches ${requirements}?`,
-  summary: ai`one-line summary of ${candidate}`,
-}))
+// Create a budget tracker
+const tracker = new BudgetTracker({
+  maxTokens: 100000,
+  maxCost: 10.00,  // USD
+  alertThresholds: [0.5, 0.8, 0.95],
+  onAlert: (alert) => {
+    console.log(`Budget ${alert.type} at ${alert.threshold * 100}%`)
+  },
+})
 
-const shortlist = evaluated.filter(c => c.fit)
+// Record usage
+tracker.recordUsage({
+  inputTokens: 1500,
+  outputTokens: 500,
+  model: 'claude-sonnet-4-20250514',
+})
+
+// Check remaining budget
+console.log(tracker.getRemainingBudget())
+// { tokens: 98000, cost: 9.95 }
+
+// Use with automatic tracking
+const result = await withBudget({ maxCost: 5.00 }, async (tracker) => {
+  // All AI calls within this scope are tracked
+  return await ai`generate content`
+})
+```
+
+### Tool Orchestration
+
+Build agentic loops with tool calling:
+
+```typescript
+import { AgenticLoop, createTool, createToolset } from 'ai-functions'
+
+// Define tools
+const searchTool = createTool({
+  name: 'search',
+  description: 'Search the web',
+  parameters: { query: 'Search query' },
+  handler: async ({ query }) => await searchWeb(query),
+})
+
+const calculatorTool = createTool({
+  name: 'calculate',
+  description: 'Perform calculations',
+  parameters: { expression: 'Math expression' },
+  handler: async ({ expression }) => eval(expression),
+})
+
+// Create an agentic loop
+const loop = new AgenticLoop({
+  model: 'claude-sonnet-4-20250514',
+  tools: [searchTool, calculatorTool],
+  maxIterations: 10,
+})
+
+const result = await loop.run('What is the population of Tokyo times 2?')
+```
+
+## Configuration
+
+### Global Configuration
+
+```typescript
+import { configure } from 'ai-functions'
+
+configure({
+  model: 'claude-sonnet-4-20250514',
+  provider: 'anthropic',
+  batchMode: 'auto',  // 'auto' | 'immediate' | 'flex' | 'deferred'
+  flexThreshold: 5,   // Use flex for 5+ items
+  batchThreshold: 500, // Use batch API for 500+ items
+})
+```
+
+### Scoped Configuration
+
+```typescript
+import { withContext } from 'ai-functions'
+
+const results = await withContext(
+  { provider: 'openai', model: 'gpt-4o', batchMode: 'deferred' },
+  async () => {
+    const titles = await list`10 blog titles`
+    return titles.map(title => write`blog post: ${title}`)
+  }
+)
+```
+
+### Environment Variables
+
+```bash
+AI_MODEL=claude-sonnet-4-20250514
+AI_PROVIDER=anthropic
+AI_BATCH_MODE=auto
+AI_FLEX_THRESHOLD=5
+AI_BATCH_THRESHOLD=500
+AI_BATCH_WEBHOOK_URL=https://api.example.com/webhook
+```
+
+## Schema-Based Functions
+
+Create typed AI functions with simple schemas:
+
+```typescript
+import { AI } from 'ai-functions'
+
+const ai = AI({
+  recipe: {
+    name: 'Recipe name',
+    servings: 'Number of servings (number)',
+    ingredients: ['List of ingredients'],
+    steps: ['Cooking steps'],
+    prepTime: 'Prep time in minutes (number)',
+  },
+  storyBrand: {
+    hero: 'Who is the customer?',
+    problem: {
+      internal: 'Internal struggle',
+      external: 'External challenge',
+      philosophical: 'Why is this wrong?',
+    },
+    guide: 'Who helps them?',
+    plan: ['Steps to success'],
+    callToAction: 'What should they do?',
+    success: 'What success looks like',
+    failure: 'What failure looks like',
+  },
+})
+
+// Fully typed results
+const recipe = await ai.recipe('Italian pasta for 4 people')
+// { name: string, servings: number, ingredients: string[], ... }
+
+const brand = await ai.storyBrand('A developer tools startup')
+// { hero: string, problem: { internal, external, philosophical }, ... }
+```
+
+## Define Custom Functions
+
+```typescript
+import { define, defineFunction } from 'ai-functions'
+
+// Auto-define from name and example args
+const planTrip = await define('planTrip', {
+  destination: 'Tokyo',
+  travelers: 2
+})
+
+// Or define explicitly with full control
+const summarize = defineFunction({
+  type: 'generative',
+  name: 'summarize',
+  args: { text: 'Text to summarize', maxLength: 'Max words (number)' },
+  output: 'string',
+  promptTemplate: 'Summarize in {{maxLength}} words: {{text}}',
+})
+
+// Use the defined functions
+const trip = await planTrip.call({ destination: 'Paris', travelers: 4 })
+const summary = await summarize.call({ text: longArticle, maxLength: 100 })
 ```
 
 ## API Reference
 
-### Generation
+### Core Primitives
 
-```typescript
-ai`anything you need`              // flexible object/text
-write`blog post about ${topic}`    // long-form content
-summarize`${document}`             // condense to key points
-list`ideas for ${topic}`           // array of items
-lists`pros and cons of ${topic}`   // named lists
-extract`emails from ${text}`       // structured extraction
-```
+| Function | Description | Returns |
+|----------|-------------|---------|
+| `ai` | General-purpose generation with dynamic schema | `Promise<T>` |
+| `write` | Generate text content | `Promise<string>` |
+| `list` | Generate a list of items | `Promise<string[]>` |
+| `lists` | Generate multiple named lists | `Promise<Record<string, string[]>>` |
+| `is` | Boolean yes/no checks | `Promise<boolean>` |
+| `do` | Execute a task | `Promise<{ summary, actions }>` |
+| `extract` | Extract structured data | `Promise<T[]>` |
+| `summarize` | Summarize content | `Promise<string>` |
+| `code` | Generate code | `Promise<string>` |
+| `decide` | Choose between options | `(options) => Promise<T>` |
 
-### Classification
+### Batch Processing
 
-```typescript
-is`${email} spam?`                           // boolean
-decide`which converts better?`(optionA, optionB)  // pick best
-```
+| Export | Description |
+|--------|-------------|
+| `createBatch()` | Create a batch queue for deferred execution |
+| `withBatch()` | Execute operations in batch mode |
+| `BatchQueue` | Class for managing batch jobs |
 
-### Code & Visuals
+### Resilience
 
-```typescript
-code`email validation function`    // generate code
-diagram`user flow for ${feature}`  // mermaid diagrams
-slides`pitch deck for ${startup}`  // presentations
-image`hero image for ${brand}`     // image generation
-```
+| Export | Description |
+|--------|-------------|
+| `withRetry()` | Wrap function with retry logic |
+| `RetryPolicy` | Configurable retry policy |
+| `CircuitBreaker` | Fail-fast circuit breaker |
+| `FallbackChain` | Model failover chain |
 
-### Research & Web
+### Caching
 
-```typescript
-research`${competitor} market position`  // web research
-read`${url}`                              // url to markdown
-browse`${url}`                            // browser automation
-```
+| Export | Description |
+|--------|-------------|
+| `MemoryCache` | In-memory LRU cache |
+| `GenerationCache` | Cache for generation results |
+| `EmbeddingCache` | Cache for embeddings |
+| `withCache()` | Wrap function with caching |
 
-### Human-in-the-Loop
+### Budget & Tracking
 
-```typescript
-ask`what's the priority for ${feature}?`   // free-form input
-approve`deploy ${version} to production?`  // yes/no approval
-review`${document}`                        // detailed feedback
-```
+| Export | Description |
+|--------|-------------|
+| `BudgetTracker` | Track token usage and costs |
+| `withBudget()` | Execute with budget limits |
+| `RequestContext` | Request tracing and isolation |
 
-## The `lists` Function
+### Configuration
 
-Get exactly what you ask for through destructuring:
-
-```typescript
-// Just name what you want—the schema is inferred!
-const { pros, cons } = lists`pros and cons of ${decision}`
-const { strengths, weaknesses, opportunities, threats } = lists`SWOT for ${company}`
-const { mustHave, niceToHave, outOfScope } = lists`requirements for ${feature}`
-```
-
-## Batch Processing with `.map()`
-
-Process arrays in a single LLM call:
-
-```typescript
-const leads = await list`leads from ${campaign}`
-
-// Each field evaluated for each lead—all in ONE call
-const qualified = await leads.map(lead => ({
-  lead,
-  score: ai`score 1-100: ${lead}`,
-  qualified: is`${lead} matches ${icp}?`,
-  nextStep: ai`recommended action for ${lead}`,
-}))
-
-// Filter and act
-qualified
-  .filter(l => l.qualified)
-  .forEach(l => createTask(l.nextStep))
-```
-
-## Typed Schemas with `AI()`
-
-For reusable, typed functions:
-
-```typescript
-const ai = AI({
-  qualifyLead: {
-    score: 'Lead score 1-100 (number)',
-    qualified: 'Whether to pursue (boolean)',
-    reasoning: 'Explanation of score',
-    nextSteps: ['Recommended actions'],
-  },
-
-  analyzeCompetitor: {
-    positioning: 'How they position themselves',
-    strengths: ['Their advantages'],
-    weaknesses: ['Their disadvantages'],
-    battleCard: 'Key talking points for sales',
-  },
-})
-
-// Fully typed!
-const result = await ai.qualifyLead('Enterprise CTO interested in AI automation')
-result.score      // number
-result.qualified  // boolean
-result.nextSteps  // string[]
-```
-
-## Schema Syntax
-
-| Syntax | Type | Example |
-|--------|------|---------|
-| `'description'` | string | `name: 'Company name'` |
-| `'desc (number)'` | number | `score: 'Score 1-100 (number)'` |
-| `'desc (boolean)'` | boolean | `qualified: 'Pursue? (boolean)'` |
-| `'opt1 \| opt2'` | enum | `priority: 'high \| medium \| low'` |
-| `['description']` | array | `steps: ['Action items']` |
-| `{ nested }` | object | `contact: { name, email }` |
-
-## Philosophy
-
-**Code should read like conversation.**
-
-Compare:
-```typescript
-// Traditional AI code
-const response = await openai.chat.completions.create({
-  model: "gpt-4",
-  messages: [{ role: "user", content: `Analyze this lead: ${JSON.stringify(lead)}` }],
-  response_format: { type: "json_object" },
-})
-const result = JSON.parse(response.choices[0].message.content)
-```
-
-```typescript
-// ai-functions
-const { qualified, score, nextStep } = ai`analyze lead: ${lead}`
-```
-
-The second version is what you'd say to a colleague. That's the goal.
+| Export | Description |
+|--------|-------------|
+| `configure()` | Set global defaults |
+| `withContext()` | Scoped configuration |
+| `getContext()` | Get current context |
 
 ## Related Packages
 
-- [`ai-database`](../ai-database) — AI-powered database operations
-- [`ai-providers`](../ai-providers) — Model provider abstraction
-- [`language-models`](../language-models) — Model definitions
+- [`ai-core`](../ai-core) - Lightweight core primitives (no batch/budget/retry)
+- [`ai-providers`](../ai-providers) - Provider integrations
+- [`language-models`](../language-models) - Model aliases and configuration
+
+## License
+
+MIT

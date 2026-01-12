@@ -1,6 +1,80 @@
 # ai-database
 
-Your data, flowing like conversation.
+**AI-generated data shouldn't be disconnected from your schema.**
+
+You write one line of AI code. It generates a user. Where does it go? Does it have a company? Does it match your existing customers? Traditional databases don't know. They can't reason about relationships. They can't cascade.
+
+**ai-database can.**
+
+```typescript
+import { DB } from 'ai-database'
+
+const { db } = DB({
+  Lead: { name: 'string', company: 'Company.leads', score: 'number' },
+  Company: { name: 'string', industry: 'string' }
+})
+
+// One call generates Lead + Company + relationships
+const lead = await db.Lead.create({ name: 'Acme Corp' }, { cascade: true })
+const company = await lead.company  // Already exists, fully typed
+```
+
+---
+
+## The Problem
+
+**Before ai-database:** AI generates orphaned data
+
+```typescript
+// Generate a lead...
+const lead = await ai`generate a sales lead`
+
+// Now what?
+// - Where do you store it?
+// - How do you link it to a company?
+// - What if the company already exists?
+// - How do you query related data?
+
+// You end up with:
+const leadId = await db.insert('leads', lead)
+const companyId = await db.insert('companies', { name: lead.company })
+await db.insert('lead_companies', { leadId, companyId })
+// Manual. Fragile. No type safety. N+1 queries everywhere.
+```
+
+**After ai-database:** AI respects your schema
+
+```typescript
+const { db } = DB({
+  Lead: {
+    name: 'string',
+    company: 'Target company ~>Company',  // Fuzzy match existing or generate
+    score: 'number',
+  },
+  Company: { name: 'string', industry: 'string' }
+})
+
+// One line. AI finds existing company or creates one.
+const lead = await db.Lead.create({ name: 'John', companyHint: 'enterprise tech' })
+
+// Relationships just work. Batch loaded. Type safe.
+const company = await lead.company
+```
+
+---
+
+## Why ai-database?
+
+| Pain | Solution |
+|------|----------|
+| N+1 queries loading relationships | **Promise pipelining** - chain without await, batch automatically |
+| AI data disconnected from schema | **Relationship operators** (`->`, `~>`, `<-`, `<~`) for AI-native linking |
+| No types for AI-generated data | **Type-safe schema inference** - full TypeScript support |
+| Manual relationship management | **Cascade generation** - create entity graphs in one call |
+
+---
+
+## Quick Start
 
 ```typescript
 import { DB } from 'ai-database'
@@ -20,6 +94,8 @@ const enriched = await leads.map(lead => ({
   company: lead.company,  // Batch loaded!
 }))
 ```
+
+---
 
 ## Promise Pipelining
 

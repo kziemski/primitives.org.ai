@@ -568,7 +568,15 @@ What is your next step?`,
     // Execute tool call
     const tool = tools.find(t => t.name === response.toolCall.name)
     if (tool) {
-      const toolArgs = JSON.parse(response.toolCall.arguments || '{}')
+      let toolArgs: Record<string, unknown>
+      try {
+        toolArgs = JSON.parse(response.toolCall.arguments || '{}')
+      } catch (e) {
+        toolResults.push({
+          error: `Invalid tool arguments: ${(e as Error).message}`,
+        })
+        continue
+      }
       const toolResult = await tool.handler(toolArgs)
       toolResults.push({ tool: response.toolCall.name, result: toolResult })
     } else {

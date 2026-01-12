@@ -1,8 +1,8 @@
-# Getting Started with AI Functions
+# Getting Started with ai-functions
 
-This guide covers the essential patterns for building AI-powered applications with `ai-functions`.
+Build AI-powered applications in 5 minutes. No boilerplate. No configuration files. Just say what you need.
 
-## Installation
+## 1. Install
 
 ```bash
 npm install ai-functions
@@ -10,255 +10,264 @@ npm install ai-functions
 pnpm add ai-functions
 ```
 
-## Quick Start
+## 2. Configure Your Provider
 
-### Text Generation
+Set one environment variable - that's it:
 
-The simplest way to generate text:
+```bash
+# Choose your provider:
+export ANTHROPIC_API_KEY=sk-ant-...     # Claude (recommended)
+export OPENAI_API_KEY=sk-...            # GPT-4
+export GOOGLE_API_KEY=...               # Gemini
+```
+
+The library auto-detects your provider from environment variables. No configuration code needed.
+
+## 3. Your First AI Call
+
+Create `hello.ts`:
 
 ```typescript
-import { generateText } from 'ai-functions'
+import { ai } from 'ai-functions'
 
-const result = await generateText({
-  model: 'sonnet',  // Aliases: 'opus', 'gpt-4o', 'gemini'
-  prompt: 'Explain quantum computing in simple terms',
+// Just ask for what you need
+const greeting = await ai`write a friendly greeting for a developer`
+
+console.log(greeting)
+```
+
+Run it:
+
+```bash
+npx tsx hello.ts
+```
+
+Output:
+```
+Hey there, fellow developer! Hope your code compiles on the first try today.
+```
+
+## 4. Get Structured Data with `list()`
+
+AI that returns actual data types, not just strings:
+
+```typescript
+import { list } from 'ai-functions'
+
+// Get a typed array of strings
+const ideas = await list`5 startup ideas in the AI space`
+
+ideas.forEach((idea, i) => {
+  console.log(`${i + 1}. ${idea}`)
 })
-
-console.log(result.text)
 ```
 
-### Structured Object Generation
-
-Generate typed, structured data:
-
-```typescript
-import { generateObject } from 'ai-functions'
-
-const result = await generateObject({
-  model: 'sonnet',
-  schema: {
-    title: 'Recipe title',
-    ingredients: ['List of ingredients'],
-    steps: ['Cooking steps'],
-    prepTime: 'Preparation time in minutes',
-  },
-  prompt: 'Create a simple pasta recipe',
-})
-
-console.log(result.object.title)
-console.log(result.object.ingredients)
+Output:
+```
+1. AI-powered code review tool
+2. Automated customer support agent
+3. Intelligent document summarization
+4. Personalized learning assistant
+5. Smart contract audit platform
 ```
 
-### List Generation
+### Batch Processing with `.map()`
 
-Generate lists of items:
-
-```typescript
-import { generateObject } from 'ai-functions'
-
-const result = await generateObject({
-  model: 'sonnet',
-  schema: { items: ['List items'] },
-  prompt: 'Generate 5 startup ideas in the AI space',
-})
-
-console.log(result.object.items)
-```
-
-## Promise Pipelining with AIPromise
-
-Chain AI operations efficiently without intermediate awaits:
-
-```typescript
-import { ai, is, list } from 'ai-functions'
-
-// Dynamic schema inference from destructuring
-const { summary, keyPoints, conclusion } = ai`write about ${topic}`
-
-// Reference values without await
-const isValid = is`${conclusion} is well-argued`
-
-// Only await at the end
-if (await isValid) {
-  console.log(await summary)
-}
-```
-
-### Batch Processing with .map()
-
-Process multiple items efficiently:
+Process items efficiently - multiple AI calls batched into one:
 
 ```typescript
 import { list, is, ai } from 'ai-functions'
 
-// Generate a list, then evaluate each item
 const ideas = await list`startup ideas in healthcare`
 
-// Map over results - automatically batched!
+// All these AI calls are batched into a single request
 const evaluated = await ideas.map(idea => ({
   idea,
   viable: is`${idea} is technically feasible`,
-  market: ai`market size for ${idea}`,
+  market: ai`one-line market analysis for ${idea}`,
 }))
 
 evaluated.forEach(({ idea, viable, market }) => {
-  console.log(`${idea}: viable=${viable}, market=${market}`)
+  console.log(`${idea}`)
+  console.log(`  Viable: ${viable}`)
+  console.log(`  Market: ${market}`)
 })
 ```
 
-## Streaming
+## 5. Add Type Safety with Schemas
 
-Display results as they generate:
+### Simple Schema Syntax
+
+Define structure with plain objects - no Zod required:
 
 ```typescript
-import { streamText } from 'ai-functions'
+import { AI } from 'ai-functions'
 
-const result = await streamText({
+// Define your schema with human-readable descriptions
+const ai = AI({
+  analyzeCompany: {
+    name: 'Company name',
+    industry: 'tech | healthcare | finance | retail | other',
+    score: 'Investment potential 1-100 (number)',
+    strengths: ['Key competitive advantages'],
+    risks: ['Potential concerns'],
+  },
+})
+
+// Fully typed return value
+const analysis = await ai.analyzeCompany('Analyze Tesla for investment potential')
+
+console.log(analysis.name)       // string
+console.log(analysis.score)      // number
+console.log(analysis.strengths)  // string[]
+```
+
+### Schema Syntax Reference
+
+| Syntax | Type | Example |
+|--------|------|---------|
+| `'description'` | string | `name: 'Company name'` |
+| `'desc (number)'` | number | `score: 'Score 1-100 (number)'` |
+| `'desc (boolean)'` | boolean | `qualified: 'Is qualified? (boolean)'` |
+| `'opt1 \| opt2'` | enum | `priority: 'high \| medium \| low'` |
+| `['description']` | array | `items: ['List of items']` |
+| `{ nested }` | object | `contact: { name, email }` |
+
+### Using Zod for Full Type Safety
+
+When you need advanced validation:
+
+```typescript
+import { generateObject } from 'ai-functions'
+import { z } from 'zod'
+
+const result = await generateObject({
   model: 'sonnet',
-  prompt: 'Write a short story about AI',
+  schema: z.object({
+    title: z.string().describe('Recipe title'),
+    servings: z.number().min(1).max(20).describe('Number of servings'),
+    difficulty: z.enum(['easy', 'medium', 'hard']),
+    ingredients: z.array(z.string()).describe('List of ingredients'),
+    steps: z.array(z.string()).describe('Cooking steps'),
+  }),
+  prompt: 'Create a simple pasta recipe for beginners',
 })
 
-for await (const chunk of result.textStream) {
-  process.stdout.write(chunk)
+// result.object is fully typed
+console.log(result.object.title)
+console.log(result.object.ingredients)
+```
+
+## 6. More Primitives
+
+### Boolean Classification
+
+```typescript
+import { is } from 'ai-functions'
+
+const isSpam = await is`${email} looks like spam`
+const isUrgent = await is`${ticket} requires immediate attention`
+
+if (isSpam) {
+  // handle spam
 }
 ```
 
-## Error Handling
-
-### Retry with Exponential Backoff
-
-Handle transient failures automatically:
+### Multiple Named Lists
 
 ```typescript
-import { RetryPolicy, generateText } from 'ai-functions'
+import { lists } from 'ai-functions'
 
-const policy = new RetryPolicy({
-  maxRetries: 3,
-  baseDelay: 1000,    // 1 second
-  maxDelay: 30000,    // 30 seconds max
-  jitter: 0.2,        // +/- 20% randomization
-})
+const { pros, cons } = await lists`pros and cons of remote work`
 
-const result = await policy.execute(async () => {
-  const response = await generateText({
-    model: 'sonnet',
-    prompt: 'Generate content',
-  })
-  return response.text
-})
+console.log('Pros:', pros)
+console.log('Cons:', cons)
 ```
 
-### Fallback Chain
-
-Fall back to alternative models:
+### Structured Extraction
 
 ```typescript
-import { FallbackChain, generateText } from 'ai-functions'
-import { model } from 'ai-providers'
+import { extract } from 'ai-functions'
 
-const chain = new FallbackChain([
-  {
-    name: 'sonnet',
-    execute: async () => {
-      const m = await model('sonnet')
-      return (await generateText({ model: m, prompt: 'Hello' })).text
-    },
-  },
-  {
-    name: 'opus',
-    execute: async () => {
-      const m = await model('opus')
-      return (await generateText({ model: m, prompt: 'Hello' })).text
-    },
-  },
-  {
-    name: 'gpt-4o',
-    execute: async () => {
-      const m = await model('gpt-4o')
-      return (await generateText({ model: m, prompt: 'Hello' })).text
-    },
-  },
-])
-
-// Tries sonnet first, falls back to opus, then gpt-4o
-const result = await chain.execute()
+const { name, email, phone } = await extract`
+  contact info from: ${businessCard}
+`
 ```
 
-### Circuit Breaker
-
-Prevent cascading failures:
+### Long-form Content
 
 ```typescript
-import { CircuitBreaker, generateText } from 'ai-functions'
+import { write } from 'ai-functions'
 
-const breaker = new CircuitBreaker({
-  failureThreshold: 5,   // Open after 5 failures
-  resetTimeout: 30000,   // Try again after 30s
-})
+const post = await write`
+  blog post about TypeScript best practices
+  for a senior developer audience
+`
+```
 
-try {
-  const result = await breaker.execute(async () => {
-    return (await generateText({
-      model: 'sonnet',
-      prompt: 'Generate content',
-    })).text
-  })
-} catch (error) {
-  if (error.message === 'Circuit breaker is open') {
-    // Service is down, fail fast
-    console.log('Service temporarily unavailable')
+## Complete Example
+
+Put it all together:
+
+```typescript
+import { ai, list, is, lists } from 'ai-functions'
+
+async function analyzeMarket(industry: string) {
+  // Generate competitor list
+  const competitors = await list`top 5 companies in ${industry}`
+
+  // Analyze each competitor
+  const analyses = await competitors.map(company => ({
+    company,
+    isPublic: is`${company} is publicly traded`,
+    analysis: ai`one paragraph analysis of ${company}'s market position`,
+  }))
+
+  // Get overall market insights
+  const { opportunities, threats } = await lists`
+    market opportunities and threats in ${industry}
+  `
+
+  return {
+    competitors: analyses,
+    opportunities,
+    threats,
   }
 }
 
-// Check circuit state
-console.log(breaker.state)  // 'closed' | 'open' | 'half-open'
-```
-
-## Model Aliases
-
-Simplified model names that route to the best provider:
-
-| Alias | Full Model ID |
-|-------|---------------|
-| `sonnet` | `anthropic/claude-sonnet-4` |
-| `opus` | `anthropic/claude-opus-4` |
-| `gpt-4o` | `openai/gpt-4o` |
-| `gemini` | `google/gemini-2.5-flash` |
-
-## Schema Syntax
-
-The simplified schema syntax makes it easy to define structured output:
-
-```typescript
-// String = description of expected value
-{ name: 'User name' }
-
-// Array with single string = list of that type
-{ ingredients: ['List of ingredients'] }
-
-// Pipe-separated values = enum
-{ status: 'pending | approved | rejected' }
-
-// Nested objects
-{
-  user: {
-    name: 'User name',
-    email: 'Email address',
-  }
-}
-```
-
-## Running Examples
-
-The `@org.ai/examples` package contains runnable examples:
-
-```bash
-cd packages/examples
-pnpm test  # Run all example tests
+// Run it
+const result = await analyzeMarket('electric vehicles')
+console.log(JSON.stringify(result, null, 2))
 ```
 
 ## Next Steps
 
-- Explore the [API Reference](./api-reference.md)
-- Learn about [Batch Processing](./batch-processing.md)
-- See [Advanced Patterns](./advanced-patterns.md)
+- [API Reference](./api-reference.md) - Complete function documentation
+- [Batch Processing](./batch-processing.md) - Optimize for high volume
+- [Error Handling](./error-handling.md) - Retry policies and circuit breakers
+- [ai-functions README](../packages/ai-functions/README.md) - Full feature overview
+
+## Model Aliases
+
+Use simple names instead of full model IDs:
+
+| Alias | Model |
+|-------|-------|
+| `sonnet` | Claude Sonnet 4 (default) |
+| `opus` | Claude Opus 4 |
+| `gpt-4o` | GPT-4o |
+| `gemini` | Gemini 2.5 Flash |
+
+```typescript
+import { configure, ai } from 'ai-functions'
+
+// Change the default model globally
+configure({ model: 'gpt-4o' })
+
+// Or per-call
+const result = await ai`explain quantum computing`
+```
+
+---
+
+**Ready to build?** Check out the [examples](../examples/) directory for real-world patterns.

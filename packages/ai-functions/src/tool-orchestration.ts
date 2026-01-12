@@ -450,10 +450,15 @@ export class AgenticLoop {
         // Apply timeout if configured
         let result: ToolResult
         if (toolTimeout) {
+          let timeoutId: NodeJS.Timeout
           const timeoutPromise = new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new Error('Tool execution timeout')), toolTimeout)
+            timeoutId = setTimeout(() => reject(new Error('Tool execution timeout')), toolTimeout)
           })
-          result = await Promise.race([executePromise, timeoutPromise])
+          try {
+            result = await Promise.race([executePromise, timeoutPromise])
+          } finally {
+            clearTimeout(timeoutId!)
+          }
         } else {
           result = await executePromise
         }
@@ -973,10 +978,17 @@ export function timeoutTool<T extends Tool>(
   return {
     ...tool,
     execute: async (params: unknown) => {
+      let timeoutId: ReturnType<typeof setTimeout> | undefined
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error(`Tool '${tool.name}' timed out after ${timeoutMs}ms`)), timeoutMs)
+        timeoutId = setTimeout(() => reject(new Error(`Tool '${tool.name}' timed out after ${timeoutMs}ms`)), timeoutMs)
       })
-      return Promise.race([tool.execute(params), timeoutPromise])
+      try {
+        return await Promise.race([tool.execute(params), timeoutPromise])
+      } finally {
+        if (timeoutId !== undefined) {
+          clearTimeout(timeoutId)
+        }
+      }
     },
   }
 }
