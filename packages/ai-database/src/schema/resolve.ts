@@ -7,12 +7,7 @@
  * @packageDocumentation
  */
 
-import type {
-  ParsedField,
-  ParsedEntity,
-  ParsedSchema,
-  EntitySchema,
-} from '../types.js'
+import type { ParsedField, ParsedEntity, ParsedSchema, EntitySchema } from '../types.js'
 
 import type { DBProvider, SemanticSearchResult } from './provider.js'
 import { hasSemanticSearch } from './provider.js'
@@ -38,7 +33,11 @@ export function isEntityId(value: string): boolean {
 /**
  * Infer the entity type from a field name using schema relationships
  */
-export function inferTypeFromField(fieldName: string, entity: ParsedEntity, schema: ParsedSchema): string | undefined {
+export function inferTypeFromField(
+  fieldName: string,
+  entity: ParsedEntity,
+  schema: ParsedSchema
+): string | undefined {
   // First check if field is a relation in the current entity
   const field = entity.fields.get(fieldName)
   if (field?.isRelation && field.relatedType) {
@@ -204,8 +203,10 @@ export async function prefetchContext(
  */
 export function isPromptField(field: ParsedField): boolean {
   // Fields with spaces in their type are prompts for AI generation
-  return field.type.includes(' ') ||
+  return (
+    field.type.includes(' ') ||
     (field.type === 'string' && !field.isRelation && !isPrimitiveType(field.type))
+  )
 }
 
 // =============================================================================
@@ -236,7 +237,12 @@ export async function resolveNestedPending(
       // Get the related entity to resolve its nested pending relations too
       const relatedEntity = schema.entities.get(pending.type)
       if (relatedEntity) {
-        const resolvedNested = await resolveNestedPending(pending.data, relatedEntity, schema, provider)
+        const resolvedNested = await resolveNestedPending(
+          pending.data,
+          relatedEntity,
+          schema,
+          provider
+        )
         const created = await provider.create(pending.type, undefined, resolvedNested)
         resolved[fieldName] = created.$id
       }
@@ -267,7 +273,13 @@ export async function resolveReferenceSpec(
     fullContext: string,
     hint: string | undefined,
     parentData: Record<string, unknown>
-  ) => string
+  ) => string,
+  generateEntityWithAI?: (
+    type: string,
+    prompt: string | undefined,
+    context: { parent: string; parentData: Record<string, unknown>; parentId?: string },
+    schema: ParsedSchema
+  ) => Promise<Record<string, unknown>>
 ): Promise<string | null> {
   const targetEntity = schema.entities.get(spec.type)
   if (!targetEntity) {
@@ -278,14 +290,49 @@ export async function resolveReferenceSpec(
     // For fuzzy references, try to find an existing entity first
     if (hasSemanticSearch(provider)) {
       const searchQuery = spec.generatedText || spec.prompt || spec.field
-      const matches: SemanticSearchResult[] = await provider.semanticSearch(spec.type, searchQuery, {
-        minScore: 0.5,
-        limit: 1,
-      })
+      // Use threshold from spec, or default to 0.75
+      const threshold = spec.threshold ?? 0.75
 
-      const firstMatch = matches[0]
-      if (firstMatch) {
-        return firstMatch.$id
+      // Determine which types to search - all union types or just the primary type
+      const typesToSearch =
+        spec.unionTypes && spec.unionTypes.length > 0 ? spec.unionTypes : [spec.type]
+
+      // Search all types and find the best match
+      let bestMatch: SemanticSearchResult | undefined
+      let bestMatchType: string | undefined
+
+      for (const searchType of typesToSearch) {
+        // Only search types that exist in the schema
+        if (!schema.entities.has(searchType)) continue
+
+        const matches: SemanticSearchResult[] = await provider.semanticSearch(
+          searchType,
+          searchQuery,
+          {
+            minScore: threshold,
+            limit: 5,
+          }
+        )
+
+        // Find best match above threshold
+        const firstMatch = matches[0]
+        if (
+          firstMatch &&
+          firstMatch.$score >= threshold &&
+          (!bestMatch || firstMatch.$score > bestMatch.$score)
+        ) {
+          bestMatch = firstMatch
+          bestMatchType = searchType
+        }
+      }
+
+      if (bestMatch && bestMatchType) {
+        // Update the matched entity with metadata
+        await provider.update(bestMatchType, bestMatch.$id, {
+          $matchedType: bestMatchType,
+          $similarity: bestMatch.$score,
+        })
+        return bestMatch.$id
       }
     }
 
@@ -293,51 +340,115 @@ export async function resolveReferenceSpec(
   }
 
   // Create a new entity
-  const generatedData: Record<string, unknown> = {}
-
-  // Build context for generation
+  let generatedData: Record<string, unknown> = {}
   const hint = spec.generatedText || spec.prompt || spec.field
-  const parentContextFields: string[] = []
-  for (const [key, value] of Object.entries(contextData)) {
-    if (!key.startsWith('$') && !key.startsWith('_') && typeof value === 'string' && value) {
-      parentContextFields.push(`${key}: ${value}`)
+  const parentType = contextData.$type as string | undefined
+  const parentId = contextData.$id as string | undefined
+
+  // Try AI generation first if available
+  if (generateEntityWithAI && parentType) {
+    try {
+      const aiData = await generateEntityWithAI(
+        spec.type,
+        hint,
+        { parent: parentType, parentData: contextData, parentId },
+        schema
+      )
+      if (aiData && Object.keys(aiData).length > 0) {
+        // Resolve any nested pending relations (from generateEntity)
+        generatedData = await resolveNestedPending(aiData, targetEntity, schema, provider)
+      }
+    } catch {
+      // Fall through to placeholder generation
     }
   }
-  const fullContext = [hint, ...parentContextFields].filter(Boolean).join(' | ')
 
-  // Generate default values for the target entity's fields
-  for (const [fieldName, field] of targetEntity.fields) {
-    if (!field.isRelation && !field.isOptional) {
-      if (field.type === 'string') {
-        generatedData[fieldName] = generateContextAwareValue(fieldName, spec.type, fullContext, hint, contextData)
-      } else if (field.type === 'number') {
-        generatedData[fieldName] = 0
-      } else if (field.type === 'boolean') {
-        generatedData[fieldName] = false
+  // If AI generation didn't produce data, fall back to placeholder generation
+  if (Object.keys(generatedData).length === 0) {
+    // Build context for generation
+    const parentContextFields: string[] = []
+    for (const [key, value] of Object.entries(contextData)) {
+      if (!key.startsWith('$') && !key.startsWith('_') && typeof value === 'string' && value) {
+        parentContextFields.push(`${key}: ${value}`)
       }
-    } else if (field.isRelation && field.operator === '->' && !field.isArray && !field.isOptional) {
-      // Recursively resolve nested forward exact relations
-      const nestedSpec: ReferenceSpec = {
-        field: fieldName,
-        operator: '->',
-        type: field.relatedType!,
-        matchMode: 'exact',
-        resolved: false,
-        prompt: field.prompt,
-      }
-      const nestedId = await resolveReferenceSpec(nestedSpec, generatedData, schema, provider, generateContextAwareValue)
-      if (nestedId) {
-        generatedData[fieldName] = nestedId
+    }
+
+    // Include source entity's $instructions (parent context) and target entity's $instructions
+    const sourceInstructions = spec.sourceInstructions
+    const targetInstructions = targetEntity.schema?.$instructions as string | undefined
+    const contextParts: string[] = []
+    // Source instructions first (parent context propagation)
+    if (sourceInstructions) {
+      contextParts.push(sourceInstructions)
+    }
+    // Then target instructions (child entity's own context)
+    if (targetInstructions) {
+      contextParts.push(targetInstructions)
+    }
+    if (hint) {
+      contextParts.push(hint)
+    }
+    contextParts.push(...parentContextFields)
+    const fullContext = contextParts.filter(Boolean).join(' | ')
+
+    // Generate default values for the target entity's fields
+    for (const [fieldName, field] of targetEntity.fields) {
+      if (!field.isRelation && !field.isOptional) {
+        // Check if it's a prompt field (type contains spaces, slashes, or question marks)
+        const isPromptField =
+          field.type.includes(' ') || field.type.includes('/') || field.type.includes('?')
+
+        if (field.type === 'string' || isPromptField) {
+          // For prompt fields, use the type as additional context for generation
+          const fieldHint = isPromptField ? field.type : hint
+          generatedData[fieldName] = generateContextAwareValue(
+            fieldName,
+            spec.type,
+            fullContext,
+            fieldHint,
+            contextData
+          )
+        } else if (field.type === 'number') {
+          generatedData[fieldName] = 0
+        } else if (field.type === 'boolean') {
+          generatedData[fieldName] = false
+        }
+      } else if (
+        field.isRelation &&
+        field.operator === '->' &&
+        !field.isArray &&
+        !field.isOptional
+      ) {
+        // Recursively resolve nested forward exact relations
+        const nestedSpec: ReferenceSpec = {
+          field: fieldName,
+          operator: '->',
+          type: field.relatedType!,
+          matchMode: 'exact',
+          resolved: false,
+          prompt: field.prompt,
+        }
+        const nestedId = await resolveReferenceSpec(
+          nestedSpec,
+          generatedData,
+          schema,
+          provider,
+          generateContextAwareValue,
+          generateEntityWithAI
+        )
+        if (nestedId) {
+          generatedData[fieldName] = nestedId
+        }
       }
     }
   }
 
   // Use parent ID if available, otherwise use a descriptive string
-  const parentId = contextData.$id as string | undefined
   const created = await provider.create(spec.type, undefined, {
     ...generatedData,
     $generated: true,
-    $generatedBy: parentId || (spec.matchMode === 'fuzzy' ? 'fuzzy-resolution' : 'reference-resolution'),
+    $generatedBy:
+      parentId || (spec.matchMode === 'fuzzy' ? 'fuzzy-resolution' : 'reference-resolution'),
     $sourceField: spec.field,
   })
   return created.$id as string
@@ -401,9 +512,8 @@ export function hydrateEntity(
       if (!isBackward && !field.isArray && data[fieldName]) {
         const storedId = data[fieldName] as string
         // For union types, we need to check all possible types
-        const typesToSearch = field.unionTypes && field.unionTypes.length > 0
-          ? field.unionTypes
-          : [field.relatedType!]
+        const typesToSearch =
+          field.unionTypes && field.unionTypes.length > 0 ? field.unionTypes : [field.relatedType!]
         // Check if we have a stored matchedType from the creation
         const storedMatchedType = data[`${fieldName}$matchedType`] as string | undefined
 
@@ -420,7 +530,12 @@ export function hydrateEntity(
                     if (result) {
                       const matchedEntity = schema.entities.get(storedMatchedType)
                       if (matchedEntity) {
-                        const hydrated = hydrateEntity(result, matchedEntity, schema, resolveProvider)
+                        const hydrated = hydrateEntity(
+                          result,
+                          matchedEntity,
+                          schema,
+                          resolveProvider
+                        )
                         return { ...hydrated, $matchedType: storedMatchedType }
                       }
                     }
@@ -468,9 +583,8 @@ export function hydrateEntity(
       if (!isBackward && field.isArray && Array.isArray(data[fieldName])) {
         const storedIds = data[fieldName] as string[]
         // For union types, we need to check all possible types
-        const typesToSearch = field.unionTypes && field.unionTypes.length > 0
-          ? field.unionTypes
-          : [field.relatedType!]
+        const typesToSearch =
+          field.unionTypes && field.unionTypes.length > 0 ? field.unionTypes : [field.relatedType!]
 
         // Create a proxy that wraps the array but adds thenable behavior
         const thenableArray = new Proxy(storedIds, {
@@ -489,7 +603,12 @@ export function hydrateEntity(
 
                       const result = await provider.get(searchType, targetId)
                       if (result) {
-                        const hydrated = hydrateEntity(result, searchEntity, schema, resolveProvider)
+                        const hydrated = hydrateEntity(
+                          result,
+                          searchEntity,
+                          schema,
+                          resolveProvider
+                        )
                         // Include $matchedType to indicate which union type matched
                         results.push({ ...hydrated, $matchedType: searchType })
                         break
@@ -536,25 +655,29 @@ export function hydrateEntity(
               if (storedId) {
                 // Has stored ID - directly fetch the related entity
                 const result = await provider.get(field.relatedType!, storedId)
-                return result
-                  ? hydrateEntity(result, relatedEntity, schema, resolveProvider)
-                  : null
+                return result ? hydrateEntity(result, relatedEntity, schema, resolveProvider) : null
               }
 
               // No stored ID - find via inverse relation lookup
               // Find entities of relatedType that have this entity in their relations
               for (const [relFieldName, relField] of relatedEntity.fields) {
-                if (relField.isRelation &&
-                    relField.relatedType === typeName &&
-                    relField.direction !== 'backward' &&
-                    relField.isArray) {
+                if (
+                  relField.isRelation &&
+                  relField.relatedType === typeName &&
+                  relField.direction !== 'backward' &&
+                  relField.isArray
+                ) {
                   // Found a forward array relation on related entity pointing to us
                   // Check if any entity of relatedType has this entity in that relation
                   const allRelated = await provider.list(field.relatedType!)
                   for (const candidate of allRelated) {
                     const candidateId = (candidate.$id || candidate.id) as string
-                    const related = await provider.related(field.relatedType!, candidateId, relFieldName)
-                    if (related.some(r => (r.$id || r.id) === id)) {
+                    const related = await provider.related(
+                      field.relatedType!,
+                      candidateId,
+                      relFieldName
+                    )
+                    if (related.some((r) => (r.$id || r.id) === id)) {
                       return hydrateEntity(candidate, relatedEntity, schema, resolveProvider)
                     }
                   }
@@ -571,9 +694,10 @@ export function hydrateEntity(
             if (isBackward) {
               // Case 2: Array backward ref
               // For union types, we need to check all possible types
-              const typesToSearch = field.unionTypes && field.unionTypes.length > 0
-                ? field.unionTypes
-                : [field.relatedType!]
+              const typesToSearch =
+                field.unionTypes && field.unionTypes.length > 0
+                  ? field.unionTypes
+                  : [field.relatedType!]
 
               // Check if we have stored IDs (e.g., from backward fuzzy resolution)
               const storedIds = data[fieldName] as string[] | undefined
@@ -588,7 +712,12 @@ export function hydrateEntity(
 
                     const result = await provider.get(searchType, targetId)
                     if (result) {
-                      const hydratedEntity = hydrateEntity(result, searchEntity, schema, resolveProvider)
+                      const hydratedEntity = hydrateEntity(
+                        result,
+                        searchEntity,
+                        schema,
+                        resolveProvider
+                      )
                       hydrated.push({ ...hydratedEntity, $matchedType: searchType })
                       break
                     }
@@ -612,10 +741,12 @@ export function hydrateEntity(
                 if (!backrefField) {
                   // Infer backref: look for a field on related entity that points to us
                   for (const [relFieldName, relField] of searchEntity.fields) {
-                    if (relField.isRelation &&
-                        relField.relatedType === typeName &&
-                        relField.direction !== 'backward' &&
-                        !relField.isArray) {
+                    if (
+                      relField.isRelation &&
+                      relField.relatedType === typeName &&
+                      relField.direction !== 'backward' &&
+                      !relField.isArray
+                    ) {
                       // Found a forward single relation pointing to us - use its name
                       backrefField = relFieldName
                       break
@@ -642,11 +773,7 @@ export function hydrateEntity(
               return allResults
             } else if (field.isArray) {
               // Forward array relation - get related entities via relationship
-              const results = await provider.related(
-                entity.name,
-                id,
-                fieldName
-              )
+              const results = await provider.related(entity.name, id, fieldName)
               return Promise.all(
                 results.map((r) => hydrateEntity(r, relatedEntity, schema, resolveProvider))
               )
@@ -655,9 +782,7 @@ export function hydrateEntity(
               const relatedId = data[fieldName] as string | undefined
               if (!relatedId) return null
               const result = await provider.get(field.relatedType!, relatedId)
-              return result
-                ? hydrateEntity(result, relatedEntity, schema, resolveProvider)
-                : null
+              return result ? hydrateEntity(result, relatedEntity, schema, resolveProvider) : null
             }
           })()
         },

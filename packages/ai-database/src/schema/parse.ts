@@ -207,7 +207,18 @@ export function validateFieldType(typeDef: string, fieldName: string, entityName
   // Check for empty type
   if (!typeDef || typeDef.trim().length === 0) {
     throw new SchemaValidationError(
-      `Invalid field type for '${path}': type cannot be empty. Valid types are: ${VALID_PRIMITIVE_TYPES.join(', ')}, or a PascalCase entity reference.`,
+      `Invalid field type for '${path}': type cannot be empty. Valid types are: ${VALID_PRIMITIVE_TYPES.join(
+        ', '
+      )}, or a PascalCase entity reference.`,
+      'INVALID_FIELD_TYPE',
+      path
+    )
+  }
+
+  // Check for null bytes (security: prevents regex bypass attacks)
+  if (typeDef.includes('\x00') || typeDef.includes('\0')) {
+    throw new SchemaValidationError(
+      `Invalid field type for '${path}': type contains null byte characters which are not allowed.`,
       'INVALID_FIELD_TYPE',
       path
     )
@@ -239,8 +250,24 @@ export function validateFieldType(typeDef: string, fieldName: string, entityName
   }
 
   // If it's an operator-based definition, we validate the target type separately
-  if (/^(->|~>|<-|<~)/.test(baseType) || baseType.includes('->') || baseType.includes('~>') || baseType.includes('<-') || baseType.includes('<~')) {
+  if (
+    /^(->|~>|<-|<~)/.test(baseType) ||
+    baseType.includes('->') ||
+    baseType.includes('~>') ||
+    baseType.includes('<-') ||
+    baseType.includes('<~')
+  ) {
     // This will be validated in parseOperator
+    return
+  }
+
+  // If it's a prompt field, treat it as a string field that will be AI-generated
+  // Prompt fields can be identified by:
+  // - Contains spaces: 'Describe the product', 'What are their main challenges?'
+  // - Contains slashes (enum hints): 'low/medium/high', 'beginner/intermediate/expert'
+  // - Contains question marks: 'What is the price?'
+  if (baseType.includes(' ') || baseType.includes('/') || baseType.includes('?')) {
+    // Prompt fields are valid - they're treated as string fields with AI generation
     return
   }
 
@@ -270,11 +297,20 @@ export function validateFieldType(typeDef: string, fieldName: string, entityName
   // Check for invalid SQL types
   const sqlTypes = ['int', 'varchar', 'text', 'blob', 'integer', 'real', 'float', 'double']
   if (sqlTypes.includes(baseType.toLowerCase())) {
-    const suggestion = baseType.toLowerCase() === 'int' || baseType.toLowerCase() === 'integer' ? 'number' :
-                       baseType.toLowerCase() === 'text' || baseType.toLowerCase() === 'varchar' ? 'string' :
-                       baseType.toLowerCase() === 'real' || baseType.toLowerCase() === 'float' || baseType.toLowerCase() === 'double' ? 'number' : 'string'
+    const suggestion =
+      baseType.toLowerCase() === 'int' || baseType.toLowerCase() === 'integer'
+        ? 'number'
+        : baseType.toLowerCase() === 'text' || baseType.toLowerCase() === 'varchar'
+        ? 'string'
+        : baseType.toLowerCase() === 'real' ||
+          baseType.toLowerCase() === 'float' ||
+          baseType.toLowerCase() === 'double'
+        ? 'number'
+        : 'string'
     throw new SchemaValidationError(
-      `Invalid field type '${baseType}' for '${path}': SQL types are not supported. Did you mean '${suggestion}'? Valid types are: ${VALID_PRIMITIVE_TYPES.join(', ')}.`,
+      `Invalid field type '${baseType}' for '${path}': SQL types are not supported. Did you mean '${suggestion}'? Valid types are: ${VALID_PRIMITIVE_TYPES.join(
+        ', '
+      )}.`,
       'INVALID_FIELD_TYPE',
       path
     )
@@ -284,7 +320,9 @@ export function validateFieldType(typeDef: string, fieldName: string, entityName
   const jsTypes = ['object', 'array', 'function', 'symbol', 'bigint', 'undefined', 'null']
   if (jsTypes.includes(baseType.toLowerCase())) {
     throw new SchemaValidationError(
-      `Invalid field type '${baseType}' for '${path}': JavaScript types are not supported. Valid types are: ${VALID_PRIMITIVE_TYPES.join(', ')}.`,
+      `Invalid field type '${baseType}' for '${path}': JavaScript types are not supported. Valid types are: ${VALID_PRIMITIVE_TYPES.join(
+        ', '
+      )}.`,
       'INVALID_FIELD_TYPE',
       path
     )
@@ -296,7 +334,9 @@ export function validateFieldType(typeDef: string, fieldName: string, entityName
 
   if (!isPrimitive && !isPascalCase) {
     throw new SchemaValidationError(
-      `Invalid field type '${baseType}' for '${path}': unknown type. Valid types are: ${VALID_PRIMITIVE_TYPES.join(', ')}, or a PascalCase entity reference.`,
+      `Invalid field type '${baseType}' for '${path}': unknown type. Valid types are: ${VALID_PRIMITIVE_TYPES.join(
+        ', '
+      )}, or a PascalCase entity reference.`,
       'INVALID_FIELD_TYPE',
       path
     )
@@ -311,7 +351,11 @@ export function validateFieldType(typeDef: string, fieldName: string, entityName
  * @param entityName - The entity name (for error messages)
  * @throws SchemaValidationError if the array syntax is invalid
  */
-export function validateArrayDefinition(definition: unknown[], fieldName: string, entityName: string): void {
+export function validateArrayDefinition(
+  definition: unknown[],
+  fieldName: string,
+  entityName: string
+): void {
   const path = `${entityName}.${fieldName}`
 
   // Check for empty array
@@ -359,7 +403,11 @@ export function validateArrayDefinition(definition: unknown[], fieldName: string
  * @param fieldName - The field name (for error messages)
  * @throws SchemaValidationError if the target type is invalid
  */
-export function validateOperatorTarget(targetType: string, operator: string, fieldName: string): void {
+export function validateOperatorTarget(
+  targetType: string,
+  operator: string,
+  fieldName: string
+): void {
   // Check for empty target type
   if (!targetType || targetType.trim().length === 0) {
     throw new SchemaValidationError(
@@ -416,10 +464,10 @@ export function validateOperatorTarget(targetType: string, operator: string, fie
 
   // Handle union types
   if (baseType.includes('|')) {
-    const unionTypes = baseType.split('|').map(t => t.trim())
+    const unionTypes = baseType.split('|').map((t) => t.trim())
 
     // Check for empty union members
-    if (unionTypes.some(t => !t)) {
+    if (unionTypes.some((t) => !t)) {
       throw new SchemaValidationError(
         `Invalid union type '${targetType}' for field '${fieldName}': empty union members are not allowed.`,
         'INVALID_OPERATOR',
@@ -627,7 +675,10 @@ export function parseOperator(definition: string): OperatorParseResult | null {
       // Check for union types
       let unionTypes: string[] | undefined
       if (cleanType.includes('|')) {
-        unionTypes = cleanType.split('|').map(t => t.trim()).filter(Boolean)
+        unionTypes = cleanType
+          .split('|')
+          .map((t) => t.trim())
+          .filter(Boolean)
         // The primary targetType is the first union type
         // But we keep targetType as the full string for backward compatibility
         // with modifier parsing in parseField
@@ -771,7 +822,10 @@ export function parseField(name: string, definition: FieldDefinition): ParsedFie
   }
 
   // Check for optional modifier
-  if (type.endsWith('?')) {
+  // Only treat ? as optional if it doesn't look like a prompt
+  // Prompts contain spaces (e.g., 'What are their challenges?')
+  // Type definitions don't have spaces (e.g., 'string?', 'Audience?')
+  if (type.endsWith('?') && !type.includes(' ')) {
     isOptional = true
     type = type.slice(0, -1)
   }
@@ -792,7 +846,7 @@ export function parseField(name: string, definition: FieldDefinition): ParsedFie
   } else if (
     type[0] === type[0]?.toUpperCase() &&
     !isPrimitiveType(type) &&
-    !type.includes(' ')  // Type names don't have spaces - strings with spaces are prompts/descriptions
+    !type.includes(' ') // Type names don't have spaces - strings with spaces are prompts/descriptions
   ) {
     // PascalCase non-primitive = relation without explicit backref
     isRelation = true
@@ -957,7 +1011,7 @@ export function parseSchema(schema: DatabaseSchema): ParsedSchema {
         // But only if at least one union type exists in the schema
         // (allows "external" types when none are defined)
         if (field.unionTypes && field.unionTypes.length > 0) {
-          const existingTypes = field.unionTypes.filter(t => entities.has(t))
+          const existingTypes = field.unionTypes.filter((t) => entities.has(t))
           // Validate all union types exist - throw if any non-existent type is found
           if (existingTypes.length > 0) {
             for (const unionType of field.unionTypes) {
@@ -973,8 +1027,8 @@ export function parseSchema(schema: DatabaseSchema): ParsedSchema {
             const missingTypes = field.unionTypes.join('|')
             console.warn(
               `Warning: ${entityName}.${fieldName} union type '${missingTypes}' - ` +
-              `none of the specified types exist in the schema. ` +
-              `Ensure all union types are defined.`
+                `none of the specified types exist in the schema. ` +
+                `Ensure all union types are defined.`
             )
           }
         } else {

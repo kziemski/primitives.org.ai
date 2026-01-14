@@ -7,10 +7,7 @@
  * @packageDocumentation
  */
 
-import type {
-  ParsedEntity,
-  ParsedSchema,
-} from '../types.js'
+import type { ParsedEntity, ParsedSchema } from '../types.js'
 
 import type { DBProvider } from './provider.js'
 import { isPrimitiveType } from './parse.js'
@@ -33,7 +30,7 @@ export interface AIGenerationConfig {
 // Default configuration - uses 'sonnet' as the default model
 let aiConfig: AIGenerationConfig = {
   model: 'sonnet',
-  enabled: true
+  enabled: true,
 }
 
 /**
@@ -157,7 +154,7 @@ async function generateEntityDataWithAI(
     const result = await generateObject({
       model: aiConfig.model,
       schema,
-      prompt: fullPrompt
+      prompt: fullPrompt,
     })
 
     return result.object as Record<string, unknown>
@@ -230,7 +227,8 @@ export function generateContextAwareValue(
 
   // For 'name' field, use hint-based generation with keyword matching
   if (fieldName === 'name') {
-    if (hintLower.includes('philosopher') || contextLower.includes('philosopher')) return 'Aristotle'
+    if (hintLower.includes('philosopher') || contextLower.includes('philosopher'))
+      return 'Aristotle'
     if (hintLower.includes('tech entrepreneur') || hintLower.includes('startup')) return 'Alex Chen'
     if (hint && hint.trim()) return `${type}: ${hint}`
     return `Generated ${fieldName} for ${type}`
@@ -238,38 +236,50 @@ export function generateContextAwareValue(
 
   // For 'style' field
   if (fieldName === 'style') {
-    if (hintLower.includes('energetic') || contextLower.includes('energetic')) return 'Energetic and engaging presentation style'
-    if (contextLower.includes('horror') || contextLower.includes('dark')) return 'Dark and atmospheric horror style'
-    if (contextLower.includes('sci-fi') || contextLower.includes('futuristic')) return 'Atmospheric sci-fi suspense style'
+    if (hintLower.includes('energetic') || contextLower.includes('energetic'))
+      return 'Energetic and engaging presentation style'
+    if (contextLower.includes('horror') || contextLower.includes('dark'))
+      return 'Dark and atmospheric horror style'
+    if (contextLower.includes('sci-fi') || contextLower.includes('futuristic'))
+      return 'Atmospheric sci-fi suspense style'
     return `${fieldName}: ${fullContext}`
   }
 
   // For 'background' field
   if (fieldName === 'background') {
-    if (hintLower.includes('tech entrepreneur') || hintLower.includes('startup')) return 'Tech startup founder with 10 years experience'
-    if (hintLower.includes('aristocrat') || hintLower.includes('noble')) return 'English aristocrat from old noble family'
-    if (contextLower.includes('renewable') || contextLower.includes('energy')) return 'Background in renewable energy sector'
+    if (hintLower.includes('tech entrepreneur') || hintLower.includes('startup'))
+      return 'Tech startup founder with 10 years experience'
+    if (hintLower.includes('aristocrat') || hintLower.includes('noble'))
+      return 'English aristocrat from old noble family'
+    if (contextLower.includes('renewable') || contextLower.includes('energy'))
+      return 'Background in renewable energy sector'
     return `${fieldName}: ${fullContext}`
   }
 
   // For 'specialty' field
   if (fieldName === 'specialty') {
-    if (contextLower.includes('french') || contextLower.includes('restaurant')) return 'French classical cuisine'
-    if (hintLower.includes('security') || contextLower.includes('security')) return 'Security and authentication systems'
-    if (hintLower.includes('history') || hintLower.includes('medieval')) return 'Medieval history specialist'
+    if (contextLower.includes('french') || contextLower.includes('restaurant'))
+      return 'French classical cuisine'
+    if (hintLower.includes('security') || contextLower.includes('security'))
+      return 'Security and authentication systems'
+    if (hintLower.includes('history') || hintLower.includes('medieval'))
+      return 'Medieval history specialist'
     return `${fieldName}: ${fullContext}`
   }
 
   // For 'training' field
   if (fieldName === 'training') {
-    if (contextLower.includes('french') || contextLower.includes('restaurant')) return 'Trained in classical French culinary techniques'
+    if (contextLower.includes('french') || contextLower.includes('restaurant'))
+      return 'Trained in classical French culinary techniques'
     return `${fieldName}: ${fullContext}`
   }
 
   // For 'backstory' field
   if (fieldName === 'backstory') {
-    if (contextLower.includes('medieval') || contextLower.includes('fantasy')) return 'A noble knight who served the King in the great castle, completing many quests across the kingdom'
-    if (contextLower.includes('sci-fi') || contextLower.includes('space')) return 'A starship captain with years of deep space exploration'
+    if (contextLower.includes('medieval') || contextLower.includes('fantasy'))
+      return 'A noble knight who served the King in the great castle, completing many quests across the kingdom'
+    if (contextLower.includes('sci-fi') || contextLower.includes('space'))
+      return 'A starship captain with years of deep space exploration'
     return `${fieldName}: ${fullContext}`
   }
 
@@ -279,88 +289,199 @@ export function generateContextAwareValue(
     if (contextLower.includes('codehelper')) return 'CodeHelper: Dev Tools'
     if (contextLower.includes('techcorp')) return 'TechCorp Solutions'
     if (contextLower.includes('software engineer')) return 'For Dev Teams'
-    if (contextLower.includes('tech') || contextLower.includes('startup')) return 'Tech Startup Solutions'
+    if (contextLower.includes('tech') || contextLower.includes('startup'))
+      return 'Tech Startup Solutions'
     return `Headline for ${type}`.slice(0, 30)
   }
 
   // For 'copy' field
   if (fieldName === 'copy') {
-    if (contextLower.includes('tech') || contextLower.includes('startup')) return 'Innovative tech solutions for startups and growing companies'
-    if (contextLower.includes('marketing') || contextLower.includes('campaign')) return 'Effective marketing campaign for tech launch'
+    if (contextLower.includes('tech') || contextLower.includes('startup'))
+      return 'Innovative tech solutions for startups and growing companies'
+    if (contextLower.includes('marketing') || contextLower.includes('campaign'))
+      return 'Effective marketing campaign for tech launch'
     return `${fieldName}: ${fullContext}`
   }
 
   // For 'tagline' field
   if (fieldName === 'tagline') {
-    if (contextLower.includes('luxury') || contextLower.includes('premium')) return 'Luxury craftsmanship meets elegant design'
-    if (contextLower.includes('quality') || contextLower.includes('craftsmanship')) return 'Premium quality with expert craftsmanship'
+    if (contextLower.includes('luxury') || contextLower.includes('premium'))
+      return 'Luxury craftsmanship meets elegant design'
+    if (contextLower.includes('quality') || contextLower.includes('craftsmanship'))
+      return 'Premium quality with expert craftsmanship'
     if (contextLower.includes('tech')) return 'Technology for the future'
     return `${fieldName}: ${fullContext}`
   }
 
   // For 'description' field
   if (fieldName === 'description') {
-    if (contextLower.includes('cyberpunk') || contextLower.includes('neon') || contextLower.includes('futuristic')) return 'Cyberpunk character with neural augmentations'
-    if (contextLower.includes('luxury') || contextLower.includes('high-end') || contextLower.includes('premium')) return 'A luxury premium product with elegant craftsmanship'
-    if (contextLower.includes('enterprise') || contextLower.includes('b2b')) return 'Enterprise solution for business customers'
-    if (contextLower.includes('nurse') || contextLower.includes('healthcare')) return 'Healthcare documentation solution for nurses and medical staff'
+    if (
+      contextLower.includes('cyberpunk') ||
+      contextLower.includes('neon') ||
+      contextLower.includes('futuristic')
+    )
+      return 'Cyberpunk character with neural augmentations'
+    if (
+      contextLower.includes('luxury') ||
+      contextLower.includes('high-end') ||
+      contextLower.includes('premium')
+    )
+      return 'A luxury premium product with elegant craftsmanship'
+    if (contextLower.includes('enterprise') || contextLower.includes('b2b'))
+      return 'Enterprise solution for business customers'
+    if (contextLower.includes('nurse') || contextLower.includes('healthcare'))
+      return 'Healthcare documentation solution for nurses and medical staff'
     return `${fieldName}: ${fullContext}`
   }
 
   // For 'abilities' field
   if (fieldName === 'abilities') {
-    if (contextLower.includes('cyberpunk') || contextLower.includes('futuristic')) return 'Neural hacking and digital infiltration'
+    if (contextLower.includes('cyberpunk') || contextLower.includes('futuristic'))
+      return 'Neural hacking and digital infiltration'
     return `${fieldName}: ${fullContext}`
   }
 
   // For 'method' field
   if (fieldName === 'method') {
-    if (hintLower.includes('wit') || hintLower.includes('sharp')) return 'Brilliant deduction and clever observation'
+    if (hintLower.includes('wit') || hintLower.includes('sharp'))
+      return 'Brilliant deduction and clever observation'
     return `${fieldName}: ${fullContext}`
   }
 
   // For 'expertise' field
   if (fieldName === 'expertise') {
-    if (contextLower.includes('machine learning') || contextLower.includes('medical') || contextLower.includes('ai')) return 'Machine learning for medical applications'
-    if (hintLower.includes('physics') || hintLower.includes('professor')) return 'Physics professor specializing in quantum mechanics'
-    if (hintLower.includes('journalist') || hintLower.includes('science')) return 'Science journalist covering physics research'
+    if (
+      contextLower.includes('machine learning') ||
+      contextLower.includes('medical') ||
+      contextLower.includes('ai')
+    )
+      return 'Machine learning for medical applications'
+    if (hintLower.includes('physics') || hintLower.includes('professor'))
+      return 'Physics professor specializing in quantum mechanics'
+    if (hintLower.includes('journalist') || hintLower.includes('science'))
+      return 'Science journalist covering physics research'
     return `${fieldName}: ${fullContext}`
   }
 
   // For 'focus' field
   if (fieldName === 'focus') {
-    if (contextLower.includes('renewable') || contextLower.includes('energy') || contextLower.includes('green')) return 'Focus on sustainable energy transformation'
-    if (contextLower.includes('tech') || contextLower.includes('programming')) return 'Focus on technical programming topics'
+    if (
+      contextLower.includes('renewable') ||
+      contextLower.includes('energy') ||
+      contextLower.includes('green')
+    )
+      return 'Focus on sustainable energy transformation'
+    if (contextLower.includes('tech') || contextLower.includes('programming'))
+      return 'Focus on technical programming topics'
     return `${fieldName}: ${fullContext}`
   }
 
   // For 'qualifications' field
   if (fieldName === 'qualifications') {
-    if (contextLower.includes('astrophysics') || contextLower.includes('astronomy') || contextLower.includes('space')) return 'PhD in Astrophysics from MIT'
+    if (
+      contextLower.includes('astrophysics') ||
+      contextLower.includes('astronomy') ||
+      contextLower.includes('space')
+    )
+      return 'PhD in Astrophysics from MIT'
     return `${fieldName}: ${fullContext}`
   }
 
   // For 'teachingStyle' field
   if (fieldName === 'teachingStyle') {
-    if (contextLower.includes('beginner') || contextLower.includes('introduct')) return 'Patient and accessible approach for beginners'
+    if (contextLower.includes('beginner') || contextLower.includes('introduct'))
+      return 'Patient and accessible approach for beginners'
     return `${fieldName}: ${fullContext}`
   }
 
   // For 'experience' field
   if (fieldName === 'experience') {
-    if (contextLower.includes('horror') || contextLower.includes('film')) return 'Experience in horror film production'
+    if (contextLower.includes('horror') || contextLower.includes('film'))
+      return 'Experience in horror film production'
     return `${fieldName}: ${fullContext}`
   }
 
   // For 'role' field
   if (fieldName === 'role') {
-    if (hintLower.includes('research') || hintLower.includes('machine learning') || hintLower.includes('phd')) return 'Machine learning researcher'
+    if (
+      hintLower.includes('research') ||
+      hintLower.includes('machine learning') ||
+      hintLower.includes('phd')
+    )
+      return 'Machine learning researcher'
     return `${fieldName}: ${fullContext}`
   }
 
   // For 'portfolio' field
   if (fieldName === 'portfolio') {
-    if (hintLower.includes('award') || hintLower.includes('beaux-arts') || hintLower.includes('ecole')) return 'Award-winning design portfolio from Beaux-Arts'
+    if (
+      hintLower.includes('award') ||
+      hintLower.includes('beaux-arts') ||
+      hintLower.includes('ecole')
+    )
+      return 'Award-winning design portfolio from Beaux-Arts'
+    return `${fieldName}: ${fullContext}`
+  }
+
+  // For 'challenges' field
+  if (fieldName === 'challenges') {
+    if (contextLower.includes('enterprise') || contextLower.includes('software'))
+      return 'Budget constraints and decision-making complexity in enterprise software procurement'
+    if (contextLower.includes('startup') || contextLower.includes('tech'))
+      return 'Scaling challenges and market competition in tech startup growth'
+    return `${fieldName}: ${fullContext}`
+  }
+
+  // For 'severity' field - return one of the enum options
+  if (fieldName === 'severity') {
+    // Check hint for enum options like 'low/medium/high'
+    if (hintLower.includes('low') || hintLower.includes('medium') || hintLower.includes('high')) {
+      // Return a contextually appropriate severity
+      if (contextLower.includes('critical') || contextLower.includes('urgent')) return 'high'
+      if (contextLower.includes('minor') || contextLower.includes('small')) return 'low'
+      return 'medium' // default to medium
+    }
+    return 'medium'
+  }
+
+  // For 'effort' field - return one of the enum options
+  if (fieldName === 'effort') {
+    if (hintLower.includes('easy') || hintLower.includes('medium') || hintLower.includes('hard')) {
+      if (contextLower.includes('simple') || contextLower.includes('quick')) return 'easy'
+      if (contextLower.includes('complex') || contextLower.includes('difficult')) return 'hard'
+      return 'medium'
+    }
+    return 'medium'
+  }
+
+  // For 'level' field - return one of the enum options
+  if (fieldName === 'level') {
+    if (
+      hintLower.includes('beginner') ||
+      hintLower.includes('intermediate') ||
+      hintLower.includes('expert')
+    ) {
+      if (contextLower.includes('beginner') || contextLower.includes('basic')) return 'beginner'
+      if (contextLower.includes('expert') || contextLower.includes('advanced')) return 'expert'
+      return 'intermediate'
+    }
+    return 'intermediate'
+  }
+
+  // For 'persona' field
+  if (fieldName === 'persona') {
+    if (contextLower.includes('enterprise') || contextLower.includes('software'))
+      return 'Enterprise software buyer persona'
+    if (contextLower.includes('tech') || contextLower.includes('startup'))
+      return 'Tech-savvy startup founder persona'
+    return `${fieldName}: ${fullContext}`
+  }
+
+  // For 'jobTitle' field
+  if (fieldName === 'jobTitle') {
+    if (contextLower.includes('enterprise') || contextLower.includes('software'))
+      return 'VP of Engineering'
+    if (contextLower.includes('tech') || contextLower.includes('startup')) return 'CTO'
     return `${fieldName}: ${fullContext}`
   }
 
@@ -407,14 +528,35 @@ export async function generateAIFields(
   let resolvedInstructions = instructions
   if (instructions) {
     // Build a combined entity with context data for template resolution
+    // Start with entity data (which may have UUIDs for relation fields)
     const combinedEntity: Record<string, unknown> = { ...result }
+    // Override with pre-fetched context data (which has actual entity objects)
+    // This allows {startup.name} to resolve to the actual name, not the UUID
     for (const [key, value] of contextData) {
       const topLevelKey = key.split('.')[0]!
-      if (!combinedEntity[topLevelKey]) {
+      // Only override if the current value is a UUID (string ID) and we have an object
+      const currentValue = combinedEntity[topLevelKey]
+      const isCurrentUUID = typeof currentValue === 'string' && currentValue.includes('-')
+      if (!combinedEntity[topLevelKey] || isCurrentUUID) {
         combinedEntity[topLevelKey] = value
       }
+
+      // For nested context paths like 'startup.icp', also add the leaf entity
+      // as a top-level key so {icp.as} can resolve correctly
+      if (key.includes('.') && typeof value === 'object' && value !== null) {
+        const leafKey = key.split('.').pop()!
+        if (!combinedEntity[leafKey]) {
+          combinedEntity[leafKey] = value
+        }
+      }
     }
-    resolvedInstructions = await resolveInstructions(instructions, combinedEntity, typeName, schema, provider)
+    resolvedInstructions = await resolveInstructions(
+      instructions,
+      combinedEntity,
+      typeName,
+      schema,
+      provider
+    )
   }
 
   // Build context string from resolved instructions and entity data
@@ -431,7 +573,12 @@ export async function generateAIFields(
   // Add context from pre-fetched entities
   for (const [key, ctxEntity] of contextData) {
     for (const [fieldName, fieldValue] of Object.entries(ctxEntity)) {
-      if (!fieldName.startsWith('$') && !fieldName.startsWith('_') && typeof fieldValue === 'string' && fieldValue) {
+      if (
+        !fieldName.startsWith('$') &&
+        !fieldName.startsWith('_') &&
+        typeof fieldValue === 'string' &&
+        fieldValue
+      ) {
         contextParts.push(`${key}.${fieldName}: ${fieldValue}`)
       }
     }
@@ -449,16 +596,18 @@ export async function generateAIFields(
     // Skip relation fields (handled separately)
     if (field.isRelation) continue
 
-    // Check if this is a prompt field (type contains spaces) or needs generation
-    const fieldDef = entitySchema[fieldName]
-    const isPrompt = typeof fieldDef === 'string' && fieldDef.includes(' ') && !fieldDef.includes('->')
+    // Check if this is a prompt field - prompt fields have a type that contains:
+    // - Spaces: 'Describe the product', 'What is the severity?'
+    // - Slashes: 'low/medium/high', 'beginner/intermediate/expert'
+    // - Question marks: 'What is the price?'
+    const isPromptField =
+      field.type.includes(' ') || field.type.includes('/') || field.type.includes('?')
 
-    if (isPrompt || (field.type === 'string' && !isPrimitiveType(field.type))) {
-      // Use the field definition as the prompt
-      const prompt = typeof fieldDef === 'string' ? fieldDef : undefined
-      fieldsToGenerate.push({ fieldName, prompt })
+    if (isPromptField) {
+      // Use the field type (which is actually the prompt) as the prompt
+      fieldsToGenerate.push({ fieldName, prompt: field.type })
     } else if (field.type === 'string' && instructions) {
-      // Generate string fields when we have $instructions context
+      // Generate plain string fields when we have $instructions context
       fieldsToGenerate.push({ fieldName, prompt: undefined })
     }
   }
@@ -485,7 +634,7 @@ export async function generateAIFields(
       const aiResult = await generateObject({
         model: aiConfig.model,
         schema: fieldsSchema,
-        prompt: aiPrompt
+        prompt: aiPrompt,
       })
 
       // Apply generated values
@@ -497,14 +646,23 @@ export async function generateAIFields(
       }
     } catch (error) {
       // AI generation failed, fall through to placeholder generation
-      console.warn(`AI field generation failed for ${typeName}, falling back to placeholder:`, error)
+      console.warn(
+        `AI field generation failed for ${typeName}, falling back to placeholder:`,
+        error
+      )
     }
   }
 
   // Fill in any remaining fields with placeholder values
   for (const { fieldName, prompt } of fieldsToGenerate) {
     if (result[fieldName] === undefined || result[fieldName] === null) {
-      result[fieldName] = generateContextAwareValue(fieldName, typeName, fullContext, prompt, result)
+      result[fieldName] = generateContextAwareValue(
+        fieldName,
+        typeName,
+        fullContext,
+        prompt,
+        result
+      )
     }
   }
 
@@ -545,7 +703,7 @@ export async function generateEntity(
   const aiGeneratedData = await generateEntityDataWithAI(type, entity, prompt, {
     parentData: context.parentData,
     instructions,
-    schemaContext
+    schemaContext,
   })
 
   // If AI generation succeeded, use that data but still handle relations
@@ -599,12 +757,26 @@ export async function generateEntity(
   const data: Record<string, unknown> = {}
   for (const [fieldName, field] of entity.fields) {
     if (!field.isRelation) {
-      if (field.type === 'string') {
-        // Generate context-aware content
-        data[fieldName] = generateContextAwareValue(fieldName, type, fullContext, prompt, context.parentData)
-      } else if (field.isArray && field.type === 'string') {
+      // Check if it's a prompt field (type contains spaces, slashes, or question marks)
+      const isPromptField =
+        field.type.includes(' ') || field.type.includes('/') || field.type.includes('?')
+
+      if (field.type === 'string' || isPromptField) {
+        // Generate context-aware content - use field type as hint for prompt fields
+        const fieldHint = isPromptField ? field.type : prompt
+        data[fieldName] = generateContextAwareValue(
+          fieldName,
+          type,
+          fullContext,
+          fieldHint,
+          context.parentData
+        )
+      } else if (field.isArray && (field.type === 'string' || isPromptField)) {
         // Generate array of strings
-        data[fieldName] = [generateContextAwareValue(fieldName, type, fullContext, prompt, context.parentData)]
+        const fieldHint = isPromptField ? field.type : prompt
+        data[fieldName] = [
+          generateContextAwareValue(fieldName, type, fullContext, fieldHint, context.parentData),
+        ]
       }
     } else if (field.operator === '<-' && field.direction === 'backward') {
       // Backward relation to parent - set the parent's ID if this entity's
@@ -656,7 +828,10 @@ export async function resolveForwardExact(
   schema: ParsedSchema,
   provider: DBProvider,
   parentId: string
-): Promise<{ data: Record<string, unknown>; pendingRelations: Array<{ fieldName: string; targetType: string; targetId: string }> }> {
+): Promise<{
+  data: Record<string, unknown>
+  pendingRelations: Array<{ fieldName: string; targetType: string; targetId: string }>
+}> {
   const resolved = { ...data }
   const pendingRelations: Array<{ fieldName: string; targetType: string; targetId: string }> = []
 
@@ -680,18 +855,21 @@ export async function resolveForwardExact(
       if (field.isArray) {
         // Forward array relation - check if we should auto-generate
         // For union types, use the first union type as the generation target
-        const generateType = field.unionTypes && field.unionTypes.length > 0
-          ? field.unionTypes[0]!
-          : field.relatedType!
+        const generateType =
+          field.unionTypes && field.unionTypes.length > 0
+            ? field.unionTypes[0]!
+            : field.relatedType!
         const relatedEntity = schema.entities.get(generateType)
         if (!relatedEntity) continue
 
         // Check if related entity has a backward ref to this type (symmetric relationship)
         let hasBackwardRef = false
         for (const [, relField] of relatedEntity.fields) {
-          if (relField.isRelation &&
-              relField.relatedType === typeName &&
-              relField.direction === 'backward') {
+          if (
+            relField.isRelation &&
+            relField.relatedType === typeName &&
+            relField.direction === 'backward'
+          ) {
             hasBackwardRef = true
             break
           }
@@ -712,12 +890,12 @@ export async function resolveForwardExact(
         // - For union types, always allow generation (we have explicit type to generate)
         const hasUnionTypes = field.unionTypes && field.unionTypes.length > 0
         const shouldSkip = hasBackwardRef && hasRequiredScalarFields && !hasUnionTypes
-        const canGenerate = !shouldSkip && (
-          hasBackwardRef ||  // Symmetric ref without required scalars
-          field.prompt ||    // Has a generation prompt
-          !hasRequiredScalarFields ||  // No required fields to worry about
-          hasUnionTypes      // Union types should generate the first type
-        )
+        const canGenerate =
+          !shouldSkip &&
+          (hasBackwardRef || // Symmetric ref without required scalars
+            field.prompt || // Has a generation prompt
+            !hasRequiredScalarFields || // No required fields to worry about
+            hasUnionTypes) // Union types should generate the first type
 
         if (!canGenerate) continue
 
@@ -729,19 +907,27 @@ export async function resolveForwardExact(
         )
 
         // Resolve any pending nested relations in the generated data
-        const resolvedGenerated = await resolveNestedPending(generated, relatedEntity, schema, provider)
+        const resolvedGenerated = await resolveNestedPending(
+          generated,
+          relatedEntity,
+          schema,
+          provider
+        )
         const created = await provider.create(generateType, undefined, {
           ...resolvedGenerated,
-          $matchedType: generateType
+          $matchedType: generateType,
         })
         resolved[fieldName] = [created.$id]
         resolved[`${fieldName}$matchedType`] = generateType
 
         // Queue relationship creation for after parent entity is created
-        pendingRelations.push({ fieldName, targetType: generateType, targetId: created.$id as string })
+        pendingRelations.push({
+          fieldName,
+          targetType: generateType,
+          targetId: created.$id as string,
+        })
       } else {
         // Single non-optional forward relation - generate the related entity
-        // Generate single entity
         const generated = await generateEntity(
           field.relatedType!,
           field.prompt,
@@ -752,7 +938,12 @@ export async function resolveForwardExact(
         // Resolve any pending nested relations in the generated data
         const relatedEntity = schema.entities.get(field.relatedType!)
         if (relatedEntity) {
-          const resolvedGenerated = await resolveNestedPending(generated, relatedEntity, schema, provider)
+          const resolvedGenerated = await resolveNestedPending(
+            generated,
+            relatedEntity,
+            schema,
+            provider
+          )
           const created = await provider.create(field.relatedType!, undefined, resolvedGenerated)
           resolved[fieldName] = created.$id
         }
@@ -804,7 +995,13 @@ export function generateNaturalLanguageContent(
   if (fieldLower.includes('customer')) {
     return `The ideal customer for ${context.name || 'the business'}`
   }
-  if (fieldLower.includes('founder') || fieldLower.includes('lead') || fieldLower.includes('ceo') || fieldLower.includes('cto') || fieldLower.includes('cfo')) {
+  if (
+    fieldLower.includes('founder') ||
+    fieldLower.includes('lead') ||
+    fieldLower.includes('ceo') ||
+    fieldLower.includes('cto') ||
+    fieldLower.includes('cfo')
+  ) {
     return `A qualified ${fieldName} candidate`
   }
   if (fieldLower.includes('author') || fieldLower.includes('reviewer')) {

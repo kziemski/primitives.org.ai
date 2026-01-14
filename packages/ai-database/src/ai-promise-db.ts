@@ -239,7 +239,9 @@ export interface ForEachOptions<T = unknown> {
   /**
    * Error handling: 'continue' | 'retry' | 'skip' | 'stop' (default: 'continue')
    */
-  onError?: ForEachErrorAction | ((error: Error, item: T, attempt: number) => ForEachErrorAction | Promise<ForEachErrorAction>)
+  onError?:
+    | ForEachErrorAction
+    | ((error: Error, item: T, attempt: number) => ForEachErrorAction | Promise<ForEachErrorAction>)
 
   /**
    * Called when an item completes
@@ -433,7 +435,9 @@ export class DBPromise<T> implements PromiseLike<T> {
         // Phase 3: Re-run callback with enriched items that have loaded relations
         const enrichedItems: Record<string, unknown>[] = []
         for (let i = 0; i < items.length; i++) {
-          enrichedItems.push(enrichItemWithLoadedRelations(items[i] as Record<string, unknown>, loadedRelations))
+          enrichedItems.push(
+            enrichItemWithLoadedRelations(items[i] as Record<string, unknown>, loadedRelations)
+          )
         }
 
         // Execute callback again with enriched data
@@ -451,9 +455,7 @@ export class DBPromise<T> implements PromiseLike<T> {
   /**
    * Filter results
    */
-  filter(
-    predicate: (item: T extends (infer I)[] ? I : T, index: number) => boolean
-  ): DBPromise<T> {
+  filter(predicate: (item: T extends (infer I)[] ? I : T, index: number) => boolean): DBPromise<T> {
     const parentPromise = this
 
     return new DBPromise<T>({
@@ -597,11 +599,14 @@ export class DBPromise<T> implements PromiseLike<T> {
     // Initialize persistence if enabled
     if (persist || resume) {
       if (!actionsAPI) {
-        throw new Error('Persistence requires actions API - use db.Entity.forEach instead of db.Entity.list().forEach')
+        throw new Error(
+          'Persistence requires actions API - use db.Entity.forEach instead of db.Entity.list().forEach'
+        )
       }
 
       // Auto-generate action type from entity name
-      const actionType = typeof persist === 'string' ? persist : `${this._options.type ?? 'unknown'}.forEach`
+      const actionType =
+        typeof persist === 'string' ? persist : `${this._options.type ?? 'unknown'}.forEach`
 
       if (resume) {
         // Resume from existing action
@@ -727,7 +732,6 @@ export class DBPromise<T> implements PromiseLike<T> {
           await onComplete?.(asItem(item), result, index)
           onProgress?.(getProgress(index, item))
           return
-
         } catch (error) {
           attempt++
           const action = await handleError(error as Error, item, attempt)
@@ -826,7 +830,11 @@ export class DBPromise<T> implements PromiseLike<T> {
           progress: completed + failed + skipped,
           data: { processedIds: Array.from(processedIds) },
           result: finalResult,
-          error: cancelled ? 'Cancelled' : errors.length > 0 ? `${errors.length} items failed` : undefined,
+          error: cancelled
+            ? 'Cancelled'
+            : errors.length > 0
+            ? `${errors.length} items failed`
+            : undefined,
         })
       }
     }
@@ -918,8 +926,16 @@ export class DBPromise<T> implements PromiseLike<T> {
  * Known DBPromise methods that need proxy handling.
  */
 const DBPROMISE_METHODS = new Set([
-  'map', 'filter', 'sort', 'limit', 'first', 'forEach', 'resolve',
-  'then', 'catch', 'finally'
+  'map',
+  'filter',
+  'sort',
+  'limit',
+  'first',
+  'forEach',
+  'resolve',
+  'then',
+  'catch',
+  'finally',
 ])
 
 /**
@@ -1041,12 +1057,14 @@ function getNestedValue(obj: unknown, path: string[]): unknown {
 function createBatchLoadingArray<T>(items: T[]): T[] {
   // Create a new array with all the original items
   const batchArray = [...items] as T[] & {
-    map: <U>(callback: (item: T, index: number) => U) => Promise<U[]>
+    map: <U>(callback: (item: T, index: number) => U) => U[] | Promise<U[]>
   }
 
-  // Override the map method to do batch loading
+  // Override the map method to do batch loading only when needed
+  // Returns synchronously when no relations are accessed (preserving native Array behavior)
+  // Returns a Promise when relations need to be batch-loaded
   Object.defineProperty(batchArray, 'map', {
-    value: async function<U>(callback: (item: T, index: number) => U): Promise<U[]> {
+    value: function <U>(callback: (item: T, index: number) => U): U[] | Promise<U[]> {
       const items = this as T[]
 
       // Phase 1: Record what the callback accesses using placeholder proxies
@@ -1071,22 +1089,34 @@ function createBatchLoadingArray<T>(items: T[]): T[] {
         recordings.push(recording)
       }
 
-      // Phase 2: Analyze recordings and batch-load relations
-      const batchLoads = analyzeBatchLoads(recordings, items)
-      const loadedRelations = await executeBatchLoads(batchLoads, recordings)
+      // Check if any relations were accessed
+      const hasRelations = recordings.some((r) => r.relations.size > 0)
 
-      // Phase 3: Re-run callback with enriched items that have loaded relations
-      const enrichedItems: Record<string, unknown>[] = []
-      for (let i = 0; i < items.length; i++) {
-        enrichedItems.push(enrichItemWithLoadedRelations(items[i] as Record<string, unknown>, loadedRelations))
+      // If no relations were accessed, run synchronously like native Array.map
+      if (!hasRelations) {
+        return Array.prototype.map.call(items, (item: T, i: number) => callback(item, i))
       }
 
-      // Execute callback again with enriched data
-      const results: U[] = []
-      for (let i = 0; i < enrichedItems.length; i++) {
-        results.push(callback(enrichedItems[i] as T, i))
-      }
-      return results
+      // Phase 2 & 3: Async batch loading path (returns a Promise)
+      return (async () => {
+        const batchLoads = analyzeBatchLoads(recordings, items)
+        const loadedRelations = await executeBatchLoads(batchLoads, recordings)
+
+        // Re-run callback with enriched items that have loaded relations
+        const enrichedItems: Record<string, unknown>[] = []
+        for (let i = 0; i < items.length; i++) {
+          enrichedItems.push(
+            enrichItemWithLoadedRelations(items[i] as Record<string, unknown>, loadedRelations)
+          )
+        }
+
+        // Execute callback again with enriched data
+        const results: U[] = []
+        for (let i = 0; i < enrichedItems.length; i++) {
+          results.push(callback(enrichedItems[i] as T, i))
+        }
+        return results
+      })()
     },
     writable: true,
     configurable: true,
@@ -1180,10 +1210,7 @@ function createRelationRecordingProxy(
 /**
  * Create a proxy that records property accesses
  */
-function createRecordingProxy(
-  item: unknown,
-  recording: PropertyRecording
-): unknown {
+function createRecordingProxy(item: unknown, recording: PropertyRecording): unknown {
   if (typeof item !== 'object' || item === null) {
     return item
   }
@@ -1235,7 +1262,7 @@ function createRecordingProxy(
           // Get the type from the array $type or first element
           let relationType = arrayType
           if (!relationType) {
-            const firstRelation = value.find(v => extractMarkerType(v) !== undefined)
+            const firstRelation = value.find((v) => extractMarkerType(v) !== undefined)
             relationType = firstRelation ? extractMarkerType(firstRelation) ?? 'unknown' : 'unknown'
           }
 
@@ -1258,7 +1285,9 @@ function createRecordingProxy(
                   // Record what the map callback accesses
                   const elementProxy = createRelationRecordingProxy(relationRecording!)
                   // Execute callback to record accesses, but we can't return real results
-                  try { fn(elementProxy, 0) } catch {}
+                  try {
+                    fn(elementProxy, 0)
+                  } catch {}
                   return []
                 }
               }
@@ -1270,7 +1299,7 @@ function createRecordingProxy(
                 return createRelationRecordingProxy(relationRecording!)
               }
               return Reflect.get(arrayTarget, arrayProp)
-            }
+            },
           })
         }
 
@@ -1377,7 +1406,10 @@ async function executeBatchLoads(
   }
 
   // Collect nested relation info from recordings
-  const nestedRelationInfo = new Map<string, { nestedPaths: Set<string>; nestedRelations: Map<string, RelationRecording> }>()
+  const nestedRelationInfo = new Map<
+    string,
+    { nestedPaths: Set<string>; nestedRelations: Map<string, RelationRecording> }
+  >()
   if (recordings) {
     for (const recording of recordings) {
       for (const [relationName, relationRecording] of recording.relations) {
@@ -1410,9 +1442,7 @@ async function executeBatchLoads(
     const uniqueIds = [...new Set(ids)]
 
     // Fetch all entities in parallel
-    const entities = await Promise.all(
-      uniqueIds.map(id => provider.get(type, id))
-    )
+    const entities = await Promise.all(uniqueIds.map((id) => provider.get(type, id)))
 
     // Map results by ID
     for (let i = 0; i < uniqueIds.length; i++) {
@@ -1486,7 +1516,10 @@ async function executeBatchLoads(
           })
         }
 
-        const nestedResults = await executeBatchLoads(nestedBatchLoads, nestedRecordings.length > 0 ? nestedRecordings : undefined)
+        const nestedResults = await executeBatchLoads(
+          nestedBatchLoads,
+          nestedRecordings.length > 0 ? nestedRecordings : undefined
+        )
 
         // Enrich the already-loaded entities with their nested relations
         for (const [entityId, entity] of relationResults) {
@@ -1594,10 +1627,7 @@ export function getRawDBPromise<T>(value: DBPromise<T>): DBPromise<T> {
 /**
  * Create a DBPromise for a list query
  */
-export function createListPromise<T>(
-  type: string,
-  executor: () => Promise<T[]>
-): DBPromise<T[]> {
+export function createListPromise<T>(type: string, executor: () => Promise<T[]>): DBPromise<T[]> {
   return new DBPromise<T[]>({ type, executor })
 }
 
@@ -1614,10 +1644,7 @@ export function createEntityPromise<T>(
 /**
  * Create a DBPromise for a search query
  */
-export function createSearchPromise<T>(
-  type: string,
-  executor: () => Promise<T[]>
-): DBPromise<T[]> {
+export function createSearchPromise<T>(type: string, executor: () => Promise<T[]>): DBPromise<T[]> {
   return new DBPromise<T[]>({ type, executor })
 }
 
@@ -1636,7 +1663,12 @@ export function wrapEntityOperations<T>(
     find: (where: any) => Promise<T[]>
     search: (query: string, options?: any) => Promise<T[]>
     semanticSearch?: (query: string, options?: any) => Promise<Array<T & { $score: number }>>
-    hybridSearch?: (query: string, options?: any) => Promise<Array<T & { $rrfScore: number; $ftsRank: number; $semanticRank: number; $score: number }>>
+    hybridSearch?: (
+      query: string,
+      options?: any
+    ) => Promise<
+      Array<T & { $rrfScore: number; $ftsRank: number; $semanticRank: number; $score: number }>
+    >
     create: (...args: any[]) => Promise<T>
     update: (id: string, data: any) => Promise<T>
     upsert: (id: string, data: any) => Promise<T>
@@ -1650,12 +1682,20 @@ export function wrapEntityOperations<T>(
   find: (where: any) => DBPromise<T[]>
   search: (query: string, options?: any) => DBPromise<T[]>
   semanticSearch: (query: string, options?: any) => Promise<Array<T & { $score: number }>>
-  hybridSearch: (query: string, options?: any) => Promise<Array<T & { $rrfScore: number; $ftsRank: number; $semanticRank: number; $score: number }>>
+  hybridSearch: (
+    query: string,
+    options?: any
+  ) => Promise<
+    Array<T & { $rrfScore: number; $ftsRank: number; $semanticRank: number; $score: number }>
+  >
   create: (...args: any[]) => Promise<T | unknown>
   update: (id: string, data: any) => Promise<T>
   upsert: (id: string, data: any) => Promise<T>
   delete: (id: string) => Promise<boolean>
-  forEach: <U>(callback: (item: T, index: number) => U | Promise<U>, options?: ForEachOptions<T>) => Promise<ForEachResult>
+  forEach: <U>(
+    callback: (item: T, index: number) => U | Promise<U>,
+    options?: ForEachOptions<T>
+  ) => Promise<ForEachResult>
   first: () => DBPromise<T | null>
   draft?: (data: any, options?: any) => Promise<unknown>
   resolve?: (draft: unknown, options?: any) => Promise<unknown>
@@ -1725,7 +1765,10 @@ export function wrapEntityOperations<T>(
       callbackOrOpts?: ((item: T, index: number) => U | Promise<U>) | ForEachOptions<T>
     ): Promise<ForEachResult> {
       // Detect which calling style is being used
-      const isOptionsFirst = typeof callbackOrOptions === 'object' && callbackOrOptions !== null && !('call' in callbackOrOptions)
+      const isOptionsFirst =
+        typeof callbackOrOptions === 'object' &&
+        callbackOrOptions !== null &&
+        !('call' in callbackOrOptions)
 
       const callback = isOptionsFirst
         ? (callbackOrOpts as (item: T, index: number) => U | Promise<U>)
@@ -1761,7 +1804,12 @@ export function wrapEntityOperations<T>(
       return Promise.resolve([])
     },
 
-    hybridSearch(query: string, options?: any): Promise<Array<T & { $rrfScore: number; $ftsRank: number; $semanticRank: number; $score: number }>> {
+    hybridSearch(
+      query: string,
+      options?: any
+    ): Promise<
+      Array<T & { $rrfScore: number; $ftsRank: number; $semanticRank: number; $score: number }>
+    > {
       if (operations.hybridSearch) {
         return operations.hybridSearch(query, options)
       }

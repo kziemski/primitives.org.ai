@@ -4,7 +4,24 @@
  * These are pure unit tests - no database calls needed.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+
+// Mock ai-functions to avoid real API calls in fuzzy resolution tests
+vi.mock('ai-functions', () => ({
+  generateObject: vi.fn().mockImplementation(async ({ schema }) => {
+    // Generate mock data based on schema
+    const obj: Record<string, unknown> = {}
+    for (const [key, desc] of Object.entries(schema as Record<string, string>)) {
+      if (key === 'name') obj[key] = 'MockGenerated'
+      else if (key === 'slug') obj[key] = 'mock-generated'
+      else if (key === 'title') obj[key] = 'Mock Title'
+      else if (key === 'category') obj[key] = 'Mock Category'
+      else if (key === 'floor') obj[key] = 1
+      else obj[key] = `Generated ${key}`
+    }
+    return { object: obj }
+  }),
+}))
 import {
   parseSchema,
   DB,
@@ -31,8 +48,18 @@ import {
   toExpanded,
   toFlat,
   setProvider,
+  configureAIGeneration,
 } from './schema.js'
-import type { DatabaseSchema, ParsedField, Noun, Verb, TypeMeta, NLQueryPlan, ThingFlat, ThingExpanded } from './schema.js'
+import type {
+  DatabaseSchema,
+  ParsedField,
+  Noun,
+  Verb,
+  TypeMeta,
+  NLQueryPlan,
+  ThingFlat,
+  ThingExpanded,
+} from './schema.js'
 
 describe('Thing types (mdxld)', () => {
   describe('ThingFlat', () => {
@@ -1273,8 +1300,11 @@ describe('Forward Fuzzy Resolution (~>)', () => {
      */
 
     // Reset provider between tests to ensure isolation
+    // Disable AI generation to avoid API key issues - tests use placeholder generation
     beforeEach(() => {
       setProvider(null as any)
+      configureAIGeneration({ enabled: false })
+      vi.clearAllMocks()
     })
 
     it('mixes found and generated entities for ~>Category[] field', async () => {
@@ -1302,7 +1332,7 @@ describe('Forward Fuzzy Resolution (~>)', () => {
 
       const mockProvider = {
         entities: new Map<string, Map<string, Record<string, unknown>>>([
-          ['Category', new Map(existingCategories.map(c => [c.$id, c]))],
+          ['Category', new Map(existingCategories.map((c) => [c.$id, c]))],
           ['Product', new Map()],
         ]),
         relations: new Map(),
@@ -1343,27 +1373,35 @@ describe('Forward Fuzzy Resolution (~>)', () => {
 
         async relate() {},
         async unrelate() {},
-        async related() { return [] },
+        async related() {
+          return []
+        },
 
         // Semantic search mock - returns matches based on name similarity
-        async semanticSearch(type: string, query: string, options?: { minScore?: number; limit?: number }) {
+        async semanticSearch(
+          type: string,
+          query: string,
+          options?: { minScore?: number; limit?: number }
+        ) {
           const minScore = options?.minScore ?? 0.75
           const entities = Array.from(this.entities.get(type)?.values() ?? [])
 
           // Simple mock: exact name match = 0.95, partial = 0.80, no match = 0.3
-          const results = entities.map(entity => {
-            const name = (entity.name as string).toLowerCase()
-            const queryLower = query.toLowerCase()
-            let score = 0.3 // Default low score
+          const results = entities
+            .map((entity) => {
+              const name = (entity.name as string).toLowerCase()
+              const queryLower = query.toLowerCase()
+              let score = 0.3 // Default low score
 
-            if (name === queryLower) {
-              score = 0.95
-            } else if (name.includes(queryLower) || queryLower.includes(name)) {
-              score = 0.80
-            }
+              if (name === queryLower) {
+                score = 0.95
+              } else if (name.includes(queryLower) || queryLower.includes(name)) {
+                score = 0.8
+              }
 
-            return { ...entity, $score: score }
-          }).filter(r => r.$score >= minScore)
+              return { ...entity, $score: score }
+            })
+            .filter((r) => r.$score >= minScore)
 
           return results.sort((a, b) => b.$score - a.$score)
         },
@@ -1385,14 +1423,14 @@ describe('Forward Fuzzy Resolution (~>)', () => {
 
       // Get the actual category entities
       const categoryIds = product.categories as string[]
-      const categories = await Promise.all(categoryIds.map(id => db.Category.get(id)))
+      const categories = await Promise.all(categoryIds.map((id) => db.Category.get(id)))
 
       // Should have found 2 existing categories
-      const foundCategories = categories.filter(c => !c?.$generated || c.$generated === false)
+      const foundCategories = categories.filter((c) => !c?.$generated || c.$generated === false)
       expect(foundCategories.length).toBe(2)
 
       // Should have generated 1 new category
-      const generatedCategories = categories.filter(c => c?.$generated === true)
+      const generatedCategories = categories.filter((c) => c?.$generated === true)
       expect(generatedCategories.length).toBe(1)
 
       // The generated category should have been created with $generated: true
@@ -1423,7 +1461,7 @@ describe('Forward Fuzzy Resolution (~>)', () => {
 
       const mockProvider = {
         entities: new Map([
-          ['Tag', new Map(existingTags.map(t => [t.$id, t]))],
+          ['Tag', new Map(existingTags.map((t) => [t.$id, t]))],
           ['Post', new Map()],
         ]),
         relations: new Map(),
@@ -1436,7 +1474,9 @@ describe('Forward Fuzzy Resolution (~>)', () => {
           return Array.from(this.entities.get(type)?.values() ?? [])
         },
 
-        async search() { return [] },
+        async search() {
+          return []
+        },
 
         async create(type: string, id: string | undefined, data: Record<string, unknown>) {
           const entityId = id || `${type.toLowerCase()}-${Date.now()}`
@@ -1462,9 +1502,15 @@ describe('Forward Fuzzy Resolution (~>)', () => {
 
         async relate() {},
         async unrelate() {},
-        async related() { return [] },
+        async related() {
+          return []
+        },
 
-        async semanticSearch(type: string, query: string, options?: { minScore?: number; limit?: number }) {
+        async semanticSearch(
+          type: string,
+          query: string,
+          options?: { minScore?: number; limit?: number }
+        ) {
           const minScore = options?.minScore ?? 0.75
           const entities = Array.from(this.entities.get(type)?.values() ?? [])
 
@@ -1473,23 +1519,25 @@ describe('Forward Fuzzy Resolution (~>)', () => {
           // - "typescript" gets 0.82 because the hint is "typescript" vs stored "TypeScript"
           //   (simulate embeddings not being exact)
           // - "vue" no match = 0.3 (below any threshold)
-          const results = entities.map(entity => {
-            const name = (entity.name as string).toLowerCase()
-            const queryLower = query.toLowerCase()
+          const results = entities
+            .map((entity) => {
+              const name = (entity.name as string).toLowerCase()
+              const queryLower = query.toLowerCase()
 
-            let score = 0.3
-            // Only exact match for "javascript" gets 0.95
-            if (name === queryLower && queryLower === 'javascript') {
-              score = 0.95
-            } else if (name === queryLower) {
-              // Other exact matches (like typescript) get 0.82 to test threshold
-              score = 0.82
-            } else if (name.includes(queryLower) || queryLower.includes(name)) {
-              score = 0.70
-            }
+              let score = 0.3
+              // Only exact match for "javascript" gets 0.95
+              if (name === queryLower && queryLower === 'javascript') {
+                score = 0.95
+              } else if (name === queryLower) {
+                // Other exact matches (like typescript) get 0.82 to test threshold
+                score = 0.82
+              } else if (name.includes(queryLower) || queryLower.includes(name)) {
+                score = 0.7
+              }
 
-            return { ...entity, $score: score }
-          }).filter(r => r.$score >= minScore)
+              return { ...entity, $score: score }
+            })
+            .filter((r) => r.$score >= minScore)
 
           return results.sort((a, b) => b.$score - a.$score)
         },
@@ -1509,15 +1557,15 @@ describe('Forward Fuzzy Resolution (~>)', () => {
       expect(post.tags).toHaveLength(3)
 
       const tagIds = post.tags as string[]
-      const tags = await Promise.all(tagIds.map(id => db.Tag.get(id)))
+      const tags = await Promise.all(tagIds.map((id) => db.Tag.get(id)))
 
       // Only javascript should be found (exact match above 0.85)
-      const foundTags = tags.filter(t => !t?.$generated || t.$generated === false)
+      const foundTags = tags.filter((t) => !t?.$generated || t.$generated === false)
       expect(foundTags.length).toBe(1)
       expect(foundTags[0]?.name).toBe('JavaScript')
 
       // TypeScript and Vue should be generated (below 0.85 threshold)
-      const generatedTags = tags.filter(t => t?.$generated === true)
+      const generatedTags = tags.filter((t) => t?.$generated === true)
       expect(generatedTags.length).toBe(2)
     })
 
@@ -1541,7 +1589,7 @@ describe('Forward Fuzzy Resolution (~>)', () => {
 
       const mockProvider = {
         entities: new Map([
-          ['Author', new Map(existingAuthors.map(a => [a.$id, a]))],
+          ['Author', new Map(existingAuthors.map((a) => [a.$id, a]))],
           ['Article', new Map()],
         ]),
         relations: new Map(),
@@ -1554,7 +1602,9 @@ describe('Forward Fuzzy Resolution (~>)', () => {
           return Array.from(this.entities.get(type)?.values() ?? [])
         },
 
-        async search() { return [] },
+        async search() {
+          return []
+        },
 
         async create(type: string, id: string | undefined, data: Record<string, unknown>) {
           const entityId = id || `${type.toLowerCase()}-${Date.now()}`
@@ -1572,22 +1622,31 @@ describe('Forward Fuzzy Resolution (~>)', () => {
           return { ...existing, ...data }
         },
 
-        async delete() { return false },
+        async delete() {
+          return false
+        },
         async relate() {},
         async unrelate() {},
-        async related() { return [] },
+        async related() {
+          return []
+        },
 
         async semanticSearch(type: string, query: string, options?: { minScore?: number }) {
           const minScore = options?.minScore ?? 0.75
           const entities = Array.from(this.entities.get(type)?.values() ?? [])
 
-          const results = entities.map(entity => {
-            const name = (entity.name as string).toLowerCase()
-            const queryLower = query.toLowerCase()
-            // Exact name match
-            const score = name.includes(queryLower) || queryLower.includes(name.split(' ')[0] || '') ? 0.9 : 0.3
-            return { ...entity, $score: score }
-          }).filter(r => r.$score >= minScore)
+          const results = entities
+            .map((entity) => {
+              const name = (entity.name as string).toLowerCase()
+              const queryLower = query.toLowerCase()
+              // Exact name match
+              const score =
+                name.includes(queryLower) || queryLower.includes(name.split(' ')[0] || '')
+                  ? 0.9
+                  : 0.3
+              return { ...entity, $score: score }
+            })
+            .filter((r) => r.$score >= minScore)
 
           return results
         },
@@ -1604,7 +1663,7 @@ describe('Forward Fuzzy Resolution (~>)', () => {
       expect(article.authors).toHaveLength(2)
 
       const authorIds = article.authors as string[]
-      const authors = await Promise.all(authorIds.map(id => db.Author.get(id)))
+      const authors = await Promise.all(authorIds.map((id) => db.Author.get(id)))
 
       // All found entities should NOT have $generated: true
       for (const author of authors) {
@@ -1644,7 +1703,9 @@ describe('Forward Fuzzy Resolution (~>)', () => {
           return Array.from(this.entities.get(type)?.values() ?? [])
         },
 
-        async search() { return [] },
+        async search() {
+          return []
+        },
 
         async create(type: string, id: string | undefined, data: Record<string, unknown>) {
           const entityId = id || `${type.toLowerCase()}-${Date.now()}`
@@ -1662,10 +1723,14 @@ describe('Forward Fuzzy Resolution (~>)', () => {
           return { ...existing, ...data }
         },
 
-        async delete() { return false },
+        async delete() {
+          return false
+        },
         async relate() {},
         async unrelate() {},
-        async related() { return [] },
+        async related() {
+          return []
+        },
 
         // No matches - everything should be generated
         async semanticSearch() {
@@ -1684,7 +1749,7 @@ describe('Forward Fuzzy Resolution (~>)', () => {
       expect(project.technologies).toHaveLength(3)
 
       const techIds = project.technologies as string[]
-      const technologies = await Promise.all(techIds.map(id => db.Technology.get(id)))
+      const technologies = await Promise.all(techIds.map((id) => db.Technology.get(id)))
 
       // ALL should be generated (database was empty)
       for (const tech of technologies) {
@@ -1713,7 +1778,7 @@ describe('Forward Fuzzy Resolution (~>)', () => {
 
       const mockProvider = {
         entities: new Map([
-          ['Department', new Map(existingDepartments.map(d => [d.$id, d]))],
+          ['Department', new Map(existingDepartments.map((d) => [d.$id, d]))],
           ['Store', new Map()],
         ]),
         relations: new Map(),
@@ -1726,10 +1791,13 @@ describe('Forward Fuzzy Resolution (~>)', () => {
           return Array.from(this.entities.get(type)?.values() ?? [])
         },
 
-        async search() { return [] },
+        async search() {
+          return []
+        },
 
         async create(type: string, id: string | undefined, data: Record<string, unknown>) {
-          const entityId = id || `${type.toLowerCase()}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+          const entityId =
+            id || `${type.toLowerCase()}-${Date.now()}-${Math.random().toString(36).slice(2)}`
           const entity = { $id: entityId, $type: type, ...data }
           if (!this.entities.has(type)) {
             this.entities.set(type, new Map())
@@ -1744,22 +1812,28 @@ describe('Forward Fuzzy Resolution (~>)', () => {
           return { ...existing, ...data }
         },
 
-        async delete() { return false },
+        async delete() {
+          return false
+        },
         async relate() {},
         async unrelate() {},
-        async related() { return [] },
+        async related() {
+          return []
+        },
 
         async semanticSearch(type: string, query: string, options?: { minScore?: number }) {
           const minScore = options?.minScore ?? 0.75
           const entities = Array.from(this.entities.get(type)?.values() ?? [])
 
           // Only "electronics" will match
-          const results = entities.map(entity => {
-            const name = (entity.name as string).toLowerCase()
-            const queryLower = query.toLowerCase()
-            const score = name === queryLower ? 0.95 : 0.2
-            return { ...entity, $score: score }
-          }).filter(r => r.$score >= minScore)
+          const results = entities
+            .map((entity) => {
+              const name = (entity.name as string).toLowerCase()
+              const queryLower = query.toLowerCase()
+              const score = name === queryLower ? 0.95 : 0.2
+              return { ...entity, $score: score }
+            })
+            .filter((r) => r.$score >= minScore)
 
           return results
         },
@@ -1777,11 +1851,11 @@ describe('Forward Fuzzy Resolution (~>)', () => {
       expect(store.departments).toHaveLength(3)
 
       const deptIds = store.departments as string[]
-      const departments = await Promise.all(deptIds.map(id => db.Department.get(id)))
+      const departments = await Promise.all(deptIds.map((id) => db.Department.get(id)))
 
       // Count found vs generated
-      const found = departments.filter(d => !d?.$generated || d.$generated === false)
-      const generated = departments.filter(d => d?.$generated === true)
+      const found = departments.filter((d) => !d?.$generated || d.$generated === false)
+      const generated = departments.filter((d) => d?.$generated === true)
 
       // Exactly 1 found (electronics)
       expect(found.length).toBe(1)
@@ -1807,9 +1881,7 @@ describe('Forward Fuzzy Resolution (~>)', () => {
       ]
 
       const mockProvider = {
-        entities: new Map([
-          ['Document', new Map(existingDocs.map(d => [d.$id, d]))],
-        ]),
+        entities: new Map([['Document', new Map(existingDocs.map((d) => [d.$id, d]))]]),
         relations: new Map(),
 
         async get(type: string, id: string) {
@@ -1820,7 +1892,9 @@ describe('Forward Fuzzy Resolution (~>)', () => {
           return Array.from(this.entities.get(type)?.values() ?? [])
         },
 
-        async search() { return [] },
+        async search() {
+          return []
+        },
 
         async create(type: string, id: string | undefined, data: Record<string, unknown>) {
           const entityId = id || `${type.toLowerCase()}-${Date.now()}`
@@ -1838,24 +1912,30 @@ describe('Forward Fuzzy Resolution (~>)', () => {
           return { ...existing, ...data }
         },
 
-        async delete() { return false },
+        async delete() {
+          return false
+        },
         async relate() {},
         async unrelate() {},
-        async related() { return [] },
+        async related() {
+          return []
+        },
 
         async semanticSearch(type: string, query: string, options?: { minScore?: number }) {
           const minScore = options?.minScore ?? 0.75
           const entities = Array.from(this.entities.get(type)?.values() ?? [])
 
-          const results = entities.map(entity => {
-            const title = (entity.title as string).toLowerCase()
-            const queryLower = query.toLowerCase()
-            let score = 0.3
-            if (title.includes(queryLower) || queryLower.includes(title.split(' ')[0] || '')) {
-              score = 0.88 // Return specific score we can verify
-            }
-            return { ...entity, $score: score }
-          }).filter(r => r.$score >= minScore)
+          const results = entities
+            .map((entity) => {
+              const title = (entity.title as string).toLowerCase()
+              const queryLower = query.toLowerCase()
+              let score = 0.3
+              if (title.includes(queryLower) || queryLower.includes(title.split(' ')[0] || '')) {
+                score = 0.88 // Return specific score we can verify
+              }
+              return { ...entity, $score: score }
+            })
+            .filter((r) => r.$score >= minScore)
 
           return results
         },
@@ -1877,14 +1957,14 @@ describe('Forward Fuzzy Resolution (~>)', () => {
       const relatedDocIds = doc.relatedDocs as string[]
 
       // Verify we can get the related docs
-      const relatedDocs = await Promise.all(relatedDocIds.map(id => db.Document.get(id)))
+      const relatedDocs = await Promise.all(relatedDocIds.map((id) => db.Document.get(id)))
       expect(relatedDocs.length).toBe(2)
 
       // The relationship metadata (via Edge entities) should have similarity scores
       // We expect Edge entities to be created with similarity information
       const edges = await db.Edge.list()
-      const relevantEdges = edges.filter((e: any) =>
-        e.from === 'Document' && e.name === 'relatedDocs' && e.matchMode === 'fuzzy'
+      const relevantEdges = edges.filter(
+        (e: any) => e.from === 'Document' && e.name === 'relatedDocs' && e.matchMode === 'fuzzy'
       )
 
       // Each fuzzy-found relationship should have an Edge with similarity score

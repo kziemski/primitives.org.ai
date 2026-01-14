@@ -461,7 +461,8 @@ export interface EntityId {
 /**
  * A Thing is a node in the database (linked data style)
  */
-export interface Thing<T extends Record<string, unknown> = Record<string, unknown>> extends EntityId {
+export interface Thing<T extends Record<string, unknown> = Record<string, unknown>>
+  extends EntityId {
   /** When the thing was created */
   createdAt: Date
   /** When the thing was last updated */
@@ -507,30 +508,63 @@ export function resolveShortUrl(entity: Pick<EntityId, 'ns' | 'id'>): string {
 
 /**
  * Parse a URL into EntityId components
+ *
+ * Supports both full URLs and type/id paths:
+ * - Full URL: 'https://example.com/User/john' -> { ns: 'example.com', type: 'User', id: 'john' }
+ * - Type/ID path: 'User/john' -> { ns: '', type: 'User', id: 'john' }
+ * - Nested path: 'User/org/team/john' -> { ns: '', type: 'User', id: 'org/team/john' }
  */
 export function parseUrl(url: string): EntityId {
-  const parsed = new URL(url)
-  const parts = parsed.pathname.split('/').filter(Boolean)
+  // Try parsing as a full URL first
+  try {
+    const parsed = new URL(url)
+    const parts = parsed.pathname.split('/').filter(Boolean)
 
-  if (parts.length === 1) {
-    return {
-      ns: parsed.host,
-      type: '',
-      id: parts[0]!,
-      url
+    if (parts.length === 1) {
+      return {
+        ns: parsed.host,
+        type: '',
+        id: parts[0]!,
+        url,
+      }
     }
-  }
 
-  if (parts.length >= 2) {
-    return {
-      ns: parsed.host,
-      type: parts[0]!,
-      id: parts.slice(1).join('/'),
-      url
+    if (parts.length >= 2) {
+      return {
+        ns: parsed.host,
+        type: parts[0]!,
+        id: parts.slice(1).join('/'),
+        url,
+      }
     }
-  }
 
-  throw new Error(`Invalid entity URL: ${url}`)
+    throw new Error(`Invalid entity URL: ${url}`)
+  } catch (e) {
+    // Not a valid URL - treat as a type/id path
+    const parts = url.split('/').filter(Boolean)
+
+    if (parts.length === 1) {
+      // Just an ID, no type
+      return {
+        ns: '',
+        type: '',
+        id: parts[0]!,
+        url,
+      }
+    }
+
+    if (parts.length >= 2) {
+      // First part is type, rest is ID (may contain slashes)
+      return {
+        ns: '',
+        type: parts[0]!,
+        id: parts.slice(1).join('/'),
+        url,
+      }
+    }
+
+    throw new Error(`Invalid entity URL: ${url}`)
+  }
 }
 
 // =============================================================================
@@ -671,7 +705,17 @@ export interface Action<T extends Record<string, unknown> = Record<string, unkno
 /**
  * Artifact type
  */
-export type ArtifactType = 'ast' | 'types' | 'esm' | 'cjs' | 'worker' | 'html' | 'markdown' | 'bundle' | 'sourcemap' | string
+export type ArtifactType =
+  | 'ast'
+  | 'types'
+  | 'esm'
+  | 'cjs'
+  | 'worker'
+  | 'html'
+  | 'markdown'
+  | 'bundle'
+  | 'sourcemap'
+  | string
 
 /**
  * Cached artifact for compiled/parsed content
@@ -830,10 +874,7 @@ export interface DBClient<TData extends Record<string, unknown> = Record<string,
   ): Promise<Relationship[]>
 
   // Reference operations (inbound - backlinks)
-  references(
-    url: string,
-    relationshipType?: string
-  ): Promise<Thing<TData>[]>
+  references(url: string, relationshipType?: string): Promise<Thing<TData>[]>
 
   // Cleanup
   close?(): Promise<void>
@@ -842,7 +883,8 @@ export interface DBClient<TData extends Record<string, unknown> = Record<string,
 /**
  * Extended DBClient with Events, Actions, and Artifacts
  */
-export interface DBClientExtended<TData extends Record<string, unknown> = Record<string, unknown>> extends DBClient<TData> {
+export interface DBClientExtended<TData extends Record<string, unknown> = Record<string, unknown>>
+  extends DBClient<TData> {
   // Event operations (immutable, append-only)
   /** Track an event (analytics-style, append-only) */
   track<T extends Record<string, unknown>>(options: CreateEventOptions<T>): Promise<Event<T>>
@@ -855,7 +897,10 @@ export interface DBClientExtended<TData extends Record<string, unknown> = Record
   /** Do an action (create and immediately start, returns in active state) */
   do<T extends Record<string, unknown>>(options: CreateActionOptions<T>): Promise<Action<T>>
   /** Try an action (with built-in error handling) */
-  try<T extends Record<string, unknown>>(options: CreateActionOptions<T>, fn: () => Promise<unknown>): Promise<Action<T>>
+  try<T extends Record<string, unknown>>(
+    options: CreateActionOptions<T>,
+    fn: () => Promise<unknown>
+  ): Promise<Action<T>>
   getAction(id: string): Promise<Action | null>
   queryActions(options?: ActionQueryOptions): Promise<Action[]>
   startAction(id: string): Promise<Action>
@@ -1199,6 +1244,7 @@ export interface ViewManager {
 /**
  * Extended DocumentDatabase interface with view support
  */
-export interface DocumentDatabaseWithViews<TData = Record<string, unknown>> extends DocumentDatabase<TData> {
+export interface DocumentDatabaseWithViews<TData = Record<string, unknown>>
+  extends DocumentDatabase<TData> {
   views: ViewManager
 }

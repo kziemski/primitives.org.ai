@@ -41,7 +41,7 @@ describe('Backward Exact (<-) Resolution', () => {
     it('should create inverted edge for <- reference', async () => {
       const { db } = DB({
         Blog: { posts: ['<-Post'] },
-        Post: { title: 'string' }
+        Post: { title: 'string' },
       })
 
       const blog = await db.Blog.create({ name: 'Tech Blog' })
@@ -56,7 +56,7 @@ describe('Backward Exact (<-) Resolution', () => {
     it('should store edge with correct direction metadata', async () => {
       const { db } = DB({
         Blog: { posts: ['<-Post'] },
-        Post: { title: 'string' }
+        Post: { title: 'string' },
       })
 
       // Verify edge metadata shows inverted direction
@@ -72,7 +72,7 @@ describe('Backward Exact (<-) Resolution', () => {
     it('should enable aggregation queries via backward refs', async () => {
       const { db } = DB({
         Author: { articles: ['<-Article'] },
-        Article: { title: 'string', author: '->Author' }
+        Article: { title: 'string', author: '->Author' },
       })
 
       const author = await db.Author.create({ name: 'John' })
@@ -88,7 +88,7 @@ describe('Backward Exact (<-) Resolution', () => {
     it('should return correct entities in aggregation', async () => {
       const { db } = DB({
         Author: { articles: ['<-Article'] },
-        Article: { title: 'string', author: '->Author' }
+        Article: { title: 'string', author: '->Author' },
       })
 
       const author = await db.Author.create({ name: 'Jane' })
@@ -106,7 +106,7 @@ describe('Backward Exact (<-) Resolution', () => {
     it('should not include unrelated entities in aggregation', async () => {
       const { db } = DB({
         Author: { articles: ['<-Article'] },
-        Article: { title: 'string', author: '->Author' }
+        Article: { title: 'string', author: '->Author' },
       })
 
       const author1 = await db.Author.create({ name: 'Author 1' })
@@ -128,12 +128,12 @@ describe('Backward Exact (<-) Resolution', () => {
       const { db } = DB({
         Problem: {
           task: '<-Task',
-          description: 'string'  // Plain string field for problem description
+          description: 'string', // Plain string field for problem description
         },
         Task: {
           name: 'string',
-          problems: ['->Problem']
-        }
+          problems: ['->Problem'],
+        },
       })
 
       const task = await db.Task.create({ name: 'Data Entry' })
@@ -149,12 +149,12 @@ describe('Backward Exact (<-) Resolution', () => {
       const { db } = DB({
         Category: {
           items: ['<-Item'],
-          name: 'string'
+          name: 'string',
         },
         Item: {
           name: 'string',
-          category: '->Category'
-        }
+          category: '->Category',
+        },
       })
 
       const category = await db.Category.create({ name: 'Electronics' })
@@ -174,17 +174,17 @@ describe('Backward Exact (<-) Resolution', () => {
       const { db } = DB({
         Store: {
           departments: ['<-Department'],
-          name: 'string'
+          name: 'string',
         },
         Department: {
           products: ['<-Product'],
           store: '->Store',
-          name: 'string'
+          name: 'string',
         },
         Product: {
           department: '->Department',
-          name: 'string'
-        }
+          name: 'string',
+        },
       })
 
       const store = await db.Store.create({ name: 'SuperMart' })
@@ -206,7 +206,7 @@ describe('Backward Exact (<-) Resolution', () => {
     it('should not create duplicates with symmetric <- and ->', async () => {
       const { db } = DB({
         Parent: { children: ['->Child'] },
-        Child: { parent: '<-Parent' }
+        Child: { parent: '<-Parent' },
       })
 
       const parent = await db.Parent.create({ name: 'P1' })
@@ -220,8 +220,8 @@ describe('Backward Exact (<-) Resolution', () => {
 
     it('should maintain referential integrity with symmetric refs', async () => {
       const { db } = DB({
-        Team: { members: ['->Member'] },
-        Member: { team: '<-Team', name: 'string' }
+        Team: { members: ['<-Member.team'] },
+        Member: { team: '->Team', name: 'string' },
       })
 
       const team = await db.Team.create({ name: 'Engineering' })
@@ -242,7 +242,7 @@ describe('Backward Exact (<-) Resolution', () => {
     it('should handle bidirectional navigation consistently', async () => {
       const { db } = DB({
         Project: { tasks: ['<-Task'] },
-        Task: { project: '->Project', title: 'string' }
+        Task: { project: '->Project', title: 'string' },
       })
 
       const project = await db.Project.create({ name: 'Website Redesign' })
@@ -271,7 +271,7 @@ describe('Backward Exact (<-) Resolution', () => {
     it('should handle empty backward ref arrays', async () => {
       const { db } = DB({
         Folder: { files: ['<-File'] },
-        File: { folder: '->Folder', name: 'string' }
+        File: { folder: '->Folder', name: 'string' },
       })
 
       const folder = await db.Folder.create({ name: 'Empty Folder' })
@@ -284,7 +284,7 @@ describe('Backward Exact (<-) Resolution', () => {
     it('should handle <- with explicit backref', async () => {
       const { db } = DB({
         Company: { employees: ['<-Employee.employer'] },
-        Employee: { employer: '->Company', name: 'string' }
+        Employee: { employer: '->Company', name: 'string' },
       })
 
       const company = await db.Company.create({ name: 'TechCorp' })
@@ -299,8 +299,8 @@ describe('Backward Exact (<-) Resolution', () => {
       const { db } = DB({
         Node: {
           children: ['<-Node.parent'],
-          parent: '->Node?'
-        }
+          parent: '->Node?',
+        },
       })
 
       const root = await db.Node.create({ name: 'Root' })

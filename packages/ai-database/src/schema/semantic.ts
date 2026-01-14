@@ -7,17 +7,17 @@
  * @packageDocumentation
  */
 
-import type {
-  ParsedEntity,
-  ParsedSchema,
-  EntitySchema,
-} from '../types.js'
+import type { ParsedEntity, ParsedSchema, EntitySchema } from '../types.js'
 
 import type { DBProvider, SemanticSearchResult } from './provider.js'
 import { hasSemanticSearch } from './provider.js'
 import { resolveNestedPending } from './resolve.js'
 import { generateEntity } from './cascade.js'
-import { searchUnionTypes, createProviderSearcher, type FallbackSearchOptions } from './union-fallback.js'
+import {
+  searchUnionTypes,
+  createProviderSearcher,
+  type FallbackSearchOptions,
+} from './union-fallback.js'
 
 /**
  * Safely extract the fuzzy threshold from entity schema
@@ -27,10 +27,8 @@ import { searchUnionTypes, createProviderSearcher, type FallbackSearchOptions } 
  *
  * @param entity - The parsed entity definition
  * @returns The fuzzy matching threshold (0-1), defaults to 0.75
- *
- * @internal
  */
-function getFuzzyThreshold(entity: ParsedEntity): number {
+export function getFuzzyThreshold(entity: ParsedEntity): number {
   const schema = entity.schema as EntitySchema | undefined
   if (schema && '$fuzzyThreshold' in schema) {
     const threshold = schema.$fuzzyThreshold
@@ -79,22 +77,34 @@ export async function resolveBackwardFuzzy(
 
       // Get the hint field value - uses fieldNameHint convention
       const hintKey = `${fieldName}Hint`
-      const searchQuery = (data[hintKey] as string) || field.prompt || ''
+      let searchQuery = (data[hintKey] as string) || field.prompt || ''
 
-      // Skip if no search query available (optional fields without hint)
+      // If no explicit hint or prompt, build context from entity's data
+      // This allows backward fuzzy to match based on the entity's own fields
+      // Only use entity context for required fields - optional fields should stay null
+      if (!searchQuery && !field.isOptional) {
+        const contextParts: string[] = []
+        for (const [key, value] of Object.entries(data)) {
+          if (!key.startsWith('$') && !key.startsWith('_') && typeof value === 'string' && value) {
+            contextParts.push(value)
+          }
+        }
+        searchQuery = contextParts.join(' ')
+      }
+
+      // Skip if no search query available (optional fields without hint, or entity has no string fields)
       if (!searchQuery) {
         continue
       }
 
       // Determine which types to search - all union types or just the primary type
-      const typesToSearch = field.unionTypes && field.unionTypes.length > 0
-        ? field.unionTypes
-        : [field.relatedType!]
+      const typesToSearch =
+        field.unionTypes && field.unionTypes.length > 0 ? field.unionTypes : [field.relatedType!]
 
       // Check if provider supports semantic search
       if (hasSemanticSearch(provider)) {
         // Filter to only types that exist in the schema
-        const validTypes = typesToSearch.filter(t => schema.entities.has(t))
+        const validTypes = typesToSearch.filter((t) => schema.entities.has(t))
         if (validTypes.length === 0) continue
 
         // Create a searcher from the provider
@@ -105,22 +115,18 @@ export async function resolveBackwardFuzzy(
         // - For array fields, use parallel mode to collect all matches
         const searchMode: FallbackSearchOptions['mode'] = field.isArray ? 'parallel' : 'ordered'
 
-        const searchResult = await searchUnionTypes(
-          validTypes,
-          searchQuery,
-          {
-            mode: searchMode,
-            threshold,
-            searcher,
-            returnAll: field.isArray, // For arrays, get all matches
-            limit: field.isArray ? 10 : 1, // Single fields only need 1 result per type
-          }
-        )
+        const searchResult = await searchUnionTypes(validTypes, searchQuery, {
+          mode: searchMode,
+          threshold,
+          searcher,
+          returnAll: field.isArray, // For arrays, get all matches
+          limit: field.isArray ? 10 : 1, // Single fields only need 1 result per type
+        })
 
         if (field.isArray) {
           // For array fields, collect all matches sorted by score
           if (searchResult.matches.length > 0) {
-            resolved[fieldName] = searchResult.matches.map(m => m.$id)
+            resolved[fieldName] = searchResult.matches.map((m) => m.$id)
             // Track metadata about the search
             if (searchResult.fallbackTriggered) {
               resolved[`${fieldName}$fallbackUsed`] = true
@@ -179,9 +185,24 @@ export async function resolveForwardFuzzy(
   schema: ParsedSchema,
   provider: DBProvider,
   parentId: string
-): Promise<{ data: Record<string, unknown>; pendingRelations: Array<{ fieldName: string; targetType: string; targetId: string; similarity?: number; matchedType?: string }> }> {
+): Promise<{
+  data: Record<string, unknown>
+  pendingRelations: Array<{
+    fieldName: string
+    targetType: string
+    targetId: string
+    similarity?: number
+    matchedType?: string
+  }>
+}> {
   const resolved = { ...data }
-  const pendingRelations: Array<{ fieldName: string; targetType: string; targetId: string; similarity?: number; matchedType?: string }> = []
+  const pendingRelations: Array<{
+    fieldName: string
+    targetType: string
+    targetId: string
+    similarity?: number
+    matchedType?: string
+  }> = []
   // Default threshold from entity schema or 0.75
   const defaultThreshold = getFuzzyThreshold(entity)
 
@@ -202,7 +223,8 @@ export async function resolveForwardFuzzy(
       // Get the hint field value - uses fieldNameHint convention
       const hintKey = `${fieldName}Hint`
       const hintValue = data[hintKey]
-      const searchQuery = (typeof hintValue === 'string' ? hintValue : undefined) || field.prompt || fieldName
+      const searchQuery =
+        (typeof hintValue === 'string' ? hintValue : undefined) || field.prompt || fieldName
 
       // Get threshold - field-level overrides entity-level
       const threshold = field.threshold ?? defaultThreshold
@@ -214,9 +236,8 @@ export async function resolveForwardFuzzy(
         const usedEntityIds = new Set<string>() // Track already-matched entities to avoid duplicates
 
         // Determine which types to search - all union types or just the primary type
-        const typesToSearch = field.unionTypes && field.unionTypes.length > 0
-          ? field.unionTypes
-          : [field.relatedType!]
+        const typesToSearch =
+          field.unionTypes && field.unionTypes.length > 0 ? field.unionTypes : [field.relatedType!]
 
         for (const hint of hints) {
           const hintStr = String(hint || fieldName)
@@ -263,13 +284,13 @@ export async function resolveForwardFuzzy(
                 targetType: matchedType,
                 targetId: matchId,
                 similarity: bestMatch.$score,
-                matchedType
+                matchedType,
               })
               // Update the matched entity with $generated: false and similarity metadata
               await provider.update(matchedType, matchId, {
                 $generated: false,
                 $similarity: bestMatch.$score,
-                $matchedType: matchedType
+                $matchedType: matchedType,
               })
               matched = true
             }
@@ -289,20 +310,25 @@ export async function resolveForwardFuzzy(
             // Resolve any pending nested relations
             const relatedEntity = schema.entities.get(generateType)
             if (relatedEntity) {
-              const resolvedGenerated = await resolveNestedPending(generated, relatedEntity, schema, provider)
+              const resolvedGenerated = await resolveNestedPending(
+                generated,
+                relatedEntity,
+                schema,
+                provider
+              )
               const created = await provider.create(generateType, undefined, {
                 ...resolvedGenerated,
                 $generated: true,
                 $generatedBy: parentId,
                 $sourceField: fieldName,
-                $matchedType: generateType
+                $matchedType: generateType,
               })
               resultIds.push(created.$id as string)
               pendingRelations.push({
                 fieldName,
                 targetType: generateType,
                 targetId: created.$id as string,
-                matchedType: generateType
+                matchedType: generateType,
               })
             }
           }
@@ -315,9 +341,8 @@ export async function resolveForwardFuzzy(
         let matchedType: string | undefined
 
         // Determine which types to search - all union types or just the primary type
-        const typesToSearch = field.unionTypes && field.unionTypes.length > 0
-          ? field.unionTypes
-          : [field.relatedType!]
+        const typesToSearch =
+          field.unionTypes && field.unionTypes.length > 0 ? field.unionTypes : [field.relatedType!]
 
         // Try semantic search first - search across all union types
         if (hasSemanticSearch(provider)) {
@@ -357,13 +382,13 @@ export async function resolveForwardFuzzy(
               targetType: matchedType,
               targetId: matchedId,
               similarity: bestMatch.$score,
-              matchedType
+              matchedType,
             })
             // Update the matched entity with $generated: false and similarity metadata
             await provider.update(matchedType, matchedId, {
               $generated: false,
               $similarity: bestMatch.$score,
-              $matchedType: matchedType
+              $matchedType: matchedType,
             })
             matched = true
           }
@@ -375,7 +400,7 @@ export async function resolveForwardFuzzy(
           const generateType = typesToSearch[0]!
           const generated = await generateEntity(
             generateType,
-            searchQuery,  // Use searchQuery which prioritizes hint over field.prompt
+            searchQuery, // Use searchQuery which prioritizes hint over field.prompt
             { parent: typeName, parentData: data, parentId },
             schema
           )
@@ -383,13 +408,18 @@ export async function resolveForwardFuzzy(
           // Resolve any pending nested relations
           const relatedEntity = schema.entities.get(generateType)
           if (relatedEntity) {
-            const resolvedGenerated = await resolveNestedPending(generated, relatedEntity, schema, provider)
+            const resolvedGenerated = await resolveNestedPending(
+              generated,
+              relatedEntity,
+              schema,
+              provider
+            )
             const created = await provider.create(generateType, undefined, {
               ...resolvedGenerated,
               $generated: true,
               $generatedBy: parentId,
               $sourceField: fieldName,
-              $matchedType: generateType
+              $matchedType: generateType,
             })
             resolved[fieldName] = created.$id
             resolved[`${fieldName}$matchedType`] = generateType
@@ -397,7 +427,7 @@ export async function resolveForwardFuzzy(
               fieldName,
               targetType: generateType,
               targetId: created.$id as string,
-              matchedType: generateType
+              matchedType: generateType,
             })
           }
         }

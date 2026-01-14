@@ -6,7 +6,14 @@
  * Supports automatic embedding generation on create/update.
  */
 
-import type { DBProvider, ListOptions, SearchOptions, EmbeddingsConfig, SemanticSearchOptions, HybridSearchOptions } from './schema.js'
+import type {
+  DBProvider,
+  ListOptions,
+  SearchOptions,
+  EmbeddingsConfig,
+  SemanticSearchOptions,
+  HybridSearchOptions,
+} from './schema.js'
 import {
   cosineSimilarity,
   computeRRF,
@@ -14,6 +21,20 @@ import {
   generateContentHash,
 } from './semantic.js'
 import { EMBEDDING_DIMENSIONS } from './constants.js'
+import {
+  validateTypeName,
+  validateEntityId,
+  validateSearchQuery,
+  validateEntityData,
+  validateRelationName,
+  validateEventPattern,
+  validateActionType,
+  validateArtifactUrl,
+  validateListOptions,
+  validateSearchOptions,
+  validateFieldName,
+  isDangerousField,
+} from './validation.js'
 
 // =============================================================================
 // Semaphore for Concurrency Control
@@ -365,8 +386,13 @@ function toPresent(verb: string): string {
   if (verb.endsWith('y') && !isVowel(verb[verb.length - 2])) {
     return verb.slice(0, -1) + 'ies'
   }
-  if (verb.endsWith('s') || verb.endsWith('x') || verb.endsWith('z') ||
-      verb.endsWith('ch') || verb.endsWith('sh')) {
+  if (
+    verb.endsWith('s') ||
+    verb.endsWith('x') ||
+    verb.endsWith('z') ||
+    verb.endsWith('ch') ||
+    verb.endsWith('sh')
+  ) {
     return verb + 'es'
   }
   return verb + 's'
@@ -551,7 +577,7 @@ export class MemoryProvider implements DBProvider {
 
       // GraphQL/API
       graphql: [0.1, 0.75, 0.15, 0.55],
-      api: [0.15, 0.7, 0.2, 0.5],
+      // Note: api is defined in Documentation cluster below (strong in doc dimension)
       rest: [0.12, 0.68, 0.18, 0.48],
       queries: [0.14, 0.65, 0.12, 0.6],
 
@@ -647,6 +673,144 @@ export class MemoryProvider implements DBProvider {
       sales: [0.42, 0.38, 0.68, 0.52],
       salesforce: [0.48, 0.42, 0.72, 0.58],
       provider: [0.5, 0.45, 0.65, 0.5],
+
+      // Electronics/Audio domain - cluster for electronic devices
+      electronic: [0.32, 0.76, 0.24, 0.14],
+      audio: [0.3, 0.74, 0.22, 0.12],
+      devices: [0.28, 0.78, 0.2, 0.1],
+
+      // Apparel/Fashion domain - distinctly different from electronics
+      apparel: [0.08, 0.12, 0.15, 0.92],
+      fashion: [0.1, 0.14, 0.12, 0.9],
+      clothing: [0.06, 0.1, 0.14, 0.94],
+
+      // iOS/iPhone/smartphone cluster - distinct from laptop
+      ios: [0.9, 0.7, 0.15, 0.05],
+      iphone: [0.88, 0.72, 0.16, 0.06],
+      smartphone: [0.85, 0.68, 0.18, 0.08],
+      mobile: [0.82, 0.65, 0.2, 0.1],
+      apple: [0.5, 0.6, 0.3, 0.2],
+
+      // MacBook/laptop cluster - distinctly different direction from smartphone
+      macbook: [0.15, 0.55, 0.85, 0.25],
+      laptop: [0.12, 0.52, 0.88, 0.28],
+      computer: [0.1, 0.5, 0.9, 0.3],
+      macos: [0.18, 0.58, 0.82, 0.22],
+
+      // Samsung/Android cluster - similar to iOS cluster direction
+      samsung: [0.78, 0.62, 0.22, 0.14],
+      galaxy: [0.76, 0.6, 0.24, 0.16],
+      android: [0.8, 0.64, 0.2, 0.12],
+
+      // Audio accessories
+      wireless: [0.28, 0.72, 0.24, 0.14],
+      bluetooth: [0.26, 0.74, 0.22, 0.12],
+      headphones: [0.3, 0.76, 0.2, 0.1],
+
+      // Young professionals domain
+      young: [0.65, 0.35, 0.45, 0.15],
+      professionals: [0.68, 0.38, 0.42, 0.12],
+      working: [0.62, 0.32, 0.48, 0.18],
+      adults: [0.58, 0.3, 0.5, 0.22],
+      early: [0.64, 0.34, 0.46, 0.16],
+      careers: [0.7, 0.4, 0.4, 0.1],
+      career: [0.7, 0.4, 0.4, 0.1],
+      urban: [0.6, 0.36, 0.44, 0.2],
+      college: [0.66, 0.38, 0.42, 0.14],
+      educated: [0.68, 0.4, 0.4, 0.12],
+      ages: [0.5, 0.3, 0.4, 0.3],
+
+      // Senior citizens domain - distinctly different from young professionals
+      citizens: [0.15, 0.55, 0.35, 0.75],
+      retired: [0.12, 0.5, 0.38, 0.8],
+
+      // AI/Deep learning extension
+      models: [0.86, 0.14, 0.08, 0.04],
+
+      // Web development technologies
+      web: [0.1, 0.86, 0.12, 0.06],
+      technologies: [0.12, 0.84, 0.14, 0.08],
+      node: [0.1, 0.88, 0.1, 0.04],
+      js: [0.12, 0.86, 0.12, 0.06],
+      backend: [0.15, 0.82, 0.18, 0.1],
+
+      // Marketing domain
+      marketing: [0.4, 0.45, 0.55, 0.4],
+      manager: [0.38, 0.48, 0.52, 0.38],
+      strategy: [0.42, 0.5, 0.5, 0.35],
+      charge: [0.35, 0.42, 0.55, 0.42],
+
+      // Project management
+      project: [0.35, 0.55, 0.45, 0.35],
+      soft: [0.3, 0.52, 0.48, 0.4],
+      skills: [0.32, 0.58, 0.42, 0.32],
+
+      // Content types for union type resolution tests
+      // The key insight: make words that appear in BOTH query and target entity
+      // have strong alignment in the same cluster
+
+      // Tutorial cluster - strong in dim 1 (learning/educational)
+      // Query: "A step-by-step guide for learning React components" should match Tutorial
+      // Tutorial title: "Getting Started with React Hooks"
+      // Common context: "step", "guide", "learning", "react"
+      tutorial: [0.95, 0.1, 0.08, 0.02],
+      step: [0.92, 0.08, 0.05, 0.02], // key query word
+      steps: [0.92, 0.08, 0.05, 0.02], // pluralized
+      guide: [0.88, 0.1, 0.08, 0.04], // appears in query - bias toward tutorial
+      walkthrough: [0.9, 0.08, 0.06, 0.02],
+      getting: [0.92, 0.08, 0.05, 0.02], // Tutorial title starts with this
+      started: [0.9, 0.06, 0.04, 0.02], // Tutorial title word
+      components: [0.88, 0.15, 0.06, 0.03], // query word, tutorial context
+
+      // Video cluster - strong in dim 2 (media/visual)
+      // Query: "A video introduction to machine learning concepts" should match Video
+      // Video title: "Machine Learning Fundamentals"
+      // Common context: "video", "machine", "learning", "fundamentals"
+      video: [0.05, 0.95, 0.08, 0.04],
+      watch: [0.04, 0.9, 0.06, 0.03],
+      film: [0.03, 0.88, 0.05, 0.02],
+      movie: [0.02, 0.85, 0.04, 0.02],
+      introduction: [0.08, 0.9, 0.08, 0.05], // query word, video context
+      intro: [0.06, 0.88, 0.06, 0.04],
+      duration: [0.02, 0.82, 0.04, 0.02],
+      hours: [0.02, 0.8, 0.03, 0.02],
+      fundamentals: [0.08, 0.92, 0.06, 0.04], // Video title word
+      concepts: [0.1, 0.85, 0.08, 0.05], // query word, video context
+      mp4: [0.01, 0.98, 0.02, 0.01],
+      homepage: [0.04, 0.88, 0.06, 0.03],
+
+      // Documentation cluster - strong in dim 3 (reference/formal)
+      // Documentation title: "API Reference Guide"
+      // Note: "guide" also appears here but we bias it toward tutorial
+      documentation: [0.06, 0.1, 0.95, 0.04],
+      api: [0.05, 0.08, 0.92, 0.03], // Documentation title word - strong in doc cluster
+      reference: [0.04, 0.08, 0.92, 0.03], // Documentation title word
+      pages: [0.03, 0.06, 0.9, 0.02], // Documentation field
+      manual: [0.02, 0.05, 0.88, 0.02],
+
+      // Course cluster - strong in dim 4 (comprehensive/structured)
+      // Course title: "Full Stack Web Development Bootcamp"
+      course: [0.15, 0.2, 0.1, 0.92],
+      bootcamp: [0.12, 0.18, 0.08, 0.9],
+      modules: [0.1, 0.15, 0.06, 0.88],
+      curriculum: [0.08, 0.12, 0.05, 0.85],
+      comprehensive: [0.06, 0.1, 0.04, 0.82],
+      full: [0.1, 0.15, 0.08, 0.85],
+      stack: [0.12, 0.18, 0.1, 0.82],
+
+      // Image cluster - strong in dim 2+3 (visual media) - different direction from video
+      // Image should NOT be matched for "video" queries
+      image: [0.05, 0.45, 0.85, 0.08],
+      photo: [0.04, 0.42, 0.88, 0.06],
+      picture: [0.03, 0.4, 0.9, 0.05],
+      src: [0.06, 0.48, 0.82, 0.08],
+      alt: [0.05, 0.45, 0.8, 0.06],
+
+      // Document cluster - different from documentation
+      document: [0.08, 0.1, 0.78, 0.15],
+      file: [0.06, 0.12, 0.75, 0.12],
+      path: [0.05, 0.15, 0.72, 0.1],
+      format: [0.04, 0.18, 0.7, 0.08],
     }
 
     const DEFAULT_VECTOR = [0.1, 0.1, 0.1, 0.1]
@@ -656,7 +820,7 @@ export class MemoryProvider implements DBProvider {
       let hash = 0
       for (let i = 0; i < str.length; i++) {
         const char = str.charCodeAt(i)
-        hash = ((hash << 5) - hash) + char
+        hash = (hash << 5) - hash + char
         hash = hash & hash
       }
       return Math.abs(hash)
@@ -673,21 +837,19 @@ export class MemoryProvider implements DBProvider {
       .toLowerCase()
       .replace(/[^\w\s]/g, ' ')
       .split(/\s+/)
-      .filter(w => w.length > 0)
+      .filter((w) => w.length > 0)
 
     if (words.length === 0) {
-      return Array.from({ length: EMBEDDING_DIMENSIONS }, (_, i) =>
-        seededRandom(0, i) * 0.01
-      )
+      return Array.from({ length: EMBEDDING_DIMENSIONS }, (_, i) => seededRandom(0, i) * 0.01)
     }
 
     // Aggregate word vectors
     const aggregated: number[] = [0, 0, 0, 0]
     for (const word of words) {
       const lower = word.toLowerCase()
-      const vec = SEMANTIC_VECTORS[lower] ?? DEFAULT_VECTOR.map((v, i) =>
-        v + seededRandom(simpleHash(lower), i) * 0.1
-      )
+      const vec =
+        SEMANTIC_VECTORS[lower] ??
+        DEFAULT_VECTOR.map((v, i) => v + seededRandom(simpleHash(lower), i) * 0.1)
       for (let i = 0; i < 4; i++) {
         aggregated[i]! += vec[i]!
       }
@@ -695,7 +857,7 @@ export class MemoryProvider implements DBProvider {
 
     // Normalize
     const norm = Math.sqrt(aggregated.reduce((sum, v) => sum + v * v, 0))
-    const normalized = aggregated.map(v => v / (norm || 1))
+    const normalized = aggregated.map((v) => v / (norm || 1))
 
     // Expand to full dimensions
     const textHash = simpleHash(text)
@@ -833,19 +995,17 @@ export class MemoryProvider implements DBProvider {
     return this.entities.get(type)!
   }
 
-  async get(
-    type: string,
-    id: string
-  ): Promise<Record<string, unknown> | null> {
+  async get(type: string, id: string): Promise<Record<string, unknown> | null> {
+    validateTypeName(type)
+    validateEntityId(id)
     const store = this.getTypeStore(type)
     const entity = store.get(id)
     return entity ? { ...entity, $id: id, $type: type } : null
   }
 
-  async list(
-    type: string,
-    options?: ListOptions
-  ): Promise<Record<string, unknown>[]> {
+  async list(type: string, options?: ListOptions): Promise<Record<string, unknown>[]> {
+    validateTypeName(type)
+    validateListOptions(options)
     const store = this.getTypeStore(type)
     let results: Record<string, unknown>[] = []
 
@@ -899,9 +1059,21 @@ export class MemoryProvider implements DBProvider {
     query: string,
     options?: SearchOptions
   ): Promise<Record<string, unknown>[]> {
+    validateTypeName(type)
+    validateSearchQuery(query)
+    validateSearchOptions(options)
+
     const all = await this.list(type, options)
     const queryLower = query.toLowerCase()
-    const fields = options?.fields || ['$all']
+    let fields = options?.fields || ['$all']
+
+    // Filter out dangerous field names
+    fields = fields.filter((f) => !isDangerousField(f))
+
+    // If all fields were dangerous, return empty results
+    if (fields.length === 0) {
+      return []
+    }
 
     const scored: Array<{ entity: Record<string, unknown>; score: number }> = []
 
@@ -1004,18 +1176,19 @@ export class MemoryProvider implements DBProvider {
     // If using embeddingProvider with findSimilar, use it
     if (this.embeddingProvider?.findSimilar && entities.length > 0) {
       try {
-        const results = this.embeddingProvider.findSimilar(
-          queryEmbedding,
-          embeddings,
-          entities,
-          { topK: limit, minScore }
-        )
+        const results = this.embeddingProvider.findSimilar(queryEmbedding, embeddings, entities, {
+          topK: limit,
+          minScore,
+        })
         return results.map(({ item, score }) => ({
           ...item.entity,
           $score: score,
         }))
       } catch (err) {
-        console.warn('Custom embedding provider findSimilar failed, falling back to manual scoring:', err)
+        console.warn(
+          'Custom embedding provider findSimilar failed, falling back to manual scoring:',
+          err
+        )
       }
     }
 
@@ -1023,12 +1196,7 @@ export class MemoryProvider implements DBProvider {
     if (this.useAiFunctions && entities.length > 0) {
       try {
         const { findSimilar } = await import('ai-functions')
-        const results = findSimilar(
-          queryEmbedding,
-          embeddings,
-          entities,
-          { topK: limit, minScore }
-        )
+        const results = findSimilar(queryEmbedding, embeddings, entities, { topK: limit, minScore })
         return results.map(({ item, score }) => ({
           ...item.entity,
           $score: score,
@@ -1069,12 +1237,16 @@ export class MemoryProvider implements DBProvider {
     type: string,
     query: string,
     options?: HybridSearchOptions
-  ): Promise<Array<Record<string, unknown> & {
-    $rrfScore: number
-    $ftsRank: number
-    $semanticRank: number
-    $score: number
-  }>> {
+  ): Promise<
+    Array<
+      Record<string, unknown> & {
+        $rrfScore: number
+        $ftsRank: number
+        $semanticRank: number
+        $score: number
+      }
+    >
+  > {
     const limit = options?.limit ?? 10
     const offset = options?.offset ?? 0
     const rrfK = options?.rrfK ?? 60
@@ -1092,7 +1264,10 @@ export class MemoryProvider implements DBProvider {
 
     // Get semantic results with their ranks and scores
     // Get more results to ensure we have enough after offset
-    const semanticResults = await this.semanticSearch(type, query, { limit: (limit + offset) * 2, minScore })
+    const semanticResults = await this.semanticSearch(type, query, {
+      limit: (limit + offset) * 2,
+      minScore,
+    })
     const semanticRanks = new Map<string, { rank: number; score: number }>()
     semanticResults.forEach((entity, index) => {
       const id = (entity.$id as string) || (entity.id as string)
@@ -1138,13 +1313,15 @@ export class MemoryProvider implements DBProvider {
     combined.sort((a, b) => b.rrfScore - a.rrfScore)
 
     // Apply offset and limit, then return with scoring fields
-    return combined.slice(offset, offset + limit).map(({ entity, rrfScore, ftsRank, semanticRank, semanticScore }) => ({
-      ...entity,
-      $rrfScore: rrfScore,
-      $ftsRank: ftsRank,
-      $semanticRank: semanticRank,
-      $score: semanticScore,
-    }))
+    return combined
+      .slice(offset, offset + limit)
+      .map(({ entity, rrfScore, ftsRank, semanticRank, semanticScore }) => ({
+        ...entity,
+        $rrfScore: rrfScore,
+        $ftsRank: ftsRank,
+        $semanticRank: semanticRank,
+        $score: semanticScore,
+      }))
   }
 
   /**
@@ -1174,6 +1351,12 @@ export class MemoryProvider implements DBProvider {
     id: string | undefined,
     data: Record<string, unknown>
   ): Promise<Record<string, unknown>> {
+    validateTypeName(type)
+    if (id !== undefined) {
+      validateEntityId(id)
+    }
+    validateEntityData(data)
+
     const store = this.getTypeStore(type)
     const entityId = id || generateId()
 
@@ -1205,6 +1388,10 @@ export class MemoryProvider implements DBProvider {
     id: string,
     data: Record<string, unknown>
   ): Promise<Record<string, unknown>> {
+    validateTypeName(type)
+    validateEntityId(id)
+    validateEntityData(data)
+
     const store = this.getTypeStore(type)
     const existing = store.get(id)
 
@@ -1235,6 +1422,9 @@ export class MemoryProvider implements DBProvider {
   }
 
   async delete(type: string, id: string): Promise<boolean> {
+    validateTypeName(type)
+    validateEntityId(id)
+
     const store = this.getTypeStore(type)
 
     if (!store.has(id)) {
@@ -1279,19 +1469,11 @@ export class MemoryProvider implements DBProvider {
    *
    * @internal
    */
-  private relationKey(
-    fromType: string,
-    fromId: string,
-    relation: string
-  ): string {
+  private relationKey(fromType: string, fromId: string, relation: string): string {
     return `${fromType}:${fromId}:${relation}`
   }
 
-  async related(
-    type: string,
-    id: string,
-    relation: string
-  ): Promise<Record<string, unknown>[]> {
+  async related(type: string, id: string, relation: string): Promise<Record<string, unknown>[]> {
     const key = this.relationKey(type, id, relation)
     const targets = this.relations.get(key)
 
@@ -1317,6 +1499,12 @@ export class MemoryProvider implements DBProvider {
     toId: string,
     metadata?: { matchMode?: 'exact' | 'fuzzy'; similarity?: number; matchedType?: string }
   ): Promise<void> {
+    validateTypeName(fromType)
+    validateEntityId(fromId)
+    validateRelationName(relation)
+    validateTypeName(toType)
+    validateEntityId(toId)
+
     const key = this.relationKey(fromType, fromId, relation)
 
     if (!this.relations.has(key)) {
@@ -1379,16 +1567,18 @@ export class MemoryProvider implements DBProvider {
    * ```
    */
   async emit(
-    eventOrType: string | {
-      actor?: string
-      actorData?: ActorData
-      event: string
-      object?: string
-      objectData?: Record<string, unknown>
-      result?: string
-      resultData?: Record<string, unknown>
-      meta?: Record<string, unknown>
-    },
+    eventOrType:
+      | string
+      | {
+          actor?: string
+          actorData?: ActorData
+          event: string
+          object?: string
+          objectData?: Record<string, unknown>
+          result?: string
+          resultData?: Record<string, unknown>
+          meta?: Record<string, unknown>
+        },
     data?: unknown
   ): Promise<Event> {
     let event: Event
@@ -1427,9 +1617,7 @@ export class MemoryProvider implements DBProvider {
 
     // Trigger handlers (with concurrency control)
     const handlers = this.getEventHandlers(event.event)
-    await this.semaphore.map(handlers, (handler) =>
-      Promise.resolve(handler(event))
-    )
+    await this.semaphore.map(handlers, (handler) => Promise.resolve(handler(event)))
 
     return event
   }
@@ -1488,6 +1676,8 @@ export class MemoryProvider implements DBProvider {
   }
 
   on(pattern: string, handler: (event: Event) => void | Promise<void>): () => void {
+    validateEventPattern(pattern)
+
     if (!this.eventHandlers.has(pattern)) {
       this.eventHandlers.set(pattern, [])
     }
@@ -1598,6 +1788,9 @@ export class MemoryProvider implements DBProvider {
   }): Promise<Action> {
     // Get base verb from action or legacy type
     const baseVerb = data.action ?? data.type ?? 'process'
+
+    // Validate action type
+    validateActionType(baseVerb)
 
     // Auto-conjugate verb forms
     const conjugated = conjugateVerb(baseVerb)
@@ -1763,7 +1956,11 @@ export class MemoryProvider implements DBProvider {
     if (!action) {
       throw new Error(`Action not found: ${id}`)
     }
-    if (action.status === 'completed' || action.status === 'failed' || action.status === 'cancelled') {
+    if (
+      action.status === 'completed' ||
+      action.status === 'failed' ||
+      action.status === 'cancelled'
+    ) {
       throw new Error(`Cannot cancel finished action: ${id}`)
     }
 
@@ -1807,6 +2004,8 @@ export class MemoryProvider implements DBProvider {
     type: string,
     data: { content: unknown; sourceHash: string; metadata?: Record<string, unknown> }
   ): Promise<void> {
+    validateArtifactUrl(url)
+
     const artifact: Artifact = {
       url,
       type,
@@ -1899,7 +2098,13 @@ export class MemoryProvider implements DBProvider {
     entities: number
     relations: number
     events: number
-    actions: { pending: number; active: number; completed: number; failed: number; cancelled: number }
+    actions: {
+      pending: number
+      active: number
+      completed: number
+      failed: number
+      cancelled: number
+    }
     artifacts: number
     concurrency: { active: number; pending: number }
   } {

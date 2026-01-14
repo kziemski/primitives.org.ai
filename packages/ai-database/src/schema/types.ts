@@ -45,8 +45,10 @@ export interface ReferenceSpec {
   field: string
   /** The relationship operator: ->, ~>, <-, <~ */
   operator: '->' | '~>' | '<-' | '<~'
-  /** Target entity type */
+  /** Target entity type (first type in union if union type) */
   type: string
+  /** Union types to search (for fuzzy union references like ~>Type1|Type2) */
+  unionTypes?: string[]
   /** Match mode for resolving */
   matchMode: 'exact' | 'fuzzy'
   /** Whether this reference is resolved */
@@ -55,6 +57,10 @@ export interface ReferenceSpec {
   prompt?: string
   /** Generated natural language text (before resolution) */
   generatedText?: string
+  /** Source entity's $instructions for context propagation */
+  sourceInstructions?: string
+  /** Fuzzy threshold for matching (from $fuzzyThreshold) */
+  threshold?: number
 }
 
 /**
