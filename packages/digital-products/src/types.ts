@@ -1,85 +1,793 @@
 /**
- * Core types for digital products
+ * @packageDocumentation
+ * @module digital-products
+ *
+ * Digital product types for schema.org.ai
+ *
+ * This package provides product types using JSON-LD conventions:
+ * - {@link Product} - Base product interface
+ * - {@link App} - Application (web, mobile, desktop)
+ * - {@link API} - API with versioning and auth
+ * - {@link Site} - Website (marketing, docs, blog)
+ * - {@link Service} - Backend service
+ * - {@link Feature} - Product feature with lifecycle
+ *
+ * All types use `$id` and `$type` fields (JSON-LD style).
+ *
+ * ## Unified Types (Recommended)
+ *
+ * The unified types use JSON-LD conventions with `$id` and `$type`:
+ *
+ * @example
+ * ```typescript
+ * import { createApp, isApp, AppSchema } from 'digital-products'
+ *
+ * const app = createApp({
+ *   $id: 'my-app',
+ *   name: 'My App',
+ *   description: 'An app',
+ *   platform: 'web',
+ *   url: 'https://example.com'
+ * })
+ *
+ * if (isApp(data)) {
+ *   console.log(data.platform)
+ * }
+ * ```
+ *
+ * ## Legacy Definition Types
+ *
+ * The `*Definition` types (AppDefinition, APIDefinition, etc.) are maintained
+ * for backwards compatibility. New code should use the unified types.
  */
 
-import type { SimpleSchema } from 'ai-functions'
+import { z } from 'zod'
+
+// Import SimpleSchema from ai-functions if available, otherwise define locally
+// This allows the package to work standalone for unified types testing
+type SimpleSchema = Record<string, unknown>
+
+// =============================================================================
+// UNIFIED TYPES (JSON-LD Style)
+// =============================================================================
 
 /**
  * Product - Base interface for digital products
  *
- * Represents any digital product with schema.org.ai-style identifiers.
- * Extended by App, API, Site, and other specific product types.
+ * All digital products (App, API, Site, Service) extend this base.
+ * Uses JSON-LD conventions with `$id` and `$type`.
+ *
+ * The `$id` field is a unique identifier URI for the product.
+ * The `$type` field identifies this as a Product type.
  *
  * @see https://schema.org.ai/Product
+ *
+ * @example
+ * ```typescript
+ * const product = createProduct({
+ *   $id: 'https://schema.org.ai/products/acme',
+ *   name: 'Acme Product',
+ *   description: 'A digital product'
+ * })
+ * // product.status === 'active' (default)
+ * // product.$type === 'https://schema.org.ai/Product'
+ * ```
  */
 export interface Product {
-  /** Unique identifier URI */
+  /** Unique identifier URI (JSON-LD `@id` equivalent) */
   $id: string
-  /** Type URI */
+  /** Type URI (JSON-LD `@type` equivalent) */
   $type: 'https://schema.org.ai/Product'
   /** Human-readable name */
   name: string
   /** Description of the product */
   description: string
-  /** Product status */
+  /** Product status - defaults to 'active' when created via factory */
   status: 'active' | 'inactive' | 'archived'
+}
+
+/**
+ * Zod schema for validating Product objects
+ *
+ * Use this schema for runtime validation of Product data.
+ *
+ * @see {@link Product}
+ * @see {@link isProduct}
+ *
+ * @example
+ * ```typescript
+ * const result = ProductSchema.safeParse(data)
+ * if (result.success) {
+ *   console.log(result.data.name)
+ * }
+ * ```
+ */
+export const ProductSchema = z.object({
+  $id: z.string(),
+  $type: z.literal('https://schema.org.ai/Product'),
+  name: z.string(),
+  description: z.string(),
+  status: z.enum(['active', 'inactive', 'archived'])
+})
+
+/**
+ * Type guard to check if an object is a valid Product
+ *
+ * Uses Zod schema validation under the hood for comprehensive checking.
+ *
+ * @param obj - Object to validate
+ * @returns True if valid Product (JSON-LD style with $id/$type)
+ *
+ * @see {@link Product}
+ * @see {@link ProductSchema}
+ *
+ * @example
+ * ```typescript
+ * if (isProduct(data)) {
+ *   // TypeScript knows data is Product here
+ *   console.log(data.$id, data.name)
+ * }
+ * ```
+ */
+export function isProduct(obj: unknown): obj is Product {
+  return ProductSchema.safeParse(obj).success
+}
+
+/**
+ * Factory function to create a new Product
+ *
+ * Automatically sets `$type` to 'https://schema.org.ai/Product' and
+ * defaults `status` to 'active' if not provided.
+ *
+ * @param input - Product data (status defaults to 'active')
+ * @returns Complete Product with $type auto-filled
+ *
+ * @see {@link Product}
+ *
+ * @example
+ * ```typescript
+ * const product = createProduct({
+ *   $id: 'https://schema.org.ai/products/acme',
+ *   name: 'Acme Product',
+ *   description: 'A digital product'
+ * })
+ * // product.status === 'active'
+ * // product.$type === 'https://schema.org.ai/Product'
+ * ```
+ */
+export function createProduct(input: Omit<Product, '$type' | 'status'> & { status?: Product['status'] }): Product {
+  return {
+    ...input,
+    $type: 'https://schema.org.ai/Product',
+    status: input.status ?? 'active'
+  }
 }
 
 /**
  * App - Application product (web, mobile, desktop)
  *
- * Represents interactive user-facing applications that run on
- * various platforms including web browsers, mobile devices, and desktops.
+ * Interactive user-facing applications that run on various platforms
+ * including web browsers, mobile devices, and desktops.
+ *
+ * Extends {@link Product} with platform-specific fields.
  *
  * @see https://schema.org.ai/App
+ *
+ * @example
+ * ```typescript
+ * const app = createApp({
+ *   $id: 'https://schema.org.ai/apps/dashboard',
+ *   name: 'Dashboard',
+ *   description: 'Admin dashboard',
+ *   platform: 'web',
+ *   url: 'https://dashboard.example.com'
+ * })
+ * // app.$type === 'https://schema.org.ai/App'
+ * // app.status === 'active' (default)
+ * ```
  */
 export interface App extends Omit<Product, '$type'> {
-  /** Type URI for App */
+  /** Type URI for App (JSON-LD `@type` equivalent) */
   $type: 'https://schema.org.ai/App'
-  /** Platform the app runs on */
+  /** Platform the app runs on - web, mobile, desktop, or api */
   platform: 'web' | 'mobile' | 'desktop' | 'api'
-  /** URL where the app is hosted */
+  /** URL where the app is hosted or accessible */
   url: string
+}
+
+/**
+ * Zod schema for validating App objects
+ *
+ * Use this schema for runtime validation of App data.
+ *
+ * @see {@link App}
+ * @see {@link isApp}
+ *
+ * @example
+ * ```typescript
+ * const result = AppSchema.safeParse(data)
+ * if (result.success) {
+ *   console.log(result.data.platform, result.data.url)
+ * }
+ * ```
+ */
+export const AppSchema = z.object({
+  $id: z.string(),
+  $type: z.literal('https://schema.org.ai/App'),
+  name: z.string(),
+  description: z.string(),
+  status: z.enum(['active', 'inactive', 'archived']),
+  platform: z.enum(['web', 'mobile', 'desktop', 'api']),
+  url: z.string()
+})
+
+/**
+ * Type guard to check if an object is a valid App
+ *
+ * Uses Zod schema validation under the hood.
+ *
+ * @param obj - Object to validate
+ * @returns True if valid App (JSON-LD style with $id/$type and platform/url)
+ *
+ * @see {@link App}
+ * @see {@link AppSchema}
+ *
+ * @example
+ * ```typescript
+ * if (isApp(data)) {
+ *   // TypeScript knows data is App here
+ *   console.log(data.platform, data.url)
+ * }
+ * ```
+ */
+export function isApp(obj: unknown): obj is App {
+  return AppSchema.safeParse(obj).success
+}
+
+/**
+ * Factory function to create a new App
+ *
+ * Automatically sets `$type` to 'https://schema.org.ai/App' and
+ * defaults `status` to 'active' if not provided.
+ *
+ * @param input - App data (status defaults to 'active')
+ * @returns Complete App with $type auto-filled
+ *
+ * @see {@link App}
+ *
+ * @example
+ * ```typescript
+ * const app = createApp({
+ *   $id: 'https://schema.org.ai/apps/dashboard',
+ *   name: 'Dashboard',
+ *   description: 'Admin dashboard',
+ *   platform: 'web',
+ *   url: 'https://dashboard.example.com'
+ * })
+ * ```
+ */
+export function createApp(input: Omit<App, '$type' | 'status'> & { status?: App['status'] }): App {
+  return {
+    ...input,
+    $type: 'https://schema.org.ai/App',
+    status: input.status ?? 'active'
+  }
 }
 
 /**
  * API - API product with versioning and auth
  *
- * Represents programmatic interfaces that expose functionality
- * to other software via HTTP/REST, GraphQL, or other protocols.
+ * Programmatic interfaces for other software to consume.
+ * Includes versioning and authentication configuration.
+ *
+ * Extends {@link Product} with API-specific fields.
  *
  * @see https://schema.org.ai/API
+ *
+ * @example
+ * ```typescript
+ * const api = createAPI({
+ *   $id: 'https://schema.org.ai/apis/users',
+ *   name: 'Users API',
+ *   description: 'User management API',
+ *   baseUrl: 'https://api.example.com/v1',
+ *   version: '1.0.0',
+ *   authentication: 'bearer'
+ * })
+ * // api.$type === 'https://schema.org.ai/API'
+ * ```
  */
 export interface API extends Omit<Product, '$type'> {
-  /** Type URI for API */
+  /** Type URI for API (JSON-LD `@type` equivalent) */
   $type: 'https://schema.org.ai/API'
   /** Base URL for API endpoints */
   baseUrl: string
-  /** API version */
+  /** API version string (e.g., '1.0.0', 'v2') */
   version: string
-  /** Authentication method */
+  /** Authentication method - bearer token, API key, OAuth, or none */
   authentication: 'bearer' | 'api_key' | 'oauth' | 'none'
+}
+
+/**
+ * Zod schema for validating API objects
+ *
+ * Use this schema for runtime validation of API data.
+ *
+ * @see {@link API}
+ * @see {@link isAPI}
+ *
+ * @example
+ * ```typescript
+ * const result = APISchema.safeParse(data)
+ * if (result.success) {
+ *   console.log(result.data.baseUrl, result.data.version)
+ * }
+ * ```
+ */
+export const APISchema = z.object({
+  $id: z.string(),
+  $type: z.literal('https://schema.org.ai/API'),
+  name: z.string(),
+  description: z.string(),
+  status: z.enum(['active', 'inactive', 'archived']),
+  baseUrl: z.string(),
+  version: z.string(),
+  authentication: z.enum(['bearer', 'api_key', 'oauth', 'none'])
+})
+
+/**
+ * Type guard to check if an object is a valid API
+ *
+ * Uses Zod schema validation under the hood.
+ *
+ * @param obj - Object to validate
+ * @returns True if valid API (JSON-LD style with baseUrl, version, authentication)
+ *
+ * @see {@link API}
+ * @see {@link APISchema}
+ *
+ * @example
+ * ```typescript
+ * if (isAPI(data)) {
+ *   // TypeScript knows data is API here
+ *   console.log(data.baseUrl, data.authentication)
+ * }
+ * ```
+ */
+export function isAPI(obj: unknown): obj is API {
+  return APISchema.safeParse(obj).success
+}
+
+/**
+ * Factory function to create a new API
+ *
+ * Automatically sets `$type` to 'https://schema.org.ai/API' and
+ * defaults `status` to 'active' if not provided.
+ *
+ * @param input - API data (status defaults to 'active')
+ * @returns Complete API with $type auto-filled
+ *
+ * @see {@link API}
+ *
+ * @example
+ * ```typescript
+ * const api = createAPI({
+ *   $id: 'https://schema.org.ai/apis/users',
+ *   name: 'Users API',
+ *   description: 'User management API',
+ *   baseUrl: 'https://api.example.com/v1',
+ *   version: '1.0.0',
+ *   authentication: 'bearer'
+ * })
+ * ```
+ */
+export function createAPI(input: Omit<API, '$type' | 'status'> & { status?: API['status'] }): API {
+  return {
+    ...input,
+    $type: 'https://schema.org.ai/API',
+    status: input.status ?? 'active'
+  }
 }
 
 /**
  * Site - Website product (marketing, docs, blog)
  *
- * Represents websites including marketing pages, documentation sites,
- * blogs, and other web-based content destinations.
+ * Content-focused websites including marketing pages, documentation sites,
+ * blogs, and web applications.
+ *
+ * Extends {@link Product} with site-specific fields.
  *
  * @see https://schema.org.ai/Site
+ *
+ * @example
+ * ```typescript
+ * const site = createSite({
+ *   $id: 'https://schema.org.ai/sites/docs',
+ *   name: 'Documentation',
+ *   description: 'Product documentation site',
+ *   url: 'https://docs.example.com',
+ *   siteType: 'docs'
+ * })
+ * // site.$type === 'https://schema.org.ai/Site'
+ * ```
  */
 export interface Site extends Omit<Product, '$type'> {
-  /** Type URI for Site */
+  /** Type URI for Site (JSON-LD `@type` equivalent) */
   $type: 'https://schema.org.ai/Site'
   /** URL of the site */
   url: string
-  /** Type of website */
+  /** Type of website - marketing, docs, blog, or app */
   siteType: 'marketing' | 'docs' | 'blog' | 'app'
 }
 
 /**
+ * Zod schema for validating Site objects
+ *
+ * Use this schema for runtime validation of Site data.
+ *
+ * @see {@link Site}
+ * @see {@link isSite}
+ *
+ * @example
+ * ```typescript
+ * const result = SiteSchema.safeParse(data)
+ * if (result.success) {
+ *   console.log(result.data.url, result.data.siteType)
+ * }
+ * ```
+ */
+export const SiteSchema = z.object({
+  $id: z.string(),
+  $type: z.literal('https://schema.org.ai/Site'),
+  name: z.string(),
+  description: z.string(),
+  status: z.enum(['active', 'inactive', 'archived']),
+  url: z.string(),
+  siteType: z.enum(['marketing', 'docs', 'blog', 'app'])
+})
+
+/**
+ * Type guard to check if an object is a valid Site
+ *
+ * Uses Zod schema validation under the hood.
+ *
+ * @param obj - Object to validate
+ * @returns True if valid Site (JSON-LD style with url and siteType)
+ *
+ * @see {@link Site}
+ * @see {@link SiteSchema}
+ *
+ * @example
+ * ```typescript
+ * if (isSite(data)) {
+ *   // TypeScript knows data is Site here
+ *   console.log(data.url, data.siteType)
+ * }
+ * ```
+ */
+export function isSite(obj: unknown): obj is Site {
+  return SiteSchema.safeParse(obj).success
+}
+
+/**
+ * Factory function to create a new Site
+ *
+ * Automatically sets `$type` to 'https://schema.org.ai/Site' and
+ * defaults `status` to 'active' if not provided.
+ *
+ * @param input - Site data (status defaults to 'active')
+ * @returns Complete Site with $type auto-filled
+ *
+ * @see {@link Site}
+ *
+ * @example
+ * ```typescript
+ * const site = createSite({
+ *   $id: 'https://schema.org.ai/sites/docs',
+ *   name: 'Documentation',
+ *   description: 'Product documentation site',
+ *   url: 'https://docs.example.com',
+ *   siteType: 'docs'
+ * })
+ * ```
+ */
+export function createSite(input: Omit<Site, '$type' | 'status'> & { status?: Site['status'] }): Site {
+  return {
+    ...input,
+    $type: 'https://schema.org.ai/Site',
+    status: input.status ?? 'active'
+  }
+}
+
+/**
+ * Service - Backend service product
+ *
+ * Backend services with optional endpoints. Services are typically
+ * internal components that power applications and APIs.
+ *
+ * Unlike {@link API}, Service represents internal infrastructure
+ * rather than public programmatic interfaces.
+ *
+ * @see https://schema.org.ai/Service
+ *
+ * @example
+ * ```typescript
+ * const service = createService({
+ *   $id: 'https://schema.org.ai/services/auth',
+ *   name: 'Auth Service',
+ *   description: 'Authentication and authorization service',
+ *   endpoints: ['/login', '/logout', '/refresh']
+ * })
+ * // service.$type === 'https://schema.org.ai/Service'
+ * // service.status === 'active' (default)
+ * ```
+ */
+export interface Service {
+  /** Unique identifier URI (JSON-LD `@id` equivalent) */
+  $id: string
+  /** Type URI (JSON-LD `@type` equivalent) */
+  $type: 'https://schema.org.ai/Service'
+  /** Human-readable name */
+  name: string
+  /** Description of the service */
+  description: string
+  /** Service status - defaults to 'active' when created via factory */
+  status: 'active' | 'inactive' | 'archived'
+  /** Optional list of endpoint paths this service exposes */
+  endpoints?: string[]
+}
+
+/**
+ * Zod schema for validating Service objects
+ *
+ * Use this schema for runtime validation of Service data.
+ *
+ * @see {@link Service}
+ * @see {@link isService}
+ *
+ * @example
+ * ```typescript
+ * const result = ServiceSchema.safeParse(data)
+ * if (result.success) {
+ *   console.log(result.data.name, result.data.endpoints)
+ * }
+ * ```
+ */
+export const ServiceSchema = z.object({
+  $id: z.string(),
+  $type: z.literal('https://schema.org.ai/Service'),
+  name: z.string(),
+  description: z.string(),
+  status: z.enum(['active', 'inactive', 'archived']),
+  endpoints: z.array(z.string()).optional()
+})
+
+/**
+ * Type guard to check if an object is a valid Service
+ *
+ * Uses Zod schema validation under the hood.
+ *
+ * @param obj - Object to validate
+ * @returns True if valid Service (JSON-LD style with optional endpoints)
+ *
+ * @see {@link Service}
+ * @see {@link ServiceSchema}
+ *
+ * @example
+ * ```typescript
+ * if (isService(data)) {
+ *   // TypeScript knows data is Service here
+ *   console.log(data.name, data.endpoints)
+ * }
+ * ```
+ */
+export function isService(obj: unknown): obj is Service {
+  return ServiceSchema.safeParse(obj).success
+}
+
+/**
+ * Factory function to create a new Service
+ *
+ * Automatically sets `$type` to 'https://schema.org.ai/Service' and
+ * defaults `status` to 'active' if not provided.
+ *
+ * @param input - Service data (status defaults to 'active')
+ * @returns Complete Service with $type auto-filled
+ *
+ * @see {@link Service}
+ *
+ * @example
+ * ```typescript
+ * const service = createService({
+ *   $id: 'https://schema.org.ai/services/auth',
+ *   name: 'Auth Service',
+ *   description: 'Authentication service',
+ *   endpoints: ['/login', '/logout']
+ * })
+ * ```
+ */
+export function createService(input: Omit<Service, '$type' | 'status'> & { status?: Service['status'] }): Service {
+  return {
+    ...input,
+    $type: 'https://schema.org.ai/Service',
+    status: input.status ?? 'active'
+  }
+}
+
+/**
+ * Feature lifecycle status type
+ *
+ * Represents the lifecycle stage of a feature:
+ * - `draft` - Feature is being designed/developed (default)
+ * - `beta` - Feature is available for testing
+ * - `ga` - Feature is generally available (stable)
+ * - `deprecated` - Feature is being phased out
+ *
+ * @see {@link Feature}
+ */
+export type FeatureStatus = 'draft' | 'beta' | 'ga' | 'deprecated'
+
+/**
+ * Feature - Product feature with lifecycle status
+ *
+ * Individual features within a product. Features have their own
+ * lifecycle status independent of the parent product.
+ *
+ * @see https://schema.org.ai/Feature
+ *
+ * @example
+ * ```typescript
+ * const feature = createFeature({
+ *   $id: 'https://schema.org.ai/features/dark-mode',
+ *   name: 'Dark Mode',
+ *   description: 'Toggle dark theme',
+ *   productId: 'https://schema.org.ai/products/dashboard',
+ *   status: 'ga'
+ * })
+ * // feature.$type === 'https://schema.org.ai/Feature'
+ * ```
+ *
+ * @example Feature lifecycle progression
+ * ```typescript
+ * // Feature starts as draft
+ * const feature = createFeature({
+ *   $id: 'new-feature',
+ *   name: 'New Feature',
+ *   description: 'A new feature',
+ *   productId: 'my-product'
+ * })
+ * // feature.status === 'draft' (default)
+ *
+ * // Later, promote to beta, then ga, or deprecate
+ * ```
+ */
+export interface Feature {
+  /** Unique identifier URI (JSON-LD `@id` equivalent) */
+  $id: string
+  /** Type URI (JSON-LD `@type` equivalent) */
+  $type: 'https://schema.org.ai/Feature'
+  /** Human-readable name */
+  name: string
+  /** Description of the feature */
+  description: string
+  /** Reference to parent product $id */
+  productId: string
+  /** Feature lifecycle status - defaults to 'draft' when created via factory */
+  status: FeatureStatus
+}
+
+/**
+ * Zod schema for validating Feature objects
+ *
+ * Use this schema for runtime validation of Feature data.
+ *
+ * @see {@link Feature}
+ * @see {@link isFeature}
+ *
+ * @example
+ * ```typescript
+ * const result = FeatureSchema.safeParse(data)
+ * if (result.success) {
+ *   console.log(result.data.name, result.data.status)
+ * }
+ * ```
+ */
+export const FeatureSchema = z.object({
+  $id: z.string(),
+  $type: z.literal('https://schema.org.ai/Feature'),
+  name: z.string(),
+  description: z.string(),
+  productId: z.string(),
+  status: z.enum(['draft', 'beta', 'ga', 'deprecated'])
+})
+
+/**
+ * Type guard to check if an object is a valid Feature
+ *
+ * Uses Zod schema validation under the hood.
+ *
+ * @param obj - Object to validate
+ * @returns True if valid Feature (JSON-LD style with productId and lifecycle status)
+ *
+ * @see {@link Feature}
+ * @see {@link FeatureSchema}
+ *
+ * @example
+ * ```typescript
+ * if (isFeature(data)) {
+ *   // TypeScript knows data is Feature here
+ *   console.log(data.name, data.status, data.productId)
+ * }
+ * ```
+ */
+export function isFeature(obj: unknown): obj is Feature {
+  return FeatureSchema.safeParse(obj).success
+}
+
+/**
+ * Factory function to create a new Feature
+ *
+ * Automatically sets `$type` to 'https://schema.org.ai/Feature' and
+ * defaults `status` to 'draft' if not provided.
+ *
+ * @param input - Feature data (status defaults to 'draft')
+ * @returns Complete Feature with $type auto-filled
+ *
+ * @see {@link Feature}
+ * @see {@link FeatureStatus}
+ *
+ * @example
+ * ```typescript
+ * const feature = createFeature({
+ *   $id: 'https://schema.org.ai/features/dark-mode',
+ *   name: 'Dark Mode',
+ *   description: 'Toggle dark theme',
+ *   productId: 'https://schema.org.ai/products/dashboard'
+ * })
+ * // feature.status === 'draft' (default)
+ * ```
+ */
+export function createFeature(input: Omit<Feature, '$type' | 'status'> & { status?: FeatureStatus }): Feature {
+  return {
+    ...input,
+    $type: 'https://schema.org.ai/Feature',
+    status: input.status ?? 'draft'
+  }
+}
+
+// =============================================================================
+// LEGACY DEFINITION TYPES (Backwards Compatibility)
+// =============================================================================
+//
+// The following *Definition types are maintained for backwards compatibility.
+// New code should use the unified JSON-LD style types above:
+// - Product, App, API, Site, Service, Feature
+//
+// These types use `id` and `type` instead of `$id` and `$type`.
+
+/**
  * Base digital product definition
+ *
+ * @deprecated Use {@link Product} with `$id`/`$type` instead.
+ * This type is maintained for backwards compatibility.
+ *
+ * @example Migration
+ * ```typescript
+ * // Old way (deprecated)
+ * const old: DigitalProduct = {
+ *   id: 'my-product',
+ *   name: 'My Product',
+ *   description: 'A product',
+ *   version: '1.0.0'
+ * }
+ *
+ * // New way (recommended)
+ * const newProduct = createProduct({
+ *   $id: 'my-product',
+ *   name: 'My Product',
+ *   description: 'A product'
+ * })
+ * ```
  */
 export interface DigitalProduct {
   /** Unique identifier for this product */
@@ -100,6 +808,11 @@ export interface DigitalProduct {
 
 /**
  * Application definition - interactive user-facing software
+ *
+ * @deprecated Use {@link App} with `$id`/`$type` instead.
+ * This type is maintained for backwards compatibility.
+ *
+ * @see {@link App} for the recommended unified type
  */
 export interface AppDefinition extends DigitalProduct {
   type: 'app'
@@ -174,6 +887,11 @@ export interface AuthConfig {
 
 /**
  * API definition - programmatic interface
+ *
+ * @deprecated Use {@link API} with `$id`/`$type` instead.
+ * This type is maintained for backwards compatibility.
+ *
+ * @see {@link API} for the recommended unified type
  */
 export interface APIDefinition extends DigitalProduct {
   type: 'api'
@@ -249,6 +967,9 @@ export interface RateLimitConfig {
 
 /**
  * Content definition - text/media content
+ *
+ * @deprecated This type is maintained for backwards compatibility.
+ * Consider using unified types for new code.
  */
 export interface ContentDefinition extends DigitalProduct {
   type: 'content'
@@ -282,6 +1003,9 @@ export interface WorkflowDefinition {
 
 /**
  * Data definition - structured data/database
+ *
+ * @deprecated This type is maintained for backwards compatibility.
+ * Consider using unified types for new code.
  */
 export interface DataDefinition extends DigitalProduct {
   type: 'data'
@@ -341,6 +1065,9 @@ export interface ValidationRule {
 
 /**
  * Dataset definition - curated data collection
+ *
+ * @deprecated This type is maintained for backwards compatibility.
+ * Consider using unified types for new code.
  */
 export interface DatasetDefinition extends DigitalProduct {
   type: 'dataset'
@@ -360,6 +1087,11 @@ export interface DatasetDefinition extends DigitalProduct {
 
 /**
  * Site definition - website/documentation
+ *
+ * @deprecated Use {@link Site} with `$id`/`$type` instead.
+ * This type is maintained for backwards compatibility.
+ *
+ * @see {@link Site} for the recommended unified type
  */
 export interface SiteDefinition extends DigitalProduct {
   type: 'site'
@@ -437,6 +1169,9 @@ export interface AnalyticsConfig {
 
 /**
  * MCP (Model Context Protocol) server definition
+ *
+ * @deprecated This type is maintained for backwards compatibility.
+ * Consider using unified types for new code.
  */
 export interface MCPDefinition extends DigitalProduct {
   type: 'mcp'
@@ -511,6 +1246,9 @@ export interface MCPConfig {
 
 /**
  * SDK (Software Development Kit) definition
+ *
+ * @deprecated This type is maintained for backwards compatibility.
+ * Consider using unified types for new code.
  */
 export interface SDKDefinition extends DigitalProduct {
   type: 'sdk'
@@ -579,7 +1317,10 @@ export interface DeploymentTarget {
 }
 
 /**
- * Union of all product types
+ * Union of all legacy product definition types
+ *
+ * @deprecated Use unified types (Product, App, API, Site, Service, Feature) instead.
+ * This union is maintained for backwards compatibility.
  */
 export type ProductDefinition =
   | AppDefinition
@@ -593,6 +1334,9 @@ export type ProductDefinition =
 
 /**
  * Product builder - chainable API for creating products
+ *
+ * @deprecated Use factory functions (createProduct, createApp, etc.) instead.
+ * This builder interface is maintained for backwards compatibility.
  */
 export interface ProductBuilder<T extends ProductDefinition> {
   /** Set product ID */
@@ -615,6 +1359,9 @@ export interface ProductBuilder<T extends ProductDefinition> {
 
 /**
  * Product registry for storing products
+ *
+ * Registry for managing legacy ProductDefinition types.
+ * Provides CRUD operations for products by ID.
  */
 export interface ProductRegistry {
   /** Register a product */
