@@ -5,6 +5,60 @@
 import type { SimpleSchema } from 'ai-functions'
 
 /**
+ * Base Product type with schema.org.ai-style identifiers
+ */
+export interface Product {
+  /** Unique identifier URI */
+  $id: string
+  /** Type URI */
+  $type: 'https://schema.org.ai/Product'
+  /** Human-readable name */
+  name: string
+  /** Description of the product */
+  description: string
+  /** Product status */
+  status: 'active' | 'inactive' | 'archived'
+}
+
+/**
+ * App - Application product
+ */
+export interface App extends Omit<Product, '$type'> {
+  /** Type URI for App */
+  $type: 'https://schema.org.ai/App'
+  /** Platform the app runs on */
+  platform: 'web' | 'mobile' | 'desktop' | 'api'
+  /** URL where the app is hosted */
+  url: string
+}
+
+/**
+ * API - API product
+ */
+export interface API extends Omit<Product, '$type'> {
+  /** Type URI for API */
+  $type: 'https://schema.org.ai/API'
+  /** Base URL for API endpoints */
+  baseUrl: string
+  /** API version */
+  version: string
+  /** Authentication method */
+  authentication: 'bearer' | 'api_key' | 'oauth' | 'none'
+}
+
+/**
+ * Site - Website product
+ */
+export interface Site extends Omit<Product, '$type'> {
+  /** Type URI for Site */
+  $type: 'https://schema.org.ai/Site'
+  /** URL of the site */
+  url: string
+  /** Type of website */
+  siteType: 'marketing' | 'docs' | 'blog' | 'app'
+}
+
+/**
  * Base digital product definition
  */
 export interface DigitalProduct {
