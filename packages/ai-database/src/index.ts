@@ -55,6 +55,14 @@ export type {
   SearchOptions,
   InferEntity,
   GenerateOptions,
+  // Two-Phase Draft/Resolve types
+  Draft,
+  Resolved,
+  DraftOptions,
+  ResolveOptions,
+  ReferenceSpec,
+  CreateEntityOptions,
+  CascadeProgress,
   // DB Result type
   DBResult,
   // Noun & Verb semantic types
@@ -109,10 +117,7 @@ export type {
 
 // Export CreateEventOptions and CreateActionOptions from types.ts
 // (the schema.js versions are for EventsAPI/ActionsAPI, these are for DBClientExtended)
-export type {
-  CreateEventOptions,
-  CreateActionOptions,
-} from './types.js'
+export type { CreateEventOptions, CreateActionOptions } from './types.js'
 
 export {
   // Thing conversion utilities
@@ -121,6 +126,7 @@ export {
   // Configuration
   setProvider,
   setNLQueryGenerator,
+  getNLQueryGenerator,
   // AI Generation configuration
   configureAIGeneration,
   getAIGenerationConfig,
@@ -150,15 +156,18 @@ export {
   registerVerbPair,
   registerBidirectionalPair,
   registerFieldVerb,
+  // Entity operations
+  createEntityOperations,
+  createEdgeEntityOperations,
+  // NL Query execution
+  buildNLQueryContext,
+  executeNLQuery,
+  createNLQueryFn,
 } from './schema.js'
 
-export type { AIGenerationConfig } from './schema.js'
+export type { AIGenerationConfig, EntityOperationsConfig } from './schema.js'
 
-export {
-  MemoryProvider,
-  createMemoryProvider,
-  Semaphore,
-} from './memory-provider.js'
+export { MemoryProvider, createMemoryProvider, Semaphore } from './memory-provider.js'
 
 export type {
   // Note: Event, Action, Artifact now exported from schema.js (types.ts)
@@ -179,12 +188,7 @@ export type { Event, Action, Artifact } from './schema.js'
 // =============================================================================
 
 // Export event utilities and constants
-export {
-  StandardEventTypes,
-  entityEvent,
-  typePattern,
-  actionPattern,
-} from './events.js'
+export { StandardEventTypes, entityEvent, typePattern, actionPattern } from './events.js'
 
 export type { StandardEventType } from './events.js'
 
@@ -407,15 +411,9 @@ export type {
 } from './execution-queue.js'
 
 // ClickHouse-backed durable provider
-export {
-  ClickHouseDurableProvider,
-  createClickHouseDurableProvider,
-} from './durable-clickhouse.js'
+export { ClickHouseDurableProvider, createClickHouseDurableProvider } from './durable-clickhouse.js'
 
-export type {
-  ClickHouseExecutor,
-  ClickHouseDurableConfig,
-} from './durable-clickhouse.js'
+export type { ClickHouseExecutor, ClickHouseDurableConfig } from './durable-clickhouse.js'
 
 // =============================================================================
 // Generation Context - Context accumulation across cascading generations
@@ -434,3 +432,23 @@ export type {
   FieldContext,
   BuildContextOptions,
 } from './schema/generation-context.js'
+
+// =============================================================================
+// Error Handling - Custom error classes with context
+// =============================================================================
+
+export {
+  // Utility functions
+  isNotFoundError,
+  isEntityExistsError,
+  isExpectedError,
+  wrapDatabaseError,
+  // Base error class
+  DatabaseError,
+  // Custom error classes
+  EntityNotFoundError,
+  EntityAlreadyExistsError,
+  ValidationError,
+  AIGenerationError,
+  SemanticSearchError,
+} from './errors.js'

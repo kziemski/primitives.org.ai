@@ -10,6 +10,7 @@
 import type { ExecutionPriority, DurablePromiseOptions, BatchScheduler } from './durable-promise.js'
 import { DurablePromise, getCurrentContext, setBatchScheduler } from './durable-promise.js'
 import { Semaphore } from './memory-provider.js'
+import { EntityNotFoundError } from './errors.js'
 
 // =============================================================================
 // Types
@@ -248,17 +249,21 @@ export class ClickHouseDurableProvider implements BatchScheduler {
    */
   async updateAction(
     id: string,
-    updates: Partial<Pick<ActionRow, 'status' | 'progress' | 'result' | 'error' | 'startedAt' | 'completedAt'>>
+    updates: Partial<
+      Pick<ActionRow, 'status' | 'progress' | 'result' | 'error' | 'startedAt' | 'completedAt'>
+    >
   ): Promise<void> {
     const now = new Date().toISOString()
 
     // Get existing action
     const rows = await this.executor.query<ActionRow>(
-      `SELECT * FROM Actions FINAL WHERE id = '${this.escapeString(id)}' AND ns = '${this.namespace}' ORDER BY updatedAt DESC LIMIT 1`
+      `SELECT * FROM Actions FINAL WHERE id = '${this.escapeString(id)}' AND ns = '${
+        this.namespace
+      }' ORDER BY updatedAt DESC LIMIT 1`
     )
 
     if (rows.length === 0) {
-      throw new Error(`Action not found: ${id}`)
+      throw new EntityNotFoundError('Action', id, 'resume')
     }
 
     const existing = rows[0]!
@@ -274,11 +279,13 @@ export class ClickHouseDurableProvider implements BatchScheduler {
     }
 
     // Insert new row with updates (ReplacingMergeTree will handle dedup)
-    await this.executor.insert('Actions', [{
-      ...existing,
-      ...updates,
-      updatedAt: now,
-    }])
+    await this.executor.insert('Actions', [
+      {
+        ...existing,
+        ...updates,
+        updatedAt: now,
+      },
+    ])
   }
 
   /**
@@ -286,7 +293,9 @@ export class ClickHouseDurableProvider implements BatchScheduler {
    */
   async getAction(id: string): Promise<ActionRow | null> {
     const rows = await this.executor.query<ActionRow>(
-      `SELECT * FROM Actions FINAL WHERE id = '${this.escapeString(id)}' AND ns = '${this.namespace}' ORDER BY updatedAt DESC LIMIT 1`
+      `SELECT * FROM Actions FINAL WHERE id = '${this.escapeString(id)}' AND ns = '${
+        this.namespace
+      }' ORDER BY updatedAt DESC LIMIT 1`
     )
     return rows[0] ?? null
   }
@@ -294,16 +303,18 @@ export class ClickHouseDurableProvider implements BatchScheduler {
   /**
    * List actions by status
    */
-  async listActions(options: {
-    status?: ActionRow['status'] | ActionRow['status'][]
-    priority?: ExecutionPriority
-    limit?: number
-  } = {}): Promise<ActionRow[]> {
+  async listActions(
+    options: {
+      status?: ActionRow['status'] | ActionRow['status'][]
+      priority?: ExecutionPriority
+      limit?: number
+    } = {}
+  ): Promise<ActionRow[]> {
     const conditions: string[] = [`ns = '${this.namespace}'`]
 
     if (options.status) {
       if (Array.isArray(options.status)) {
-        const statuses = options.status.map(s => `'${s}'`).join(', ')
+        const statuses = options.status.map((s) => `'${s}'`).join(', ')
         conditions.push(`status IN (${statuses})`)
       } else {
         conditions.push(`status = '${options.status}'`)
@@ -317,7 +328,9 @@ export class ClickHouseDurableProvider implements BatchScheduler {
     const limit = options.limit ? `LIMIT ${options.limit}` : ''
 
     return this.executor.query<ActionRow>(
-      `SELECT * FROM Actions FINAL WHERE ${conditions.join(' AND ')} ORDER BY createdAt ASC ${limit}`
+      `SELECT * FROM Actions FINAL WHERE ${conditions.join(
+        ' AND '
+      )} ORDER BY createdAt ASC ${limit}`
     )
   }
 
@@ -372,14 +385,16 @@ export class ClickHouseDurableProvider implements BatchScheduler {
       const batchId = crypto.randomUUID()
 
       for (let i = 0; i < batch.length; i++) {
-        await this.executor.insert('Actions', [{
-          id: batch[i]!.actionId,
-          ns: this.namespace,
-          batch: batchId,
-          batchIndex: i,
-          batchTotal: batch.length,
-          updatedAt: new Date().toISOString(),
-        }])
+        await this.executor.insert('Actions', [
+          {
+            id: batch[i]!.actionId,
+            ns: this.namespace,
+            batch: batchId,
+            batchIndex: i,
+            batchTotal: batch.length,
+            updatedAt: new Date().toISOString(),
+          },
+        ])
       }
 
       console.log(`Batch ${batchId}: ${batch.length} ${provider} operations queued`)
@@ -446,10 +461,7 @@ export class ClickHouseDurableProvider implements BatchScheduler {
    * Retry failed actions
    */
   async retryFailed(filter?: { method?: string; since?: Date }): Promise<number> {
-    const conditions: string[] = [
-      `ns = '${this.namespace}'`,
-      `status = 'failed'`,
-    ]
+    const conditions: string[] = [`ns = '${this.namespace}'`, `status = 'failed'`]
 
     if (filter?.method) {
       conditions.push(`object = '${this.escapeString(filter.method)}'`)
@@ -505,11 +517,18 @@ export class ClickHouseDurableProvider implements BatchScheduler {
     batchQueue: number
   }> {
     // Query ClickHouse for accurate counts
-    const statusCounts = await this.executor.query<{ status: string; priority: number; count: string }>(
+    const statusCounts = await this.executor.query<{
+      status: string
+      priority: number
+      count: string
+    }>(
       `SELECT status, priority, count() as count FROM Actions FINAL WHERE ns = '${this.namespace}' GROUP BY status, priority`
     )
 
-    const byPriority: Record<ExecutionPriority, { pending: number; active: number; completed: number }> = {
+    const byPriority: Record<
+      ExecutionPriority,
+      { pending: number; active: number; completed: number }
+    > = {
       priority: { pending: 0, active: 0, completed: 0 },
       standard: { pending: 0, active: 0, completed: 0 },
       flex: { pending: 0, active: 0, completed: 0 },

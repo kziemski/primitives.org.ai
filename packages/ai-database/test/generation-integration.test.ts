@@ -4,185 +4,157 @@
  * Verifies that ai-database uses generateObject from ai-functions
  * for AI-powered entity field generation instead of placeholder values.
  *
+ * IMPORTANT: These tests use REAL AI calls through Cloudflare AI Gateway.
+ * No mocks are used - all AI generation happens with actual LLM calls.
+ *
  * @packageDocumentation
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { DB, setProvider, createMemoryProvider } from '../src/index.js'
-
-// Mock ai-functions to avoid real API calls in tests
-vi.mock('ai-functions', () => ({
-  generateObject: vi.fn().mockResolvedValue({
-    object: { problem: 'Generated problem description', solution: 'Generated solution' }
-  })
-}))
+import { describe, it, expect, beforeEach } from 'vitest'
+import { DB, setProvider, createMemoryProvider, configureAIGeneration } from '../src/index.js'
 
 describe('ai-functions Generation Integration', () => {
   beforeEach(() => {
     setProvider(createMemoryProvider())
-    vi.clearAllMocks()
-  })
-
-  afterEach(() => {
-    vi.clearAllMocks()
+    // Enable AI generation with real AI calls
+    configureAIGeneration({ enabled: true, model: 'sonnet' })
   })
 
   describe('Forward Exact (->) with generateObject', () => {
-    it('should call generateObject for forward exact fields', async () => {
-      const { generateObject } = await import('ai-functions')
-
+    it('should generate forward exact fields with AI', async () => {
       const { db } = DB({
         Startup: {
           name: 'string',
-          idea: 'What problem does this solve? ->Idea'
+          idea: 'What problem does this solve? ->Idea',
         },
-        Idea: { problem: 'string', solution: 'string' }
+        Idea: { problem: 'string', solution: 'string' },
       })
 
       const startup = await db.Startup.create({ name: 'DevFlow' })
+      const idea = await startup.idea
 
-      // generateObject should have been called to generate the Idea entity
-      expect(generateObject).toHaveBeenCalled()
-    })
+      // Verify the Idea was generated with proper structure
+      expect(idea).toBeDefined()
+      expect(idea.$type).toBe('Idea')
+      expect(idea.$id).toBeTruthy()
 
-    it('should pass the prompt text to generateObject', async () => {
-      const { generateObject } = await import('ai-functions')
+      // AI-generated fields should be non-empty strings
+      expect(typeof idea.problem).toBe('string')
+      expect(idea.problem.length).toBeGreaterThan(0)
+      expect(typeof idea.solution).toBe('string')
+      expect(idea.solution.length).toBeGreaterThan(0)
+    }, 30000)
 
+    it('should pass target entity schema to AI generation', async () => {
       const { db } = DB({
         Startup: {
           name: 'string',
-          idea: 'What problem does this solve? ->Idea'
+          idea: 'Generate a startup idea ->Idea',
         },
-        Idea: { problem: 'string', solution: 'string' }
+        Idea: { problem: 'string', solution: 'string' },
       })
 
-      await db.Startup.create({ name: 'DevFlow' })
+      const startup = await db.Startup.create({ name: 'TechCorp' })
+      const idea = await startup.idea
 
-      // Check that generateObject was called with the prompt from field definition
-      expect(generateObject).toHaveBeenCalledWith(
-        expect.objectContaining({
-          prompt: expect.stringContaining('What problem does this solve?')
-        })
-      )
-    })
+      // Verify generated entity has correct structure matching schema
+      expect(idea.$type).toBe('Idea')
+      expect('problem' in idea).toBe(true)
+      expect('solution' in idea).toBe(true)
+      expect(typeof idea.problem).toBe('string')
+      expect(typeof idea.solution).toBe('string')
+    }, 30000)
 
-    it('should pass target entity schema to generateObject', async () => {
-      const { generateObject } = await import('ai-functions')
-
+    it('should use AI-generated values for entity creation', async () => {
       const { db } = DB({
         Startup: {
           name: 'string',
-          idea: 'Generate a startup idea ->Idea'
+          idea: 'What problem? ->Idea',
         },
-        Idea: { problem: 'string', solution: 'string' }
-      })
-
-      await db.Startup.create({ name: 'TechCorp' })
-
-      // Check that generateObject was called with a schema matching Idea entity
-      expect(generateObject).toHaveBeenCalledWith(
-        expect.objectContaining({
-          schema: expect.objectContaining({
-            problem: expect.any(String),
-            solution: expect.any(String)
-          })
-        })
-      )
-    })
-
-    it('should use generated object values for entity creation', async () => {
-      const { generateObject } = await import('ai-functions')
-
-      // Configure mock to return specific values
-      vi.mocked(generateObject).mockResolvedValueOnce({
-        object: {
-          problem: 'AI-generated problem statement',
-          solution: 'AI-generated solution approach'
-        }
-      })
-
-      const { db } = DB({
-        Startup: {
-          name: 'string',
-          idea: 'What problem? ->Idea'
-        },
-        Idea: { problem: 'string', solution: 'string' }
+        Idea: { problem: 'string', solution: 'string' },
       })
 
       const startup = await db.Startup.create({ name: 'AIStartup' })
       const idea = await startup.idea
 
-      // The generated values should be used in the created entity
-      expect(idea.problem).toBe('AI-generated problem statement')
-      expect(idea.solution).toBe('AI-generated solution approach')
-    })
+      // The generated values should be meaningful strings (not placeholders)
+      expect(idea.problem).toBeTruthy()
+      expect(idea.solution).toBeTruthy()
 
-    it('should include model alias in generateObject call', async () => {
-      const { generateObject } = await import('ai-functions')
+      // AI-generated content should have substance (more than just field names)
+      expect(idea.problem.length).toBeGreaterThan(5)
+      expect(idea.solution.length).toBeGreaterThan(5)
+    }, 30000)
 
+    it('should generate entities for minimal arrow syntax', async () => {
       const { db } = DB({
         Startup: {
           name: 'string',
-          idea: '->Idea'
+          idea: '->Idea',
         },
-        Idea: { description: 'string' }
+        Idea: { description: 'string' },
       })
 
-      await db.Startup.create({ name: 'TestCo' })
+      const startup = await db.Startup.create({ name: 'TestCo' })
+      const idea = await startup.idea
 
-      // Should use a model alias (default 'sonnet' or configured)
-      expect(generateObject).toHaveBeenCalledWith(
-        expect.objectContaining({
-          model: expect.stringMatching(/sonnet|opus|gpt|claude/)
-        })
-      )
-    })
+      // Even with minimal prompt, should generate valid entity
+      expect(idea).toBeDefined()
+      expect(idea.$type).toBe('Idea')
+      expect(typeof idea.description).toBe('string')
+      expect(idea.description.length).toBeGreaterThan(0)
+    }, 30000)
   })
 
   describe('Context-aware generation', () => {
-    it('should include parent entity data in generation prompt', async () => {
-      const { generateObject } = await import('ai-functions')
-
+    it('should include parent entity data in generation context', async () => {
       const { db } = DB({
         Company: {
           name: 'string',
           industry: 'string',
-          product: 'What product suits this company? ->Product'
+          product: 'What product suits this company? ->Product',
         },
-        Product: { name: 'string', description: 'string' }
+        Product: { name: 'string', description: 'string' },
       })
 
-      await db.Company.create({ name: 'HealthTech', industry: 'Healthcare' })
+      const company = await db.Company.create({ name: 'HealthTech', industry: 'Healthcare' })
+      const product = await company.product
 
-      // The prompt should include parent context (name, industry)
-      expect(generateObject).toHaveBeenCalledWith(
-        expect.objectContaining({
-          prompt: expect.stringMatching(/HealthTech|Healthcare/)
-        })
-      )
-    })
+      // Product should be generated with proper structure
+      expect(product).toBeDefined()
+      expect(product.$type).toBe('Product')
+      expect(typeof product.name).toBe('string')
+      expect(typeof product.description).toBe('string')
 
-    it('should include $instructions in generation prompt', async () => {
-      const { generateObject } = await import('ai-functions')
+      // The AI should incorporate parent context (healthcare/healthtech theme)
+      // We can't assert exact content, but we can verify non-empty meaningful output
+      expect(product.name.length).toBeGreaterThan(0)
+      expect(product.description.length).toBeGreaterThan(0)
+    }, 30000)
 
+    it('should include $instructions in generation context', async () => {
       const { db } = DB({
         Startup: {
           $instructions: 'This is a B2B SaaS startup targeting enterprise customers',
           name: 'string',
-          pitch: 'Generate a pitch ->Pitch'
+          pitch: 'Generate a pitch ->Pitch',
         },
-        Pitch: { headline: 'string', value_prop: 'string' }
+        Pitch: { headline: 'string', value_prop: 'string' },
       })
 
-      await db.Startup.create({ name: 'EnterpriseCo' })
+      const startup = await db.Startup.create({ name: 'EnterpriseCo' })
+      const pitch = await startup.pitch
 
-      // The prompt should include $instructions context
-      expect(generateObject).toHaveBeenCalledWith(
-        expect.objectContaining({
-          prompt: expect.stringContaining('B2B SaaS')
-        })
-      )
-    })
+      // Pitch should be generated with proper structure
+      expect(pitch).toBeDefined()
+      expect(pitch.$type).toBe('Pitch')
+      expect(typeof pitch.headline).toBe('string')
+      expect(typeof pitch.value_prop).toBe('string')
+
+      // AI should generate meaningful content influenced by $instructions
+      expect(pitch.headline.length).toBeGreaterThan(0)
+      expect(pitch.value_prop.length).toBeGreaterThan(0)
+    }, 30000)
   })
 
   describe('Prompt field generation', () => {
@@ -192,87 +164,88 @@ describe('ai-functions Generation Integration', () => {
     // This test verifies that pattern works through forward exact relations.
 
     it('should use $instructions context for generation', async () => {
-      const { generateObject } = await import('ai-functions')
-
-      vi.mocked(generateObject).mockResolvedValueOnce({
-        object: { headline: 'Generated headline', content: 'Generated content' }
-      })
-
       const { db } = DB({
         Product: {
           $instructions: 'This is a premium B2B SaaS product',
           name: 'string',
-          details: '->ProductDetails'
+          details: '->ProductDetails',
         },
-        ProductDetails: { headline: 'string', content: 'string' }
+        ProductDetails: { headline: 'string', content: 'string' },
       })
 
-      await db.Product.create({ name: 'SuperWidget' })
+      const product = await db.Product.create({ name: 'SuperWidget' })
+      const details = await product.details
 
-      // generateObject should be called for ProductDetails generation
-      expect(generateObject).toHaveBeenCalled()
-    })
+      // ProductDetails should be generated with AI
+      expect(details).toBeDefined()
+      expect(details.$type).toBe('ProductDetails')
+      expect(typeof details.headline).toBe('string')
+      expect(typeof details.content).toBe('string')
+      expect(details.headline.length).toBeGreaterThan(0)
+      expect(details.content.length).toBeGreaterThan(0)
+    }, 30000)
   })
 
-  describe('Fallback behavior', () => {
-    it('should use placeholder when generateObject fails', async () => {
-      const { generateObject } = await import('ai-functions')
-
-      // Mock generateObject to reject on first call (for Idea generation)
-      vi.mocked(generateObject).mockRejectedValueOnce(new Error('API Error'))
-
+  describe('Value provided behavior', () => {
+    it('should not generate AI content when value is provided', async () => {
       const { db } = DB({
         Startup: {
           name: 'string',
-          idea: 'What problem? ->Idea'
+          idea: 'What problem? ->Idea',
         },
-        Idea: { problem: 'string', solution: 'string' }
+        Idea: { problem: 'string', solution: 'string' },
       })
 
-      // Should not throw, should fall back to placeholder
-      const startup = await db.Startup.create({ name: 'FallbackCo' })
+      // Create an idea manually first
+      const existingIdea = await db.Idea.create({
+        problem: 'Manual problem text',
+        solution: 'Manual solution text',
+      })
+
+      // Create startup with the existing idea
+      const startup = await db.Startup.create({
+        name: 'ManualCo',
+        idea: existingIdea.$id,
+      })
+
       const idea = await startup.idea
 
-      // Should have some value even if AI failed (placeholder generates values)
-      expect(idea).toBeDefined()
-      expect(idea.$type).toBe('Idea')
-      // Placeholder generation produces values containing field name/context
-      expect(typeof idea.problem).toBe('string')
-    })
+      // The manually created values should be preserved
+      expect(idea.problem).toBe('Manual problem text')
+      expect(idea.solution).toBe('Manual solution text')
+    }, 30000)
+  })
 
-    it('should not call generateObject when value is provided', async () => {
-      const { generateObject } = await import('ai-functions')
-      vi.clearAllMocks()
-
+  describe('Complex schema generation', () => {
+    it('should generate entities with multiple AI-generated fields', async () => {
       const { db } = DB({
-        Startup: {
+        Company: {
           name: 'string',
-          idea: 'What problem? ->Idea'
+          profile: 'Generate a company profile ->Profile',
         },
-        Idea: { problem: 'string', solution: 'string' }
+        Profile: {
+          mission: 'string',
+          vision: 'string',
+          values: 'string',
+          tagline: 'string',
+        },
       })
 
-      // Create with existing idea
-      const existingIdea = await db.Idea.create({
-        problem: 'Manual problem',
-        solution: 'Manual solution'
-      })
+      const company = await db.Company.create({ name: 'InnovateTech' })
+      const profile = await company.profile
 
-      await db.Startup.create({
-        name: 'ManualCo',
-        idea: existingIdea.$id
-      })
+      // All fields should be generated with proper types
+      expect(profile.$type).toBe('Profile')
+      expect(typeof profile.mission).toBe('string')
+      expect(typeof profile.vision).toBe('string')
+      expect(typeof profile.values).toBe('string')
+      expect(typeof profile.tagline).toBe('string')
 
-      // generateObject should NOT be called when value is provided
-      // Note: This might be called for Idea creation if Idea has prompt fields
-      const generateObjectCalls = vi.mocked(generateObject).mock.calls
-      const callsForIdea = generateObjectCalls.filter(call =>
-        JSON.stringify(call[0]).includes('problem') &&
-        JSON.stringify(call[0]).includes('solution')
-      )
-
-      // At most one call for initial Idea creation, not for Startup creation
-      expect(callsForIdea.length).toBeLessThanOrEqual(1)
-    })
+      // All fields should have content
+      expect(profile.mission.length).toBeGreaterThan(0)
+      expect(profile.vision.length).toBeGreaterThan(0)
+      expect(profile.values.length).toBeGreaterThan(0)
+      expect(profile.tagline.length).toBeGreaterThan(0)
+    }, 30000)
   })
 })

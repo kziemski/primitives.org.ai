@@ -18,6 +18,7 @@ import type {
   NounRelationship,
   PrimitiveType,
 } from '../types.js'
+import type { ValueGenerator } from './value-generators/types.js'
 
 // Re-export types from main types.ts
 export type {
@@ -72,26 +73,22 @@ export interface ReferenceSpec {
  * - Batch resolution of multiple references for efficiency
  * - Draft-only mode for preview/editing before final creation
  */
-export interface Draft<T> {
+export type Draft<T> = {
   /** Phase marker indicating this is a draft */
   $phase: 'draft'
   /** Unresolved reference specifications */
   $refs: Record<string, ReferenceSpec | ReferenceSpec[]>
-  /** Entity data with natural language placeholders for references */
-  [key: string]: unknown
-}
+} & Partial<T>
 
 /**
  * Resolved entity after resolution phase
  */
-export interface Resolved<T> {
+export type Resolved<T> = {
   /** Phase marker indicating this has been resolved */
   $phase: 'resolved'
   /** Any errors that occurred during resolution */
   $errors?: Array<{ field: string; error: string }>
-  /** Entity data with resolved reference IDs */
-  [key: string]: unknown
-}
+} & T
 
 /**
  * Options for the draft() method
@@ -607,4 +604,6 @@ export type { EmbeddingsConfig }
 export interface DBOptions {
   /** Embedding configuration per type */
   embeddings?: EmbeddingsConfig
+  /** Value generator for field generation (defaults to PlaceholderValueGenerator) */
+  valueGenerator?: ValueGenerator
 }

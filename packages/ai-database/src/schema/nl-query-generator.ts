@@ -126,14 +126,47 @@ export function createDefaultNLQueryGenerator(): NLQueryGenerator {
       confidence?: number
     }
 
+    // Build a lookup map for type name normalization (case-insensitive)
+    const typeNameMap = new Map<string, string>()
+    for (const type of context.types) {
+      typeNameMap.set(type.name.toLowerCase(), type.name)
+      typeNameMap.set(type.singular.toLowerCase(), type.name)
+      typeNameMap.set(type.plural.toLowerCase(), type.name)
+    }
+
+    // Normalize type names from AI response to match schema type names
+    const normalizedTypes: string[] = []
+    if (rawPlan.types && rawPlan.types.length > 0) {
+      for (const rawType of rawPlan.types) {
+        if (typeof rawType === 'string' && rawType.trim()) {
+          const normalized = typeNameMap.get(rawType.toLowerCase().trim())
+          if (normalized && !normalizedTypes.includes(normalized)) {
+            normalizedTypes.push(normalized)
+          }
+        }
+      }
+    }
+
+    // Parse confidence as number (AI may return it as string)
+    let confidence = 0.5
+    if (rawPlan.confidence !== undefined && rawPlan.confidence !== null) {
+      const parsed =
+        typeof rawPlan.confidence === 'number'
+          ? rawPlan.confidence
+          : parseFloat(String(rawPlan.confidence))
+      if (!isNaN(parsed) && parsed >= 0 && parsed <= 1) {
+        confidence = parsed
+      }
+    }
+
     // Convert to NLQueryPlan with proper Date objects
     const plan: NLQueryPlan = {
-      types: rawPlan.types ?? [],
+      types: normalizedTypes,
       filters: rawPlan.filters,
       search: rawPlan.search,
       include: rawPlan.include,
       interpretation: rawPlan.interpretation ?? `Query: "${query}"`,
-      confidence: rawPlan.confidence ?? 0.5,
+      confidence,
     }
 
     // Convert ISO date strings to Date objects if present
@@ -144,7 +177,7 @@ export function createDefaultNLQueryGenerator(): NLQueryGenerator {
       }
     }
 
-    // Ensure types array is populated
+    // Ensure types array is populated (fallback if AI didn't return valid types)
     if (!plan.types || plan.types.length === 0) {
       plan.types = context.targetType ? [context.targetType] : context.types.map((t) => t.name)
     }

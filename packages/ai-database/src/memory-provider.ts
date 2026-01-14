@@ -35,6 +35,7 @@ import {
   validateFieldName,
   isDangerousField,
 } from './validation.js'
+import { EntityNotFoundError, EntityAlreadyExistsError } from './errors.js'
 
 // =============================================================================
 // Semaphore for Concurrency Control
@@ -1361,7 +1362,7 @@ export class MemoryProvider implements DBProvider {
     const entityId = id || generateId()
 
     if (store.has(entityId)) {
-      throw new Error(`Entity already exists: ${type}/${entityId}`)
+      throw new EntityAlreadyExistsError(type, entityId, 'create')
     }
 
     const entity = {
@@ -1396,7 +1397,7 @@ export class MemoryProvider implements DBProvider {
     const existing = store.get(id)
 
     if (!existing) {
-      throw new Error(`Entity not found: ${type}/${id}`)
+      throw new EntityNotFoundError(type, id, 'update')
     }
 
     const updated = {
@@ -1837,7 +1838,7 @@ export class MemoryProvider implements DBProvider {
   ): Promise<Action> {
     const action = this.actions.get(id)
     if (!action) {
-      throw new Error(`Action not found: ${id}`)
+      throw new EntityNotFoundError('Action', id, 'updateAction')
     }
 
     Object.assign(action, updates)
@@ -1930,7 +1931,7 @@ export class MemoryProvider implements DBProvider {
   async retryAction(id: string): Promise<Action> {
     const action = this.actions.get(id)
     if (!action) {
-      throw new Error(`Action not found: ${id}`)
+      throw new EntityNotFoundError('Action', id, 'retryAction')
     }
     if (action.status !== 'failed') {
       throw new Error(`Can only retry failed actions: ${id}`)
@@ -1954,7 +1955,7 @@ export class MemoryProvider implements DBProvider {
   async cancelAction(id: string): Promise<void> {
     const action = this.actions.get(id)
     if (!action) {
-      throw new Error(`Action not found: ${id}`)
+      throw new EntityNotFoundError('Action', id, 'cancelAction')
     }
     if (
       action.status === 'completed' ||

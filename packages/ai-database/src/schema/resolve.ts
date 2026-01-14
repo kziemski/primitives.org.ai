@@ -9,10 +9,11 @@
 
 import type { ParsedField, ParsedEntity, ParsedSchema, EntitySchema } from '../types.js'
 
-import type { DBProvider, SemanticSearchResult } from './provider.js'
+import type { DBProvider } from './provider.js'
 import { hasSemanticSearch } from './provider.js'
 import type { ReferenceSpec } from './types.js'
 import { isPrimitiveType } from './parse.js'
+import { findBestMatchAcrossTypes } from './search-utils.js'
 
 // =============================================================================
 // Context Resolution - Template Variables and $instructions
@@ -297,42 +298,21 @@ export async function resolveReferenceSpec(
       const typesToSearch =
         spec.unionTypes && spec.unionTypes.length > 0 ? spec.unionTypes : [spec.type]
 
-      // Search all types and find the best match
-      let bestMatch: SemanticSearchResult | undefined
-      let bestMatchType: string | undefined
+      // Search all types and find the best match using shared utility
+      const bestMatchResult = await findBestMatchAcrossTypes(typesToSearch, searchQuery, {
+        threshold,
+        limit: 5,
+        schema,
+        provider,
+      })
 
-      for (const searchType of typesToSearch) {
-        // Only search types that exist in the schema
-        if (!schema.entities.has(searchType)) continue
-
-        const matches: SemanticSearchResult[] = await provider.semanticSearch(
-          searchType,
-          searchQuery,
-          {
-            minScore: threshold,
-            limit: 5,
-          }
-        )
-
-        // Find best match above threshold
-        const firstMatch = matches[0]
-        if (
-          firstMatch &&
-          firstMatch.$score >= threshold &&
-          (!bestMatch || firstMatch.$score > bestMatch.$score)
-        ) {
-          bestMatch = firstMatch
-          bestMatchType = searchType
-        }
-      }
-
-      if (bestMatch && bestMatchType) {
+      if (bestMatchResult) {
         // Update the matched entity with metadata
-        await provider.update(bestMatchType, bestMatch.$id, {
-          $matchedType: bestMatchType,
-          $similarity: bestMatch.$score,
+        await provider.update(bestMatchResult.type, bestMatchResult.match.$id, {
+          $matchedType: bestMatchResult.type,
+          $similarity: bestMatchResult.match.$score,
         })
-        return bestMatch.$id
+        return bestMatchResult.match.$id
       }
     }
 

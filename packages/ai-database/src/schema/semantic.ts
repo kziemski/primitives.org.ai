@@ -9,7 +9,7 @@
 
 import type { ParsedEntity, ParsedSchema, EntitySchema } from '../types.js'
 
-import type { DBProvider, SemanticSearchResult } from './provider.js'
+import type { DBProvider } from './provider.js'
 import { hasSemanticSearch } from './provider.js'
 import { resolveNestedPending } from './resolve.js'
 import { generateEntity } from './cascade.js'
@@ -18,6 +18,7 @@ import {
   createProviderSearcher,
   type FallbackSearchOptions,
 } from './union-fallback.js'
+import { findBestMatchAcrossTypes } from './search-utils.js'
 
 /**
  * Safely extract the fuzzy threshold from entity schema
@@ -246,50 +247,30 @@ export async function resolveForwardFuzzy(
 
           // Try semantic search first - search across all union types
           if (hasSemanticSearch(provider)) {
-            // Collect best match from all union types
-            let bestMatch: SemanticSearchResult | undefined
-            let bestMatchType: string | undefined
+            const bestMatchResult = await findBestMatchAcrossTypes(typesToSearch, hintStr, {
+              threshold,
+              limit: 10,
+              excludeIds: usedEntityIds,
+              schema,
+              provider,
+            })
 
-            for (const searchType of typesToSearch) {
-              // Only search types that exist in the schema
-              if (!schema.entities.has(searchType)) continue
-
-              const matches: SemanticSearchResult[] = await provider.semanticSearch(
-                searchType,
-                hintStr,
-                { minScore: threshold, limit: 10 } // Get more results to find unused matches
-              )
-
-              // Find the best match that hasn't been used yet
-              for (const match of matches) {
-                const matchId = match.$id
-                if (match.$score >= threshold && !usedEntityIds.has(matchId)) {
-                  // Track the best match across all types
-                  if (!bestMatch || match.$score > bestMatch.$score) {
-                    bestMatch = match
-                    bestMatchType = searchType
-                  }
-                  break // Found valid match in this type, move to next type
-                }
-              }
-            }
-
-            if (bestMatch && bestMatchType) {
-              const matchId = bestMatch.$id
-              matchedType = bestMatchType
+            if (bestMatchResult) {
+              const matchId = bestMatchResult.match.$id
+              matchedType = bestMatchResult.type
               resultIds.push(matchId)
               usedEntityIds.add(matchId)
               pendingRelations.push({
                 fieldName,
                 targetType: matchedType,
                 targetId: matchId,
-                similarity: bestMatch.$score,
+                similarity: bestMatchResult.match.$score,
                 matchedType,
               })
               // Update the matched entity with $generated: false and similarity metadata
               await provider.update(matchedType, matchId, {
                 $generated: false,
-                $similarity: bestMatch.$score,
+                $similarity: bestMatchResult.match.$score,
                 $matchedType: matchedType,
               })
               matched = true
@@ -346,48 +327,31 @@ export async function resolveForwardFuzzy(
 
         // Try semantic search first - search across all union types
         if (hasSemanticSearch(provider)) {
-          // Collect best match from all union types
-          let bestMatch: SemanticSearchResult | undefined
-          let bestMatchType: string | undefined
+          const bestMatchResult = await findBestMatchAcrossTypes(typesToSearch, searchQuery, {
+            threshold,
+            limit: 5,
+            schema,
+            provider,
+          })
 
-          for (const searchType of typesToSearch) {
-            // Only search types that exist in the schema
-            if (!schema.entities.has(searchType)) continue
-
-            const matches: SemanticSearchResult[] = await provider.semanticSearch(
-              searchType,
-              searchQuery,
-              { minScore: threshold, limit: 5 }
-            )
-
-            const firstMatch = matches[0]
-            if (firstMatch && firstMatch.$score >= threshold) {
-              // Track the best match across all types
-              if (!bestMatch || firstMatch.$score > bestMatch.$score) {
-                bestMatch = firstMatch
-                bestMatchType = searchType
-              }
-            }
-          }
-
-          if (bestMatch && bestMatchType) {
-            const matchedId = bestMatch.$id
-            matchedType = bestMatchType
+          if (bestMatchResult) {
+            const matchedId = bestMatchResult.match.$id
+            matchedType = bestMatchResult.type
             resolved[fieldName] = matchedId
             resolved[`${fieldName}$matched`] = true
-            resolved[`${fieldName}$score`] = bestMatch.$score
+            resolved[`${fieldName}$score`] = bestMatchResult.match.$score
             resolved[`${fieldName}$matchedType`] = matchedType
             pendingRelations.push({
               fieldName,
               targetType: matchedType,
               targetId: matchedId,
-              similarity: bestMatch.$score,
+              similarity: bestMatchResult.match.$score,
               matchedType,
             })
             // Update the matched entity with $generated: false and similarity metadata
             await provider.update(matchedType, matchedId, {
               $generated: false,
-              $similarity: bestMatch.$score,
+              $similarity: bestMatchResult.match.$score,
               $matchedType: matchedType,
             })
             matched = true

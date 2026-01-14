@@ -1,27 +1,10 @@
 /**
  * Tests for schema parsing and bi-directional relationships
  *
- * These are pure unit tests - no database calls needed.
+ * These tests use REAL AI calls through Cloudflare AI Gateway - NO MOCKS.
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-
-// Mock ai-functions to avoid real API calls in fuzzy resolution tests
-vi.mock('ai-functions', () => ({
-  generateObject: vi.fn().mockImplementation(async ({ schema }) => {
-    // Generate mock data based on schema
-    const obj: Record<string, unknown> = {}
-    for (const [key, desc] of Object.entries(schema as Record<string, string>)) {
-      if (key === 'name') obj[key] = 'MockGenerated'
-      else if (key === 'slug') obj[key] = 'mock-generated'
-      else if (key === 'title') obj[key] = 'Mock Title'
-      else if (key === 'category') obj[key] = 'Mock Category'
-      else if (key === 'floor') obj[key] = 1
-      else obj[key] = `Generated ${key}`
-    }
-    return { object: obj }
-  }),
-}))
+import { describe, it, expect, beforeEach } from 'vitest'
 import {
   parseSchema,
   DB,
@@ -1300,11 +1283,10 @@ describe('Forward Fuzzy Resolution (~>)', () => {
      */
 
     // Reset provider between tests to ensure isolation
-    // Disable AI generation to avoid API key issues - tests use placeholder generation
+    // Enable AI generation with real Cloudflare AI Gateway calls
     beforeEach(() => {
       setProvider(null as any)
-      configureAIGeneration({ enabled: false })
-      vi.clearAllMocks()
+      configureAIGeneration({ enabled: true, model: 'sonnet' })
     })
 
     it('mixes found and generated entities for ~>Category[] field', async () => {
@@ -1436,6 +1418,14 @@ describe('Forward Fuzzy Resolution (~>)', () => {
       // The generated category should have been created with $generated: true
       const outdoorCategory = generatedCategories[0]
       expect(outdoorCategory?.$generated).toBe(true)
+
+      // Verify generated category has proper structure with real AI-generated values
+      expect(outdoorCategory).toHaveProperty('name')
+      expect(typeof outdoorCategory?.name).toBe('string')
+      expect(outdoorCategory?.name.length).toBeGreaterThan(0)
+      expect(outdoorCategory).toHaveProperty('slug')
+      expect(typeof outdoorCategory?.slug).toBe('string')
+      expect(outdoorCategory?.slug.length).toBeGreaterThan(0)
     })
 
     it('applies threshold per-entity in array', async () => {
@@ -1567,6 +1557,14 @@ describe('Forward Fuzzy Resolution (~>)', () => {
       // TypeScript and Vue should be generated (below 0.85 threshold)
       const generatedTags = tags.filter((t) => t?.$generated === true)
       expect(generatedTags.length).toBe(2)
+
+      // Verify generated tags have proper structure with non-empty name values
+      for (const tag of generatedTags) {
+        expect(tag).toBeDefined()
+        expect(tag).toHaveProperty('name')
+        expect(typeof tag?.name).toBe('string')
+        expect(tag?.name.length).toBeGreaterThan(0)
+      }
     })
 
     it('found entities have $generated: false or undefined', async () => {
@@ -1754,6 +1752,10 @@ describe('Forward Fuzzy Resolution (~>)', () => {
       // ALL should be generated (database was empty)
       for (const tech of technologies) {
         expect(tech?.$generated).toBe(true)
+        // Verify generated entity has proper structure
+        expect(tech).toHaveProperty('name')
+        expect(typeof tech?.name).toBe('string')
+        expect(tech?.name.length).toBeGreaterThan(0)
       }
     })
 
@@ -1863,6 +1865,14 @@ describe('Forward Fuzzy Resolution (~>)', () => {
 
       // Exactly 2 generated (clothing and groceries)
       expect(generated.length).toBe(2)
+
+      // Verify generated departments have proper structure
+      for (const dept of generated) {
+        expect(dept).toBeDefined()
+        expect(dept).toHaveProperty('name')
+        expect(typeof dept?.name).toBe('string')
+        expect(dept?.name.length).toBeGreaterThan(0)
+      }
     })
 
     it('includes similarity scores on found entities', async () => {

@@ -159,7 +159,12 @@ export { parseOperator, parseField, parseSchema, isPrimitiveType } from './schem
 // Re-exports from schema/seed.ts
 // =============================================================================
 
-export { loadSeedData, fetchSeedData, parseDelimitedData, mapSeedDataToRecords } from './schema/seed.js'
+export {
+  loadSeedData,
+  fetchSeedData,
+  parseDelimitedData,
+  mapSeedDataToRecords,
+} from './schema/seed.js'
 export type { SeedResult } from './schema/seed.js'
 export type { SeedResult as SeedOperationResult } from './schema/seed.js'
 
@@ -196,6 +201,9 @@ export {
   generateEntity,
   resolveForwardExact,
   generateNaturalLanguageContent,
+  // Value generator configuration
+  setValueGenerator,
+  getValueGenerator,
   // AI generation configuration
   configureAIGeneration,
   getAIGenerationConfig,
@@ -218,6 +226,25 @@ export {
   matchesFilter,
   applyFilters,
 } from './schema/nl-query-generator.js'
+
+// =============================================================================
+// Re-exports from schema/entity-operations.ts
+// =============================================================================
+
+export { createEntityOperations, createEdgeEntityOperations } from './schema/entity-operations.js'
+
+export type { EntityOperationsConfig } from './schema/entity-operations.js'
+
+// =============================================================================
+// Re-exports from schema/nl-query.ts
+// =============================================================================
+
+export {
+  buildNLQueryContext,
+  executeNLQuery,
+  createNLQueryFn,
+  getNLQueryGenerator,
+} from './schema/nl-query.js'
 
 // =============================================================================
 // Re-exports from schema/verb-derivation.ts

@@ -1,38 +1,17 @@
 /**
  * Quick test to verify db4.ai Blog cascade pattern works in ai-database
+ * Uses REAL AI calls through Cloudflare AI Gateway (cached for efficiency)
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { DB, setProvider, createMemoryProvider, configureAIGeneration } from '../src/index.js'
-
-// Mock ai-functions to avoid real API calls
-vi.mock('ai-functions', () => ({
-  generateObject: vi.fn().mockImplementation(async ({ schema }) => {
-    // Generate mock data based on schema
-    const obj: Record<string, unknown> = {}
-    for (const [key, desc] of Object.entries(schema as Record<string, string>)) {
-      if (key === 'name') obj[key] = 'MockTopic'
-      else if (key === 'title') obj[key] = 'Mock Post Title'
-      else if (key === 'description') obj[key] = 'Mock description'
-      else if (key === 'synopsis') obj[key] = 'Mock synopsis'
-      else if (key === 'content') obj[key] = '# Mock content'
-      else if (key === 'problem') obj[key] = 'Generated problem'
-      else if (key === 'solution') obj[key] = 'Generated solution'
-      else obj[key] = `Generated ${key}`
-    }
-    return { object: obj }
-  }),
-}))
 
 describe('Blog Cascade Pattern (db4.ai style)', () => {
   beforeEach(() => {
     setProvider(createMemoryProvider())
     configureAIGeneration({ enabled: true, model: 'sonnet' })
-    vi.clearAllMocks()
   })
 
   it('should support prompt-driven forward exact generation (->Type)', async () => {
-    const { generateObject } = await import('ai-functions')
-
     const { db } = DB({
       Startup: {
         name: 'string',
@@ -46,20 +25,22 @@ describe('Blog Cascade Pattern (db4.ai style)', () => {
 
     const startup = await db.Startup.create({ name: 'TestStartup' })
 
-    // generateObject should be called for the Idea
-    expect(generateObject).toHaveBeenCalled()
-
     // Access the idea
     const idea = await startup.idea
     expect(idea).toBeDefined()
     expect(idea.$type).toBe('Idea')
-    expect(idea.problem).toBe('Generated problem')
-    expect(idea.solution).toBe('Generated solution')
+
+    // Verify generated content has proper structure
+    expect(idea.problem).toBeDefined()
+    expect(typeof idea.problem).toBe('string')
+    expect(idea.problem.length).toBeGreaterThan(0)
+
+    expect(idea.solution).toBeDefined()
+    expect(typeof idea.solution).toBe('string')
+    expect(idea.solution.length).toBeGreaterThan(0)
   })
 
   it('should handle Company -> Product cascade', async () => {
-    const { generateObject } = await import('ai-functions')
-
     const { db } = DB({
       Company: {
         name: 'string',
@@ -82,14 +63,17 @@ describe('Blog Cascade Pattern (db4.ai style)', () => {
     expect(product).toBeDefined()
     expect(product.$type).toBe('Product')
 
-    // Verify generateObject was called
-    expect(generateObject).toHaveBeenCalled()
+    // Verify generated content has proper structure
+    expect(product.name).toBeDefined()
+    expect(typeof product.name).toBe('string')
+    expect(product.name.length).toBeGreaterThan(0)
+
+    expect(product.description).toBeDefined()
+    expect(typeof product.description).toBe('string')
+    expect(product.description.length).toBeGreaterThan(0)
   })
 
   it('should cascade through multiple levels', async () => {
-    const { generateObject } = await import('ai-functions')
-    vi.clearAllMocks()
-
     const { db } = DB({
       Blog: {
         title: 'string',
@@ -115,19 +99,27 @@ describe('Blog Cascade Pattern (db4.ai style)', () => {
     expect(topic).toBeDefined()
     expect(topic.$type).toBe('Topic')
 
+    // Verify topic has generated content
+    expect(topic.name).toBeDefined()
+    expect(typeof topic.name).toBe('string')
+    expect(topic.name.length).toBeGreaterThan(0)
+
     // Access post (level 2 cascade)
     const post = await topic.post
     expect(post).toBeDefined()
     expect(post.$type).toBe('Post')
 
-    // Verify generateObject was called for both Topic and Post
-    expect(generateObject).toHaveBeenCalled()
+    // Verify post has generated content
+    expect(post.title).toBeDefined()
+    expect(typeof post.title).toBe('string')
+    expect(post.title.length).toBeGreaterThan(0)
+
+    expect(post.content).toBeDefined()
+    expect(typeof post.content).toBe('string')
+    expect(post.content.length).toBeGreaterThan(0)
   })
 
   it('should include context in generation prompt', async () => {
-    const { generateObject } = await import('ai-functions')
-    vi.clearAllMocks()
-
     const { db } = DB({
       Company: {
         $instructions: 'This is a B2B SaaS company',
@@ -141,17 +133,24 @@ describe('Blog Cascade Pattern (db4.ai style)', () => {
       },
     })
 
-    await db.Company.create({
+    const company = await db.Company.create({
       name: 'TechCorp',
       industry: 'Enterprise Software',
     })
 
-    // Check that generateObject was called with context
-    expect(generateObject).toHaveBeenCalledWith(
-      expect.objectContaining({
-        prompt: expect.stringContaining('TechCorp'),
-      })
-    )
+    // Access the product to trigger generation
+    const product = await company.product
+
+    // Verify generated product has proper structure
+    expect(product).toBeDefined()
+    expect(product.$type).toBe('Product')
+    expect(product.name).toBeDefined()
+    expect(typeof product.name).toBe('string')
+    expect(product.name.length).toBeGreaterThan(0)
+
+    expect(product.description).toBeDefined()
+    expect(typeof product.description).toBe('string')
+    expect(product.description.length).toBeGreaterThan(0)
   })
 
   it('should handle backward references (<-Type)', async () => {

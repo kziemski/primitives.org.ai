@@ -35,6 +35,7 @@ import {
   getSymbolProperty,
   asItem,
 } from './type-guards.js'
+import { EntityNotFoundError } from './errors.js'
 
 // Provider resolver - will be set by schema.ts
 let providerResolver: (() => Promise<DBProvider>) | null = null
@@ -616,7 +617,7 @@ export class DBPromise<T> implements PromiseLike<T> {
           processedIds = new Set(existingAction.data?.processedIds ?? [])
           await actionsAPI.update(actionId, { status: 'active' })
         } else {
-          throw new Error(`Action ${resume} not found`)
+          throw new EntityNotFoundError('Action', resume, 'resume')
         }
       } else {
         // Create new action
@@ -1652,54 +1653,110 @@ export function createSearchPromise<T>(type: string, executor: () => Promise<T[]
 // Entity Operations Wrapper
 // =============================================================================
 
+// Import types for wrapEntityOperations
+import type {
+  ListOptions,
+  SearchOptions,
+  SemanticSearchOptions,
+  HybridSearchOptions,
+  CreateEntityOptions,
+  DraftOptions,
+  ResolveOptions,
+} from './schema/types.js'
+
+/** Type for entity data without system fields */
+type EntityData<T> = Omit<T, '$id' | '$type'>
+
+/** Type for partial entity update data */
+type EntityUpdateData<T> = Partial<EntityData<T>>
+
 /**
- * Wrap EntityOperations to return DBPromise
+ * Input operations interface for wrapEntityOperations
+ * This is compatible with EntityOperations<T> from schema/index.ts
  */
-export function wrapEntityOperations<T>(
-  typeName: string,
-  operations: {
-    get: (id: string) => Promise<T | null>
-    list: (options?: any) => Promise<T[]>
-    find: (where: any) => Promise<T[]>
-    search: (query: string, options?: any) => Promise<T[]>
-    semanticSearch?: (query: string, options?: any) => Promise<Array<T & { $score: number }>>
-    hybridSearch?: (
-      query: string,
-      options?: any
-    ) => Promise<
-      Array<T & { $rrfScore: number; $ftsRank: number; $semanticRank: number; $score: number }>
-    >
-    create: (...args: any[]) => Promise<T>
-    update: (id: string, data: any) => Promise<T>
-    upsert: (id: string, data: any) => Promise<T>
-    delete: (id: string) => Promise<boolean>
-    forEach: (...args: any[]) => Promise<void>
-  },
-  actionsAPI?: ForEachActionsAPI
-): {
-  get: (id: string) => DBPromise<T | null>
-  list: (options?: any) => DBPromise<T[]>
-  find: (where: any) => DBPromise<T[]>
-  search: (query: string, options?: any) => DBPromise<T[]>
-  semanticSearch: (query: string, options?: any) => Promise<Array<T & { $score: number }>>
-  hybridSearch: (
+interface WrapEntityInput<T> {
+  get: (id: string) => Promise<T | null>
+  list: (options?: ListOptions) => Promise<T[]>
+  find: (where: Partial<T>) => Promise<T[]>
+  search: (query: string, options?: SearchOptions) => Promise<T[]>
+  semanticSearch?: (
     query: string,
-    options?: any
+    options?: SemanticSearchOptions
+  ) => Promise<Array<T & { $score: number }>>
+  hybridSearch?: (
+    query: string,
+    options?: HybridSearchOptions
   ) => Promise<
     Array<T & { $rrfScore: number; $ftsRank: number; $semanticRank: number; $score: number }>
   >
-  create: (...args: any[]) => Promise<T | unknown>
-  update: (id: string, data: any) => Promise<T>
-  upsert: (id: string, data: any) => Promise<T>
+  // create has overloads in EntityOperations - accept either signature
+  create: {
+    (data: EntityData<T>): Promise<T>
+    (id: string, data: EntityData<T>): Promise<T>
+  }
+  update: (id: string, data: EntityUpdateData<T>) => Promise<T>
+  upsert: (id: string, data: EntityData<T>) => Promise<T>
+  delete: (id: string) => Promise<boolean>
+  // forEach has overloads in EntityOperations - accept either signature
+  forEach: {
+    (callback: (entity: T) => void | Promise<void>): Promise<void>
+    (options: ListOptions, callback: (entity: T) => void | Promise<void>): Promise<void>
+  }
+  // Optional draft/resolve from two-phase API (accepting wider types for compatibility)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  draft?: (data: Partial<EntityData<T>>, options?: DraftOptions) => Promise<any>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  resolve?: (draft: any, options?: ResolveOptions) => Promise<any>
+}
+
+/**
+ * Output operations interface for wrapEntityOperations
+ * Returns DBPromise for read operations and adds enhanced forEach
+ */
+interface WrapEntityOutput<T> {
+  get: (id: string) => DBPromise<T | null>
+  list: (options?: ListOptions) => DBPromise<T[]>
+  find: (where: Partial<T>) => DBPromise<T[]>
+  search: (query: string, options?: SearchOptions) => DBPromise<T[]>
+  semanticSearch: (
+    query: string,
+    options?: SemanticSearchOptions
+  ) => Promise<Array<T & { $score: number }>>
+  hybridSearch: (
+    query: string,
+    options?: HybridSearchOptions
+  ) => Promise<
+    Array<T & { $rrfScore: number; $ftsRank: number; $semanticRank: number; $score: number }>
+  >
+  // create supports both (data, options?) and (id, data, options?) signatures
+  create: {
+    (data: EntityData<T>, options?: CreateEntityOptions): Promise<T>
+    (id: string, data: EntityData<T>, options?: CreateEntityOptions): Promise<T>
+  }
+  update: (id: string, data: EntityUpdateData<T>) => Promise<T>
+  upsert: (id: string, data: EntityData<T>) => Promise<T>
   delete: (id: string) => Promise<boolean>
   forEach: <U>(
     callback: (item: T, index: number) => U | Promise<U>,
     options?: ForEachOptions<T>
   ) => Promise<ForEachResult>
   first: () => DBPromise<T | null>
-  draft?: (data: any, options?: any) => Promise<unknown>
-  resolve?: (draft: unknown, options?: any) => Promise<unknown>
-} {
+  // These may be overwritten after wrapEntityOperations returns
+  draft?: (data: EntityData<T>, options?: DraftOptions) => Promise<unknown>
+  resolve?: (draft: unknown, options?: ResolveOptions) => Promise<unknown>
+  // Index signature for compatibility with Record<string, unknown>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any
+}
+
+/**
+ * Wrap EntityOperations to return DBPromise
+ */
+export function wrapEntityOperations<T>(
+  typeName: string,
+  operations: WrapEntityInput<T>,
+  actionsAPI?: ForEachActionsAPI
+): WrapEntityOutput<T> {
   return {
     get(id: string): DBPromise<T | null> {
       return new DBPromise({
@@ -1709,7 +1766,7 @@ export function wrapEntityOperations<T>(
       })
     },
 
-    list(options?: any): DBPromise<T[]> {
+    list(options?: ListOptions): DBPromise<T[]> {
       return new DBPromise({
         type: typeName,
         executor: () => operations.list(options),
@@ -1717,7 +1774,7 @@ export function wrapEntityOperations<T>(
       })
     },
 
-    find(where: any): DBPromise<T[]> {
+    find(where: Partial<T>): DBPromise<T[]> {
       return new DBPromise({
         type: typeName,
         executor: () => operations.find(where),
@@ -1725,7 +1782,7 @@ export function wrapEntityOperations<T>(
       })
     },
 
-    search(query: string, options?: any): DBPromise<T[]> {
+    search(query: string, options?: SearchOptions): DBPromise<T[]> {
       return new DBPromise({
         type: typeName,
         executor: () => operations.search(query, options),
@@ -1796,7 +1853,10 @@ export function wrapEntityOperations<T>(
     },
 
     // Semantic search methods
-    semanticSearch(query: string, options?: any): Promise<Array<T & { $score: number }>> {
+    semanticSearch(
+      query: string,
+      options?: SemanticSearchOptions
+    ): Promise<Array<T & { $score: number }>> {
       if (operations.semanticSearch) {
         return operations.semanticSearch(query, options)
       }
@@ -1806,7 +1866,7 @@ export function wrapEntityOperations<T>(
 
     hybridSearch(
       query: string,
-      options?: any
+      options?: HybridSearchOptions
     ): Promise<
       Array<T & { $rrfScore: number; $ftsRank: number; $semanticRank: number; $score: number }>
     > {
@@ -1817,8 +1877,8 @@ export function wrapEntityOperations<T>(
       return Promise.resolve([])
     },
 
-    // Mutations don't need wrapping
-    create: operations.create,
+    // Mutations - pass through create which supports both (data, options?) and (id, data, options?)
+    create: operations.create as WrapEntityOutput<T>['create'],
     update: operations.update,
     upsert: operations.upsert,
     delete: operations.delete,

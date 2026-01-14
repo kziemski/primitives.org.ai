@@ -42,9 +42,9 @@ describe('MemoryProvider', () => {
     it('throws error if entity already exists', async () => {
       await provider.create('User', 'john', { name: 'John' })
 
-      await expect(
-        provider.create('User', 'john', { name: 'Jane' })
-      ).rejects.toThrow('Entity already exists: User/john')
+      await expect(provider.create('User', 'john', { name: 'Jane' })).rejects.toThrow(
+        'create User/john: Entity already exists'
+      )
     })
 
     it('stores createdAt and updatedAt timestamps', async () => {
@@ -122,9 +122,9 @@ describe('MemoryProvider', () => {
     })
 
     it('throws error if entity does not exist', async () => {
-      await expect(
-        provider.update('User', 'nonexistent', { name: 'Jane' })
-      ).rejects.toThrow('Entity not found: User/nonexistent')
+      await expect(provider.update('User', 'nonexistent', { name: 'Jane' })).rejects.toThrow(
+        'update User/nonexistent: Entity not found'
+      )
     })
 
     it('merges with existing data', async () => {
@@ -710,9 +710,7 @@ describe('MemoryProvider', () => {
         data: {},
       })
 
-      await expect(provider.retryAction(action.id)).rejects.toThrow(
-        'Can only retry failed actions'
-      )
+      await expect(provider.retryAction(action.id)).rejects.toThrow('Can only retry failed actions')
     })
 
     it('cancels pending action', async () => {
@@ -748,9 +746,7 @@ describe('MemoryProvider', () => {
       await provider.updateAction(action.id, { status: 'active' })
       await provider.updateAction(action.id, { status: 'completed' })
 
-      const eventTypes = handler.mock.calls.map(
-        (call) => call[0].type
-      )
+      const eventTypes = handler.mock.calls.map((call) => call[0].type)
       expect(eventTypes).toContain('Action.created')
       expect(eventTypes).toContain('Action.started')
       expect(eventTypes).toContain('Action.completed')
