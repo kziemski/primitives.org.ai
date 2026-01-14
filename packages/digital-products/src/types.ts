@@ -756,37 +756,33 @@ export function createFeature(input: Omit<Feature, '$type' | 'status'> & { statu
 }
 
 // =============================================================================
-// LEGACY DEFINITION TYPES (Backwards Compatibility)
+// BUILDER PATTERN TYPES
 // =============================================================================
 //
-// The following *Definition types are maintained for backwards compatibility.
-// New code should use the unified JSON-LD style types above:
+// These *Definition types support the fluent builder API (ProductBuilder, AppBuilder, etc.).
+// They use `id` and `type` fields (without $ prefix) for builder ergonomics.
+//
+// For JSON-LD compatible types with `$id`/`$type`, use the unified types above:
 // - Product, App, API, Site, Service, Feature
 //
-// These types use `id` and `type` instead of `$id` and `$type`.
+// Both type systems are valid and serve different purposes:
+// - Unified types ($id/$type): JSON-LD semantics, API responses, schema.org.ai
+// - Definition types (id/type): Builder pattern, DSL definitions, config files
 
 /**
- * Base digital product definition
+ * Base digital product definition for builder pattern
  *
- * @deprecated Use {@link Product} with `$id`/`$type` instead.
- * This type is maintained for backwards compatibility.
+ * Used by ProductBuilder and related fluent APIs.
+ * Uses `id` (without $ prefix) for builder ergonomics.
  *
- * @example Migration
+ * @example
  * ```typescript
- * // Old way (deprecated)
- * const old: DigitalProduct = {
+ * const product: DigitalProduct = {
  *   id: 'my-product',
  *   name: 'My Product',
  *   description: 'A product',
  *   version: '1.0.0'
  * }
- *
- * // New way (recommended)
- * const newProduct = createProduct({
- *   $id: 'my-product',
- *   name: 'My Product',
- *   description: 'A product'
- * })
  * ```
  */
 export interface DigitalProduct {
@@ -807,12 +803,11 @@ export interface DigitalProduct {
 }
 
 /**
- * Application definition - interactive user-facing software
+ * Application definition for builder pattern
  *
- * @deprecated Use {@link App} with `$id`/`$type` instead.
- * This type is maintained for backwards compatibility.
+ * Used by AppBuilder for fluent API definitions.
  *
- * @see {@link App} for the recommended unified type
+ * @see {@link App} for JSON-LD compatible type
  */
 export interface AppDefinition extends DigitalProduct {
   type: 'app'
@@ -886,12 +881,11 @@ export interface AuthConfig {
 }
 
 /**
- * API definition - programmatic interface
+ * API definition for builder pattern
  *
- * @deprecated Use {@link API} with `$id`/`$type` instead.
- * This type is maintained for backwards compatibility.
+ * Used by APIBuilder for fluent API definitions.
  *
- * @see {@link API} for the recommended unified type
+ * @see {@link API} for JSON-LD compatible type
  */
 export interface APIDefinition extends DigitalProduct {
   type: 'api'
@@ -966,10 +960,9 @@ export interface RateLimitConfig {
 }
 
 /**
- * Content definition - text/media content
+ * Content definition for builder pattern
  *
- * @deprecated This type is maintained for backwards compatibility.
- * Consider using unified types for new code.
+ * Defines text/media content structure for the Content builder.
  */
 export interface ContentDefinition extends DigitalProduct {
   type: 'content'
@@ -1002,10 +995,9 @@ export interface WorkflowDefinition {
 }
 
 /**
- * Data definition - structured data/database
+ * Data definition for builder pattern
  *
- * @deprecated This type is maintained for backwards compatibility.
- * Consider using unified types for new code.
+ * Defines structured data/database schemas for the Data builder.
  */
 export interface DataDefinition extends DigitalProduct {
   type: 'data'
@@ -1064,10 +1056,9 @@ export interface ValidationRule {
 }
 
 /**
- * Dataset definition - curated data collection
+ * Dataset definition for builder pattern
  *
- * @deprecated This type is maintained for backwards compatibility.
- * Consider using unified types for new code.
+ * Defines curated data collection structure for the Dataset builder.
  */
 export interface DatasetDefinition extends DigitalProduct {
   type: 'dataset'
@@ -1086,12 +1077,11 @@ export interface DatasetDefinition extends DigitalProduct {
 }
 
 /**
- * Site definition - website/documentation
+ * Site definition for builder pattern
  *
- * @deprecated Use {@link Site} with `$id`/`$type` instead.
- * This type is maintained for backwards compatibility.
+ * Used by SiteBuilder for fluent API definitions.
  *
- * @see {@link Site} for the recommended unified type
+ * @see {@link Site} for JSON-LD compatible type
  */
 export interface SiteDefinition extends DigitalProduct {
   type: 'site'
@@ -1168,10 +1158,9 @@ export interface AnalyticsConfig {
 }
 
 /**
- * MCP (Model Context Protocol) server definition
+ * MCP (Model Context Protocol) server definition for builder pattern
  *
- * @deprecated This type is maintained for backwards compatibility.
- * Consider using unified types for new code.
+ * Defines MCP server structure for the MCP builder.
  */
 export interface MCPDefinition extends DigitalProduct {
   type: 'mcp'
@@ -1245,10 +1234,9 @@ export interface MCPConfig {
 }
 
 /**
- * SDK (Software Development Kit) definition
+ * SDK (Software Development Kit) definition for builder pattern
  *
- * @deprecated This type is maintained for backwards compatibility.
- * Consider using unified types for new code.
+ * Defines SDK structure for the SDK builder.
  */
 export interface SDKDefinition extends DigitalProduct {
   type: 'sdk'
@@ -1317,10 +1305,10 @@ export interface DeploymentTarget {
 }
 
 /**
- * Union of all legacy product definition types
+ * Union of all builder pattern product definition types
  *
- * @deprecated Use unified types (Product, App, API, Site, Service, Feature) instead.
- * This union is maintained for backwards compatibility.
+ * Represents any product definition created through the builder API.
+ * For JSON-LD compatible types, use Product, App, API, Site, Service, Feature.
  */
 export type ProductDefinition =
   | AppDefinition
@@ -1335,8 +1323,8 @@ export type ProductDefinition =
 /**
  * Product builder - chainable API for creating products
  *
- * @deprecated Use factory functions (createProduct, createApp, etc.) instead.
- * This builder interface is maintained for backwards compatibility.
+ * Provides a fluent interface for building ProductDefinition types.
+ * For simpler creation, use factory functions (createProduct, createApp, etc.).
  */
 export interface ProductBuilder<T extends ProductDefinition> {
   /** Set product ID */
