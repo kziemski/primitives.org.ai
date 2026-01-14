@@ -209,14 +209,34 @@ export async function resolveForwardFuzzy(
 
   for (const [fieldName, field] of entity.fields) {
     if (field.operator === '~>' && field.direction === 'forward') {
-      // Skip if value already provided
+      // If value already provided, still need to track for edge creation
       if (resolved[fieldName] !== undefined && resolved[fieldName] !== null) {
-        // If value is provided for array field, we still need to create relationships
+        // Get matchedType from metadata if available, otherwise use relatedType
+        const matchedTypeKey = `${fieldName}$matchedType`
+        const matchedType = (resolved[matchedTypeKey] as string) || field.relatedType!
+        const similarityKey = `${fieldName}$score`
+        const similarity = resolved[similarityKey] as number | undefined
+
         if (field.isArray && Array.isArray(resolved[fieldName])) {
           const ids = resolved[fieldName] as string[]
           for (const targetId of ids) {
-            pendingRelations.push({ fieldName, targetType: field.relatedType!, targetId })
+            pendingRelations.push({
+              fieldName,
+              targetType: matchedType,
+              targetId,
+              similarity,
+              matchedType,
+            })
           }
+        } else if (typeof resolved[fieldName] === 'string') {
+          // Single fuzzy field with value already set - add to pendingRelations for edge creation
+          pendingRelations.push({
+            fieldName,
+            targetType: matchedType,
+            targetId: resolved[fieldName] as string,
+            similarity,
+            matchedType,
+          })
         }
         continue
       }

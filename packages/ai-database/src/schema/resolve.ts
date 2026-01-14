@@ -312,6 +312,9 @@ export async function resolveReferenceSpec(
           $matchedType: bestMatchResult.type,
           $similarity: bestMatchResult.match.$score,
         })
+        // Also set metadata on contextData for edge creation later
+        contextData[`${spec.field}$matchedType`] = bestMatchResult.type
+        contextData[`${spec.field}$score`] = bestMatchResult.match.$score
         return bestMatchResult.match.$id
       }
     }

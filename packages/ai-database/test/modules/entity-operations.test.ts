@@ -397,7 +397,16 @@ describe('Entity Operations Module Interface', () => {
       const author = await authorOps.create({ name: 'John' })
       const post = await postOps.create({ title: 'Hello', author: author.$id })
 
-      expect(post.author).toBe(author.$id)
+      // Forward relations are wrapped in thenable proxies that:
+      // - Act like strings when coerced (toString(), String())
+      // - Can be awaited to get the full related entity
+      expect(String(post.author)).toBe(author.$id)
+      expect(post.author.toString()).toBe(author.$id)
+
+      // Verify the proxy can be awaited to get the full entity
+      const resolvedAuthor = await post.author
+      expect(resolvedAuthor?.$id).toBe(author.$id)
+      expect(resolvedAuthor?.name).toBe('John')
     })
 
     it('should handle forward fuzzy (~>) relationships', async () => {

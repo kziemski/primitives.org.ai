@@ -191,7 +191,7 @@ export function createEntityOperations<T>(
           matchedType: rel.matchedType,
         })
 
-        const edgeId = `${typeName}:${rel.fieldName}:${entityId}:${rel.targetId}`
+        const edgeId = `${typeName}_${rel.fieldName}_${entityId}_${rel.targetId}`
         if (!createdEdgeIds.has(edgeId)) {
           createdEdgeIds.add(edgeId)
           try {
