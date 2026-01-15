@@ -230,6 +230,13 @@ export class NSClient implements DigitalObjectsProvider {
     return this.request('/actions', undefined, params)
   }
 
+  async deleteAction(id: string): Promise<boolean> {
+    const result = await this.request<{ deleted: boolean }>(`/actions/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    })
+    return result.deleted
+  }
+
   // ==================== Graph Traversal ====================
 
   async related<T>(

@@ -19,7 +19,39 @@ import type {
   ListOptions,
   ActionOptions,
 } from './types.js'
+import { DEFAULT_LIMIT, MAX_LIMIT } from './types.js'
 import { deriveNoun, deriveVerb } from './linguistic.js'
+
+/**
+ * Calculate effective limit with safety bounds
+ */
+function effectiveLimit(requestedLimit?: number): number {
+  return Math.min(requestedLimit ?? DEFAULT_LIMIT, MAX_LIMIT)
+}
+
+// Whitelist of allowed orderBy fields for SQL injection prevention
+const ALLOWED_ORDER_FIELDS = [
+  'createdAt',
+  'updatedAt',
+  'id',
+  'noun',
+  'verb',
+  'status',
+  'name',
+  'title',
+]
+
+/**
+ * Validates an orderBy field name to prevent SQL injection.
+ * Allows whitelisted fields or simple alphanumeric field names.
+ */
+function validateOrderByField(field: string): boolean {
+  // Allow whitelisted fields
+  if (ALLOWED_ORDER_FIELDS.includes(field)) return true
+  // Only allow simple alphanumeric field names (letters, numbers, underscores)
+  // Must start with a letter or underscore
+  return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(field)
+}
 
 // Environment bindings
 export interface Env {
@@ -215,6 +247,12 @@ export class NS implements DigitalObjectsProvider {
         return action ? Response.json(action) : new Response('Not found', { status: 404 })
       }
 
+      if (path.startsWith('/actions/') && method === 'DELETE') {
+        const id = decodeURIComponent(path.slice('/actions/'.length))
+        const deleted = await this.deleteAction(id)
+        return Response.json({ deleted })
+      }
+
       if (path === '/actions' && method === 'GET') {
         const options: ActionOptions = {}
         const verb = url.searchParams.get('verb')
@@ -330,8 +368,8 @@ export class NS implements DigitalObjectsProvider {
 
     this.sql.exec(
       `INSERT OR REPLACE INTO verbs
-       (name, action, act, activity, event, reverse_by, reverse_at, inverse, description, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (name, action, act, activity, event, reverse_by, reverse_at, reverse_in, inverse, description, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       def.name,
       def.action ?? derived.action,
       def.act ?? derived.act,
@@ -339,6 +377,7 @@ export class NS implements DigitalObjectsProvider {
       def.event ?? derived.event,
       def.reverseBy ?? derived.reverseBy,
       derived.reverseAt,
+      def.reverseIn ?? derived.reverseIn,
       def.inverse ?? null,
       def.description ?? null,
       now
@@ -352,6 +391,7 @@ export class NS implements DigitalObjectsProvider {
       event: def.event ?? derived.event,
       reverseBy: def.reverseBy ?? derived.reverseBy,
       reverseAt: derived.reverseAt,
+      reverseIn: def.reverseIn ?? derived.reverseIn,
       inverse: def.inverse,
       description: def.description,
       createdAt: new Date(now),
@@ -373,6 +413,7 @@ export class NS implements DigitalObjectsProvider {
       event: row.event as string,
       reverseBy: row.reverse_by as string | undefined,
       reverseAt: row.reverse_at as string | undefined,
+      reverseIn: row.reverse_in as string | undefined,
       inverse: row.inverse as string | undefined,
       description: row.description as string | undefined,
       createdAt: new Date(row.created_at as number),
@@ -393,6 +434,7 @@ export class NS implements DigitalObjectsProvider {
         event: r.event as string,
         reverseBy: r.reverse_by as string | undefined,
         reverseAt: r.reverse_at as string | undefined,
+        reverseIn: r.reverse_in as string | undefined,
         inverse: r.inverse as string | undefined,
         description: r.description as string | undefined,
         createdAt: new Date(r.created_at as number),
@@ -450,15 +492,18 @@ export class NS implements DigitalObjectsProvider {
     const params: unknown[] = [noun]
 
     if (options?.orderBy) {
-      // Note: SQLite can't parameterize column names, but we're ordering by JSON field
+      // Validate orderBy field to prevent SQL injection
+      if (!validateOrderByField(options.orderBy)) {
+        throw new Error(`Invalid orderBy field: ${options.orderBy}`)
+      }
       sql += ` ORDER BY json_extract(data, '$.${options.orderBy}')`
       sql += options.order === 'desc' ? ' DESC' : ' ASC'
     }
 
-    if (options?.limit) {
-      sql += ` LIMIT ?`
-      params.push(options.limit)
-    }
+    // Apply limit with safety bounds
+    const limit = effectiveLimit(options?.limit)
+    sql += ` LIMIT ?`
+    params.push(limit)
 
     if (options?.offset) {
       sql += ` OFFSET ?`
@@ -533,10 +578,10 @@ export class NS implements DigitalObjectsProvider {
     let sql = `SELECT * FROM things WHERE LOWER(data) LIKE ?`
     const params: unknown[] = [q]
 
-    if (options?.limit) {
-      sql += ` LIMIT ?`
-      params.push(options.limit)
-    }
+    // Apply limit with safety bounds
+    const limit = effectiveLimit(options?.limit)
+    sql += ` LIMIT ?`
+    params.push(limit)
 
     const rows = [...this.sql.exec(sql, ...params)]
     return rows.map((row) => {
@@ -630,10 +675,10 @@ export class NS implements DigitalObjectsProvider {
       params.push(...statuses)
     }
 
-    if (options?.limit) {
-      sql += ' LIMIT ?'
-      params.push(options.limit)
-    }
+    // Apply limit with safety bounds
+    const limit = effectiveLimit(options?.limit)
+    sql += ' LIMIT ?'
+    params.push(limit)
 
     const rows = [...this.sql.exec(sql, ...params)]
     return rows.map((row) => {
@@ -651,12 +696,20 @@ export class NS implements DigitalObjectsProvider {
     })
   }
 
+  async deleteAction(id: string): Promise<boolean> {
+    await this.ensureInitialized()
+
+    const result = this.sql.exec('DELETE FROM actions WHERE id = ?', id)
+    return result.rowsWritten > 0
+  }
+
   // ==================== Graph Traversal ====================
 
   async related<T>(
     id: string,
     verb?: string,
-    direction: 'out' | 'in' | 'both' = 'out'
+    direction: 'out' | 'in' | 'both' = 'out',
+    options?: ListOptions
   ): Promise<Thing<T>[]> {
     const edgesList = await this.edges(id, verb, direction)
     const relatedIds = new Set<string>()
@@ -674,11 +727,15 @@ export class NS implements DigitalObjectsProvider {
       }
     }
 
-    const results: Thing<T>[] = []
+    let results: Thing<T>[] = []
     for (const relatedId of relatedIds) {
       const thing = await this.get<T>(relatedId)
       if (thing) results.push(thing)
     }
+
+    // Apply limit with safety bounds
+    const limit = effectiveLimit(options?.limit)
+    results = results.slice(0, limit)
 
     return results
   }
@@ -686,7 +743,8 @@ export class NS implements DigitalObjectsProvider {
   async edges<T>(
     id: string,
     verb?: string,
-    direction: 'out' | 'in' | 'both' = 'out'
+    direction: 'out' | 'in' | 'both' = 'out',
+    options?: ListOptions
   ): Promise<Action<T>[]> {
     await this.ensureInitialized()
 
@@ -708,6 +766,11 @@ export class NS implements DigitalObjectsProvider {
       sql += ' AND verb = ?'
       params.push(verb)
     }
+
+    // Apply limit with safety bounds
+    const limit = effectiveLimit(options?.limit)
+    sql += ' LIMIT ?'
+    params.push(limit)
 
     const rows = [...this.sql.exec(sql, ...params)]
     return rows.map((row) => {

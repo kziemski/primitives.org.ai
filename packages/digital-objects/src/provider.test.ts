@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { DigitalObjectsProvider, Noun, Verb, Thing, Action } from './types'
+import { DEFAULT_LIMIT, MAX_LIMIT } from './types'
 import { createMemoryProvider } from './memory-provider'
 
 const createProvider = createMemoryProvider
@@ -219,6 +220,173 @@ describe('DigitalObjectsProvider Contract', () => {
       const outEdges = await provider.edges(author.id, undefined, 'out')
       expect(outEdges).toHaveLength(1)
       expect(outEdges[0].verb).toBe('write')
+    })
+
+    it('should delete an action (GDPR compliance)', async () => {
+      const author = await provider.create('Author', { name: 'Eve' })
+      const post = await provider.create('Post', { title: 'Test' })
+
+      const action = await provider.perform('write', author.id, post.id)
+
+      // Verify action exists
+      expect(await provider.getAction(action.id)).not.toBeNull()
+
+      // Delete the action
+      const deleted = await provider.deleteAction(action.id)
+      expect(deleted).toBe(true)
+
+      // Verify action is gone
+      expect(await provider.getAction(action.id)).toBeNull()
+    })
+
+    it('should return false when deleting non-existent action', async () => {
+      const deleted = await provider.deleteAction('non-existent-id')
+      expect(deleted).toBe(false)
+    })
+
+    it('should remove edge from graph after deleteAction', async () => {
+      const author = await provider.create('Author', { name: 'Frank' })
+      const post = await provider.create('Post', { title: 'Test' })
+
+      const action = await provider.perform('write', author.id, post.id)
+
+      // Verify edge exists
+      const edgesBefore = await provider.edges(author.id, 'write', 'out')
+      expect(edgesBefore).toHaveLength(1)
+
+      // Delete the action
+      await provider.deleteAction(action.id)
+
+      // Verify edge is gone
+      const edgesAfter = await provider.edges(author.id, 'write', 'out')
+      expect(edgesAfter).toHaveLength(0)
+    })
+
+    it('should remove relation after deleteAction', async () => {
+      const author = await provider.create('Author', { name: 'Grace' })
+      const post = await provider.create('Post', { title: 'Test' })
+
+      const action = await provider.perform('write', author.id, post.id)
+
+      // Verify relation exists
+      const relatedBefore = await provider.related(author.id, 'write', 'out')
+      expect(relatedBefore).toHaveLength(1)
+
+      // Delete the action
+      await provider.deleteAction(action.id)
+
+      // Verify relation is gone
+      const relatedAfter = await provider.related(author.id, 'write', 'out')
+      expect(relatedAfter).toHaveLength(0)
+    })
+  })
+
+  describe('Query Limits', () => {
+    beforeEach(async () => {
+      await provider.defineNoun({ name: 'Item' })
+      await provider.defineVerb({ name: 'connect' })
+    })
+
+    it('should apply DEFAULT_LIMIT when no limit specified for list()', async () => {
+      // Create more items than DEFAULT_LIMIT
+      const itemCount = DEFAULT_LIMIT + 50
+      for (let i = 0; i < itemCount; i++) {
+        await provider.create('Item', { index: i })
+      }
+
+      const items = await provider.list('Item')
+      expect(items).toHaveLength(DEFAULT_LIMIT)
+    })
+
+    it('should enforce MAX_LIMIT for list() even when higher limit requested', async () => {
+      // Create more items than MAX_LIMIT
+      const itemCount = MAX_LIMIT + 50
+      for (let i = 0; i < itemCount; i++) {
+        await provider.create('Item', { index: i })
+      }
+
+      const items = await provider.list('Item', { limit: MAX_LIMIT + 500 })
+      expect(items).toHaveLength(MAX_LIMIT)
+    })
+
+    it('should respect user limit when below MAX_LIMIT for list()', async () => {
+      for (let i = 0; i < 50; i++) {
+        await provider.create('Item', { index: i })
+      }
+
+      const items = await provider.list('Item', { limit: 10 })
+      expect(items).toHaveLength(10)
+    })
+
+    it('should apply DEFAULT_LIMIT when no limit specified for search()', async () => {
+      const itemCount = DEFAULT_LIMIT + 50
+      for (let i = 0; i < itemCount; i++) {
+        await provider.create('Item', { name: `searchable-${i}` })
+      }
+
+      const results = await provider.search('searchable')
+      expect(results).toHaveLength(DEFAULT_LIMIT)
+    })
+
+    it('should enforce MAX_LIMIT for search() even when higher limit requested', async () => {
+      const itemCount = MAX_LIMIT + 50
+      for (let i = 0; i < itemCount; i++) {
+        await provider.create('Item', { name: `searchable-${i}` })
+      }
+
+      const results = await provider.search('searchable', { limit: MAX_LIMIT + 500 })
+      expect(results).toHaveLength(MAX_LIMIT)
+    })
+
+    it('should apply DEFAULT_LIMIT when no limit specified for listActions()', async () => {
+      const item = await provider.create('Item', { name: 'target' })
+      const actionCount = DEFAULT_LIMIT + 50
+      for (let i = 0; i < actionCount; i++) {
+        await provider.perform('connect', undefined, item.id, { index: i })
+      }
+
+      const actions = await provider.listActions()
+      expect(actions).toHaveLength(DEFAULT_LIMIT)
+    })
+
+    it('should enforce MAX_LIMIT for listActions() even when higher limit requested', async () => {
+      const item = await provider.create('Item', { name: 'target' })
+      const actionCount = MAX_LIMIT + 50
+      for (let i = 0; i < actionCount; i++) {
+        await provider.perform('connect', undefined, item.id, { index: i })
+      }
+
+      const actions = await provider.listActions({ limit: MAX_LIMIT + 500 })
+      expect(actions).toHaveLength(MAX_LIMIT)
+    })
+
+    it('should apply DEFAULT_LIMIT when no limit specified for edges()', async () => {
+      const source = await provider.create('Item', { name: 'source' })
+      const edgeCount = DEFAULT_LIMIT + 50
+      for (let i = 0; i < edgeCount; i++) {
+        const target = await provider.create('Item', { name: `target-${i}` })
+        await provider.perform('connect', source.id, target.id)
+      }
+
+      const edges = await provider.edges(source.id, 'connect', 'out')
+      expect(edges).toHaveLength(DEFAULT_LIMIT)
+    })
+
+    it('should apply DEFAULT_LIMIT when no limit specified for related()', async () => {
+      const source = await provider.create('Item', { name: 'source' })
+      const relatedCount = DEFAULT_LIMIT + 50
+      for (let i = 0; i < relatedCount; i++) {
+        const target = await provider.create('Item', { name: `target-${i}` })
+        await provider.perform('connect', source.id, target.id)
+      }
+
+      const related = await provider.related(source.id, 'connect', 'out')
+      expect(related).toHaveLength(DEFAULT_LIMIT)
+    })
+
+    it('should export DEFAULT_LIMIT and MAX_LIMIT constants', () => {
+      expect(DEFAULT_LIMIT).toBe(100)
+      expect(MAX_LIMIT).toBe(1000)
     })
   })
 })

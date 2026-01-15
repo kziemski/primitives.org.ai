@@ -10,6 +10,12 @@
  */
 
 /**
+ * Query limit constants to prevent memory exhaustion
+ */
+export const DEFAULT_LIMIT = 100
+export const MAX_LIMIT = 1000
+
+/**
  * Noun - Entity type definition with linguistic forms
  */
 export interface Noun {
@@ -56,6 +62,7 @@ export interface VerbDefinition {
   event?: string
   reverseBy?: string
   reverseAt?: string
+  reverseIn?: string
   inverse?: string
   description?: string
 }
@@ -161,10 +168,21 @@ export interface DigitalObjectsProvider {
   perform<T>(verb: string, subject?: string, object?: string, data?: T): Promise<Action<T>>
   getAction<T>(id: string): Promise<Action<T> | null>
   listActions<T>(options?: ActionOptions): Promise<Action<T>[]>
+  deleteAction(id: string): Promise<boolean>
 
   // Graph traversal (via actions)
-  related<T>(id: string, verb?: string, direction?: 'out' | 'in' | 'both'): Promise<Thing<T>[]>
-  edges<T>(id: string, verb?: string, direction?: 'out' | 'in' | 'both'): Promise<Action<T>[]>
+  related<T>(
+    id: string,
+    verb?: string,
+    direction?: 'out' | 'in' | 'both',
+    options?: ListOptions
+  ): Promise<Thing<T>[]>
+  edges<T>(
+    id: string,
+    verb?: string,
+    direction?: 'out' | 'in' | 'both',
+    options?: ListOptions
+  ): Promise<Action<T>[]>
 
   // Lifecycle
   close?(): Promise<void>

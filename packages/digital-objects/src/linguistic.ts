@@ -165,6 +165,7 @@ export function deriveVerb(name: string): {
   event: string
   reverseBy: string
   reverseAt: string
+  reverseIn: string
 } {
   const base = name.toLowerCase()
 
@@ -195,6 +196,7 @@ export function deriveVerb(name: string): {
       event: irr.event,
       reverseBy: `${irr.event}By`,
       reverseAt: `${irr.event}At`,
+      reverseIn: `${irr.event}In`,
     }
   }
 
@@ -249,6 +251,7 @@ export function deriveVerb(name: string): {
     event,
     reverseBy: `${event}By`,
     reverseAt: `${event}At`,
+    reverseIn: `${event}In`,
   }
 }
 

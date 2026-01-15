@@ -449,24 +449,70 @@ describe('ai-database Adapter', () => {
   })
 
   describe('unrelate()', () => {
-    it('should log a warning (actions are immutable)', async () => {
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    it('should delete the action representing the relation', async () => {
+      await memoryProvider.defineNoun({ name: 'Person' })
+      await memoryProvider.defineNoun({ name: 'Project' })
+      await memoryProvider.defineVerb({ name: 'owns' })
+      await memoryProvider.create('Person', { name: 'Test' }, 'person-1')
+      await memoryProvider.create('Project', { name: 'Proj' }, 'project-1')
 
+      // Create a relation
+      await adapter.relate('Person', 'person-1', 'owns', 'Project', 'project-1')
+
+      // Verify relation exists
+      const actionsBefore = await memoryProvider.listActions({
+        verb: 'owns',
+        subject: 'person-1',
+        object: 'project-1',
+      })
+      expect(actionsBefore).toHaveLength(1)
+
+      // Unrelate
       await adapter.unrelate('Person', 'person-1', 'owns', 'Project', 'project-1')
 
-      expect(warnSpy).toHaveBeenCalledWith(
-        'unrelate not fully supported - actions are immutable in digital-objects'
-      )
-
-      warnSpy.mockRestore()
+      // Verify relation is deleted
+      const actionsAfter = await memoryProvider.listActions({
+        verb: 'owns',
+        subject: 'person-1',
+        object: 'project-1',
+      })
+      expect(actionsAfter).toHaveLength(0)
     })
 
-    it('should not throw an error', async () => {
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-
+    it('should not throw an error when no relation exists', async () => {
       await expect(adapter.unrelate('A', 'a1', 'rel', 'B', 'b1')).resolves.toBeUndefined()
+    })
 
-      warnSpy.mockRestore()
+    it('should delete multiple matching actions (GDPR compliance)', async () => {
+      await memoryProvider.defineNoun({ name: 'User' })
+      await memoryProvider.defineNoun({ name: 'Document' })
+      await memoryProvider.defineVerb({ name: 'viewed' })
+      await memoryProvider.create('User', { name: 'Test' }, 'user-1')
+      await memoryProvider.create('Document', { name: 'Doc' }, 'doc-1')
+
+      // Create multiple view actions (e.g., user viewed same document multiple times)
+      await adapter.relate('User', 'user-1', 'viewed', 'Document', 'doc-1')
+      await adapter.relate('User', 'user-1', 'viewed', 'Document', 'doc-1')
+      await adapter.relate('User', 'user-1', 'viewed', 'Document', 'doc-1')
+
+      // Verify 3 relations exist
+      const actionsBefore = await memoryProvider.listActions({
+        verb: 'viewed',
+        subject: 'user-1',
+        object: 'doc-1',
+      })
+      expect(actionsBefore).toHaveLength(3)
+
+      // Unrelate should delete all
+      await adapter.unrelate('User', 'user-1', 'viewed', 'Document', 'doc-1')
+
+      // Verify all relations are deleted
+      const actionsAfter = await memoryProvider.listActions({
+        verb: 'viewed',
+        subject: 'user-1',
+        object: 'doc-1',
+      })
+      expect(actionsAfter).toHaveLength(0)
     })
   })
 

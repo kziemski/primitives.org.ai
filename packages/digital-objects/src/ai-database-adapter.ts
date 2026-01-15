@@ -178,9 +178,17 @@ export function createDBProviderAdapter(provider: DigitalObjectsProvider): DBPro
       toType: string,
       toId: string
     ): Promise<void> {
-      // Find and "delete" the action - for now, actions are immutable in digital-objects
-      // This would need to be handled differently in a real implementation
-      console.warn('unrelate not fully supported - actions are immutable in digital-objects')
+      // Find the action(s) matching this relation and delete them
+      const actions = await provider.listActions({
+        verb: relation,
+        subject: fromId,
+        object: toId,
+      })
+
+      // Delete all matching actions (for GDPR compliance)
+      for (const action of actions) {
+        await provider.deleteAction(action.id)
+      }
     },
   }
 }

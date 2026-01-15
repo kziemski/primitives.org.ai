@@ -16,7 +16,15 @@ import type {
   ListOptions,
   ActionOptions,
 } from './types.js'
+import { DEFAULT_LIMIT, MAX_LIMIT } from './types.js'
 import { deriveNoun, deriveVerb } from './linguistic.js'
+
+/**
+ * Calculate effective limit with safety bounds
+ */
+function effectiveLimit(requestedLimit?: number): number {
+  return Math.min(requestedLimit ?? DEFAULT_LIMIT, MAX_LIMIT)
+}
 
 function generateId(): string {
   return crypto.randomUUID()
@@ -65,6 +73,7 @@ export class MemoryProvider implements DigitalObjectsProvider {
       event: def.event ?? derived.event,
       reverseBy: def.reverseBy ?? derived.reverseBy,
       reverseAt: derived.reverseAt,
+      reverseIn: def.reverseIn ?? derived.reverseIn,
       inverse: def.inverse,
       description: def.description,
       createdAt: new Date(),
@@ -142,9 +151,9 @@ export class MemoryProvider implements DigitalObjectsProvider {
       results = results.slice(options.offset)
     }
 
-    if (options?.limit) {
-      results = results.slice(0, options.limit)
-    }
+    // Apply limit with safety bounds
+    const limit = effectiveLimit(options?.limit)
+    results = results.slice(0, limit)
 
     return results
   }
@@ -185,9 +194,9 @@ export class MemoryProvider implements DigitalObjectsProvider {
       JSON.stringify(t.data).toLowerCase().includes(q)
     ) as Thing<T>[]
 
-    if (options?.limit) {
-      results = results.slice(0, options.limit)
-    }
+    // Apply limit with safety bounds
+    const limit = effectiveLimit(options?.limit)
+    results = results.slice(0, limit)
 
     return results
   }
@@ -233,11 +242,15 @@ export class MemoryProvider implements DigitalObjectsProvider {
       results = results.filter((a) => statuses.includes(a.status))
     }
 
-    if (options?.limit) {
-      results = results.slice(0, options.limit)
-    }
+    // Apply limit with safety bounds
+    const limit = effectiveLimit(options?.limit)
+    results = results.slice(0, limit)
 
     return results
+  }
+
+  async deleteAction(id: string): Promise<boolean> {
+    return this.actions.delete(id)
   }
 
   // ==================== Graph Traversal ====================
@@ -245,12 +258,13 @@ export class MemoryProvider implements DigitalObjectsProvider {
   async related<T>(
     id: string,
     verb?: string,
-    direction: 'out' | 'in' | 'both' = 'out'
+    direction: 'out' | 'in' | 'both' = 'out',
+    options?: ListOptions
   ): Promise<Thing<T>[]> {
-    const edges = await this.edges(id, verb, direction)
+    const edgesList = await this.edges(id, verb, direction)
     const relatedIds = new Set<string>()
 
-    for (const edge of edges) {
+    for (const edge of edgesList) {
       if (direction === 'out' || direction === 'both') {
         if (edge.subject === id && edge.object) {
           relatedIds.add(edge.object)
@@ -263,11 +277,15 @@ export class MemoryProvider implements DigitalObjectsProvider {
       }
     }
 
-    const results: Thing<T>[] = []
+    let results: Thing<T>[] = []
     for (const relatedId of relatedIds) {
       const thing = await this.get<T>(relatedId)
       if (thing) results.push(thing)
     }
+
+    // Apply limit with safety bounds
+    const limit = effectiveLimit(options?.limit)
+    results = results.slice(0, limit)
 
     return results
   }
@@ -275,7 +293,8 @@ export class MemoryProvider implements DigitalObjectsProvider {
   async edges<T>(
     id: string,
     verb?: string,
-    direction: 'out' | 'in' | 'both' = 'out'
+    direction: 'out' | 'in' | 'both' = 'out',
+    options?: ListOptions
   ): Promise<Action<T>[]> {
     let results = Array.from(this.actions.values()) as Action<T>[]
 
@@ -288,6 +307,10 @@ export class MemoryProvider implements DigitalObjectsProvider {
       if (direction === 'in') return a.object === id
       return a.subject === id || a.object === id
     })
+
+    // Apply limit with safety bounds
+    const limit = effectiveLimit(options?.limit)
+    results = results.slice(0, limit)
 
     return results
   }
