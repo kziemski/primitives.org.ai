@@ -169,6 +169,8 @@ export type { AIGenerationConfig, EntityOperationsConfig } from './schema.js'
 
 export { MemoryProvider, createMemoryProvider, Semaphore } from './memory-provider.js'
 
+export { createDigitalObjectsProvider } from './digital-objects-provider.js'
+
 export type {
   // Note: Event, Action, Artifact now exported from schema.js (types.ts)
   // memory-provider has different Event/Action/Artifact types (ActivityStreams style)
@@ -452,3 +454,17 @@ export {
   AIGenerationError,
   SemanticSearchError,
 } from './errors.js'
+
+// Re-export digital-objects types
+export type {
+  Noun as DigitalNoun,
+  NounDefinition,
+  Verb as DigitalVerb,
+  VerbDefinition,
+  Thing as DigitalThing,
+  Action as DigitalAction,
+  ActionStatus as DigitalActionStatus,
+  DigitalObjectsProvider,
+} from 'digital-objects'
+
+export { createMemoryProvider as createDigitalObjectsMemoryProvider } from 'digital-objects'

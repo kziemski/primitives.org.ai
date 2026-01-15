@@ -36,6 +36,7 @@
   "dependencies": {
     "@org.ai/types": "workspace:*",
     "ai-functions": "workspace:*",
+    "digital-objects": "workspace:*",
     "mdxld": "^1.0.1"
   },
   "peerDependencies": {

@@ -338,3 +338,14 @@ export {
   type FallbackOptions,
   type FallbackMetrics,
 } from './retry.js'
+
+// Export digital-objects function registry
+export {
+  DigitalObjectsFunctionRegistry,
+  createDigitalObjectsRegistry,
+  FUNCTION_NOUNS,
+  FUNCTION_VERBS,
+  type StoredFunctionDefinition,
+  type FunctionCallData,
+  type DigitalObjectsRegistryOptions,
+} from './digital-objects-registry.js'
