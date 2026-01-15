@@ -209,7 +209,7 @@ describe('Backward Exact (<-) Resolution', () => {
         Child: { parent: '<-Parent' },
       })
 
-      const parent = await db.Parent.create({ name: 'P1' })
+      const parent = await db.Parent.create({ name: 'P1' }, { cascade: true })
       const children = await parent.children
 
       expect(children.length).toBeGreaterThan(0)

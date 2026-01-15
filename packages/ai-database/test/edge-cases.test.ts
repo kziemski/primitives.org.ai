@@ -210,15 +210,13 @@ describe('edge cases', () => {
 
       const promises = []
       for (let i = 0; i < 10; i++) {
-        promises.push(
-          db.Counter.create(`counter${i}`, { value: i })
-        )
+        promises.push(db.Counter.create(`counter${i}`, { value: i }))
       }
 
       const results = await Promise.all(promises)
 
       expect(results).toHaveLength(10)
-      expect(new Set(results.map(r => r.$id)).size).toBe(10)
+      expect(new Set(results.map((r) => r.$id)).size).toBe(10)
     })
 
     it('handles concurrent updates', async () => {
@@ -228,9 +226,7 @@ describe('edge cases', () => {
 
       const promises = []
       for (let i = 1; i <= 5; i++) {
-        promises.push(
-          db.Counter.update('counter1', { value: i })
-        )
+        promises.push(db.Counter.update('counter1', { value: i }))
       }
 
       await Promise.all(promises)
@@ -252,7 +248,7 @@ describe('edge cases', () => {
 
       const results = await Promise.all(promises)
 
-      results.forEach(result => {
+      results.forEach((result) => {
         expect(result.length).toBe(2)
       })
     })
@@ -591,12 +587,8 @@ describe('edge cases', () => {
     it('handles negative limit (treated as invalid)', async () => {
       const { db } = DB(schema)
 
-      const results = await db.Item.list({
-        limit: -1,
-      })
-
-      // Negative limit should be handled gracefully
-      expect(Array.isArray(results)).toBe(true)
+      // Negative limit should throw validation error
+      await expect(db.Item.list({ limit: -1 })).rejects.toThrow(/invalid.*limit|must be positive/i)
     })
 
     it('handles very large limit', async () => {

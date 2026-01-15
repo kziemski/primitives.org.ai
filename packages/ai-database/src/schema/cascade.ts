@@ -98,9 +98,17 @@ function buildSchemaForEntity(entity: ParsedEntity): Record<string, string> {
   for (const [fieldName, field] of entity.fields) {
     // Only include non-relation scalar fields
     if (!field.isRelation) {
+      // Detect prompt fields: types containing spaces, slashes, or question marks
+      // e.g., 'What are their main challenges?' or 'low/medium/high'
+      const isPromptField =
+        field.type.includes(' ') || field.type.includes('/') || field.type.includes('?')
+
       if (field.type === 'string') {
         // Use the field prompt if available, otherwise a generic description
         schema[fieldName] = field.prompt || `Generate a ${fieldName}`
+      } else if (isPromptField) {
+        // For prompt fields, use the type (which is the prompt) as the schema
+        schema[fieldName] = field.type
       } else if (field.type === 'number') {
         schema[fieldName] = `number`
       } else if (field.type === 'boolean') {

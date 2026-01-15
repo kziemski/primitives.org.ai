@@ -881,11 +881,26 @@ export function DB<TSchema extends DatabaseSchema>(
 
         // Check if entity has reference fields that need two-phase processing
         const entityDef = parsedSchema.entities.get(entityName)
+        const effectiveMaxDepth = options?.maxDepth ?? (options?.cascade ? 3 : 0)
+        // Disable auto-generation when:
+        // 1. cascade is explicitly set to false
+        // 2. cascade is true but maxDepth is 0 (depth exhausted)
+        // When cascade is undefined, single-level array generation is allowed
+        const cascadeExplicitlyDisabled =
+          options?.cascade === false || (options?.cascade === true && effectiveMaxDepth === 0)
+
         const hasReferenceFields =
           entityDef &&
-          Array.from(entityDef.fields.values()).some((field) => field.operator && field.relatedType)
-
-        const effectiveMaxDepth = options?.maxDepth ?? (options?.cascade ? 3 : 0)
+          Array.from(entityDef.fields.values()).some((field) => {
+            if (!field.operator || !field.relatedType) return false
+            // Exclude forward fuzzy (~>) - handled by resolveForwardFuzzy in the direct create path
+            if (field.operator === '~>') return false
+            // For forward exact (->) array fields when cascade is explicitly disabled
+            if (field.operator === '->' && field.isArray && cascadeExplicitlyDisabled) {
+              return false
+            }
+            return true
+          })
 
         // Cascade takes priority over two-phase processing when enabled
         // Cascade handles generating related entities through the graph
@@ -1038,7 +1053,9 @@ export function DB<TSchema extends DatabaseSchema>(
         // Use two-phase draft/resolve pipeline when entity has reference fields (but cascade not enabled)
         if (hasReferenceFields) {
           // Phase 1: Draft - create placeholder with natural language refs
-          const draft = await draftFn(data)
+          // Skip promptless refs when cascade is not explicitly enabled (default behavior = no auto-generation)
+          const skipPromptless = options?.cascade !== true
+          const draft = await draftFn(data, { _skipPromptlessRefs: skipPromptless })
 
           // Phase 2: Resolve - convert refs to actual entity IDs
           const resolved = await resolveFn(draft)
@@ -1062,13 +1079,26 @@ export function DB<TSchema extends DatabaseSchema>(
           return result
         }
 
+        // Pre-initialize empty arrays for ->Type[] fields when cascade is explicitly disabled
+        // This prevents resolveForwardExact from auto-generating entities for array fields
+        let processedData = data
+        if (cascadeExplicitlyDisabled && entityDef) {
+          processedData = { ...data }
+          for (const [fieldName, field] of entityDef.fields) {
+            if (processedData[fieldName] !== undefined) continue
+            if (field.isArray && field.operator === '->' && field.relatedType) {
+              processedData[fieldName] = []
+            }
+          }
+        }
+
         // Call with properly typed arguments (already extracted above)
         // Use type assertion for internal overload dispatch via .call()
         const createFnFinal = originalCreate as (...args: unknown[]) => Promise<unknown>
         if (id) {
-          return createFnFinal.call(wrappedOps, id, data, options)
+          return createFnFinal.call(wrappedOps, id, processedData, options)
         }
-        return createFnFinal.call(wrappedOps, data, options)
+        return createFnFinal.call(wrappedOps, processedData, options)
       }
 
       // Add seed method if entity has seed configuration

@@ -23,7 +23,7 @@ describe('Union Type Resolution', () => {
   describe('Parse union type syntax', () => {
     it('should parse union type syntax', () => {
       const schema: DatabaseSchema = {
-        ICP: { using: 'What tools? ~>Technology|Tool|Framework' }
+        ICP: { using: 'What tools? ~>Technology|Tool|Framework' },
       }
       const parsed = parseSchema(schema)
       const field = parsed.entities.get('ICP')?.fields.get('using')
@@ -36,7 +36,7 @@ describe('Union Type Resolution', () => {
         Resource: { content: '->Document|Video|Image' },
         Document: { title: 'string' },
         Video: { url: 'string' },
-        Image: { src: 'string' }
+        Image: { src: 'string' },
       }
       const parsed = parseSchema(schema)
       const field = parsed.entities.get('Resource')?.fields.get('content')
@@ -47,7 +47,7 @@ describe('Union Type Resolution', () => {
 
     it('should parse union type with prompt', () => {
       const schema: DatabaseSchema = {
-        Project: { dependency: 'What dependency is needed? ~>Library|Framework|Service' }
+        Project: { dependency: 'What dependency is needed? ~>Library|Framework|Service' },
       }
       const parsed = parseSchema(schema)
       const field = parsed.entities.get('Project')?.fields.get('dependency')
@@ -58,7 +58,7 @@ describe('Union Type Resolution', () => {
 
     it('should parse union type in array syntax', () => {
       const schema: DatabaseSchema = {
-        ICP: { tools: ['What tools do they use? ~>Technology|Tool'] }
+        ICP: { tools: ['What tools do they use? ~>Technology|Tool'] },
       }
       const parsed = parseSchema(schema)
       const field = parsed.entities.get('ICP')?.fields.get('tools')
@@ -72,7 +72,7 @@ describe('Union Type Resolution', () => {
         Resource: { content: '->Document|Video|Image' },
         Document: { title: 'string' },
         Video: { url: 'string' },
-        Image: { src: 'string' }
+        Image: { src: 'string' },
       }
       const parsed = parseSchema(schema)
       const field = parsed.entities.get('Resource')?.fields.get('content')
@@ -87,7 +87,7 @@ describe('Union Type Resolution', () => {
       const { db } = DB({
         ICP: { using: ['What tools do they use? ~>Technology|Tool'] },
         Technology: { name: 'string', category: 'string' },
-        Tool: { name: 'string', purpose: 'string' }
+        Tool: { name: 'string', purpose: 'string' },
       })
 
       await db.Technology.create({ name: 'React', category: 'Frontend Framework' })
@@ -103,12 +103,15 @@ describe('Union Type Resolution', () => {
         Task: { resource: 'What resource is needed? ~>Document|Video|Expert' },
         Document: { title: 'string', content: 'string' },
         Video: { title: 'string', url: 'string' },
-        Expert: { name: 'string', specialty: 'string' }
+        Expert: { name: 'string', specialty: 'string' },
       })
 
       await db.Document.create({ title: 'API Guide', content: 'How to use the REST API' })
       await db.Video.create({ title: 'Setup Tutorial', url: 'https://example.com/setup' })
-      await db.Expert.create({ name: 'Dr. Smith', specialty: 'Machine Learning artificial intelligence neural network deep learning' })
+      await db.Expert.create({
+        name: 'Dr. Smith',
+        specialty: 'Machine Learning artificial intelligence neural network deep learning',
+      })
 
       // Should match Document based on hint
       const task1 = await db.Task.create({ resourceHint: 'Need documentation about API usage' })
@@ -116,7 +119,9 @@ describe('Union Type Resolution', () => {
       expect(resource1.$type).toBe('Document')
 
       // Should match Expert based on hint (using words with stronger semantic vectors)
-      const task2 = await db.Task.create({ resourceHint: 'Need machine learning artificial intelligence expert' })
+      const task2 = await db.Task.create({
+        resourceHint: 'Need machine learning artificial intelligence expert',
+      })
       const resource2 = await task2.resource
       expect(resource2.$type).toBe('Expert')
     })
@@ -126,7 +131,7 @@ describe('Union Type Resolution', () => {
         Project: { tech: '~>Language|Framework|Library' },
         Language: { name: 'string' },
         Framework: { name: 'string' },
-        Library: { name: 'string' }
+        Library: { name: 'string' },
       })
 
       // No existing entities
@@ -146,7 +151,7 @@ describe('Union Type Resolution', () => {
         Project: { tech: '~>Language|Framework|Library' },
         Language: { name: 'string' },
         Framework: { name: 'string' },
-        Library: { name: 'string' }
+        Library: { name: 'string' },
       })
 
       await db.Framework.create({ name: 'Next.js' })
@@ -162,14 +167,14 @@ describe('Union Type Resolution', () => {
         Team: { resources: ['~>Person|Tool|Service'] },
         Person: { name: 'string', role: 'string' },
         Tool: { name: 'string', category: 'string' },
-        Service: { name: 'string', provider: 'string' }
+        Service: { name: 'string', provider: 'string' },
       })
 
       await db.Person.create({ name: 'Alice', role: 'Developer' })
       await db.Tool.create({ name: 'Slack', category: 'Communication' })
 
       const team = await db.Team.create({
-        resourcesHint: ['A frontend developer', 'A communication tool']
+        resourcesHint: ['A frontend developer', 'A communication tool'],
       })
       const resources = await team.resources
 
@@ -185,14 +190,14 @@ describe('Union Type Resolution', () => {
         Project: { tech: '~>Language|Framework|Library' },
         Language: { name: 'string' },
         Framework: { name: 'string' },
-        Library: { name: 'string' }
+        Library: { name: 'string' },
       })
 
       await db.Framework.create({ name: 'Express' })
 
       await db.Project.create({
         name: 'API Server',
-        techHint: 'Node.js web framework'
+        techHint: 'Node.js web framework',
       })
 
       // Check edge metadata includes matched type info
@@ -209,12 +214,12 @@ describe('Union Type Resolution', () => {
         Resource: { content: '->Document|Video|Image' },
         Document: { title: 'string' },
         Video: { url: 'string' },
-        Image: { src: 'string' }
+        Image: { src: 'string' },
       })
 
       const resource = await db.Resource.create({})
       const content = await resource.content
-      expect(content.$type).toBe('Document')  // First type in union
+      expect(content.$type).toBe('Document') // First type in union
     })
 
     it('should use prompt context when generating first union type', async () => {
@@ -222,13 +227,13 @@ describe('Union Type Resolution', () => {
         Lesson: { material: 'Create learning material about programming ->Document|Video|Quiz' },
         Document: { title: 'string', content: 'string' },
         Video: { title: 'string', url: 'string' },
-        Quiz: { title: 'string', questions: ['string'] }
+        Quiz: { title: 'string', questions: ['string'] },
       })
 
       const lesson = await db.Lesson.create({ topic: 'Introduction to JavaScript' })
       const material = await lesson.material
 
-      expect(material.$type).toBe('Document')  // First type in union
+      expect(material.$type).toBe('Document') // First type in union
       expect(material.title).toBeDefined()
       expect(material.content).toBeDefined()
     })
@@ -238,7 +243,7 @@ describe('Union Type Resolution', () => {
         Resource: { content: '->Document|Video|Image' },
         Document: { title: 'string' },
         Video: { url: 'string' },
-        Image: { src: 'string' }
+        Image: { src: 'string' },
       })
 
       // Create a Video explicitly
@@ -258,10 +263,10 @@ describe('Union Type Resolution', () => {
         Course: { materials: ['->Document|Video|Quiz'] },
         Document: { title: 'string' },
         Video: { url: 'string' },
-        Quiz: { questions: ['string'] }
+        Quiz: { questions: ['string'] },
       })
 
-      const course = await db.Course.create({ name: 'Programming 101' })
+      const course = await db.Course.create({ name: 'Programming 101' }, { cascade: true })
       const materials = await course.materials
 
       expect(materials.length).toBeGreaterThan(0)
@@ -278,7 +283,7 @@ describe('Union Type Resolution', () => {
         const { db } = DB({
           Resource: { content: '->Document|NonExistent|Image' },
           Document: { title: 'string' },
-          Image: { src: 'string' }
+          Image: { src: 'string' },
         })
       }).toThrow(/non-existent type.*NonExistent/i)
     })
@@ -286,7 +291,7 @@ describe('Union Type Resolution', () => {
     it('should handle single type as degenerate union', () => {
       const schema: DatabaseSchema = {
         Post: { author: '->Author' },
-        Author: { name: 'string' }
+        Author: { name: 'string' },
       }
       const parsed = parseSchema(schema)
       const field = parsed.entities.get('Post')?.fields.get('author')
@@ -303,8 +308,8 @@ describe('Union Type Resolution', () => {
         Comment: { content: 'string' },
         Post: { title: 'string' },
         Video: { url: 'string' },
-        Thread: { comments: ['<~Comment|Reply'] },  // Array syntax for multiple results
-        Reply: { content: 'string' }
+        Thread: { comments: ['<~Comment|Reply'] }, // Array syntax for multiple results
+        Reply: { content: 'string' },
       })
 
       const comment = await db.Comment.create({ content: 'Great post!' })
@@ -315,7 +320,7 @@ describe('Union Type Resolution', () => {
 
       // Should find both Comment and Reply types (array result)
       expect(Array.isArray(comments)).toBe(true)
-      expect(comments.length).toBeGreaterThanOrEqual(0)  // May be empty if no semantic match
+      expect(comments.length).toBeGreaterThanOrEqual(0) // May be empty if no semantic match
     })
   })
 })

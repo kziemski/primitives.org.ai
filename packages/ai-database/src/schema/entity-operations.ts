@@ -342,10 +342,14 @@ export function createEntityOperations<T>(
             const threshold = field.threshold ?? getFuzzyThreshold(entity)
 
             // If hint is an array, create one ref spec per hint item
+            // Skip promptless fields only when _skipPromptlessRefs is set (internal create() without cascade)
+            const shouldSkipPromptless = options?._skipPromptlessRefs && !field.prompt
             const hints = Array.isArray(hintValue)
               ? hintValue
               : hintValue
               ? [hintValue]
+              : shouldSkipPromptless
+              ? []
               : [
                   generateNaturalLanguageContent(
                     fieldName,

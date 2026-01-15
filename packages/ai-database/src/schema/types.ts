@@ -98,6 +98,8 @@ export interface DraftOptions {
   stream?: boolean
   /** Callback for streaming chunks */
   onChunk?: (chunk: string) => void
+  /** @internal Skip generation for promptless array fields (used by create() without cascade) */
+  _skipPromptlessRefs?: boolean
 }
 
 /**

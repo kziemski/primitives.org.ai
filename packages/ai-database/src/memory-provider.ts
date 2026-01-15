@@ -528,6 +528,12 @@ export class MemoryProvider implements DBProvider {
       react: [0.08, 0.85, 0.2, 0.1],
       vue: [0.06, 0.84, 0.18, 0.08],
       frontend: [0.05, 0.8, 0.25, 0.12],
+      programs: [0.14, 0.86, 0.1, 0.04], // computer programs - programming domain
+      program: [0.14, 0.86, 0.1, 0.04], // singular form
+      write: [0.12, 0.84, 0.08, 0.05], // writing code - programming context
+      develop: [0.18, 0.82, 0.12, 0.08], // develop software - programming domain
+      utility: [0.1, 0.8, 0.15, 0.1], // utility programs - programming domain
+      specialized: [0.15, 0.78, 0.12, 0.08], // specialized software - programming domain
 
       // Database domain
       database: [0.1, 0.7, 0.08, 0.6],
@@ -627,6 +633,18 @@ export class MemoryProvider implements DBProvider {
       individual: [0.32, 0.58, 0.32, 0.32],
       b2c: [0.3, 0.6, 0.3, 0.35],
 
+      // Management/Operations domain (distinctly different from programming - high in dim 3, low in dim 2)
+      operations: [0.6, 0.15, 0.85, 0.55], // operations management - NOT programming
+      coordinate: [0.55, 0.12, 0.82, 0.5], // coordinate teams - management
+      plan: [0.52, 0.18, 0.78, 0.48], // planning - management domain
+      direct: [0.58, 0.14, 0.8, 0.52], // direct teams - management
+      formulate: [0.5, 0.2, 0.75, 0.45], // formulate policies - executive
+      policies: [0.48, 0.15, 0.78, 0.5], // policies - executive/management
+      direction: [0.55, 0.18, 0.76, 0.48], // overall direction - executive
+      organizations: [0.6, 0.2, 0.8, 0.55], // organizations - management
+      sector: [0.58, 0.22, 0.75, 0.52], // public/private sector - business
+      determine: [0.52, 0.16, 0.72, 0.46], // determine policies - executive
+
       // Tech professional domain
       developer: [0.2, 0.85, 0.15, 0.1],
       engineer: [0.25, 0.82, 0.18, 0.12],
@@ -695,7 +713,7 @@ export class MemoryProvider implements DBProvider {
       // MacBook/laptop cluster - distinctly different direction from smartphone
       macbook: [0.15, 0.55, 0.85, 0.25],
       laptop: [0.12, 0.52, 0.88, 0.28],
-      computer: [0.1, 0.5, 0.9, 0.3],
+      computer: [0.15, 0.7, 0.5, 0.2], // "computer" leans toward programming (high dim 2) for "computer programs/software"
       macos: [0.18, 0.58, 0.82, 0.22],
 
       // Samsung/Android cluster - similar to iOS cluster direction
