@@ -58,7 +58,8 @@ export interface StreamOptions {
  * Streaming result wrapper that provides both AsyncIterable interface
  * and access to the final result
  */
-export interface StreamingAIPromise<T> extends AsyncIterable<T extends string ? string : Partial<T>> {
+export interface StreamingAIPromise<T>
+  extends AsyncIterable<T extends string ? string : Partial<T>> {
   /** Stream of text chunks (for text generation) */
   textStream: AsyncIterable<string>
   /** Stream of partial objects (for object generation) */
@@ -233,17 +234,15 @@ export class AIPromise<T> implements PromiseLike<T> {
     const resolvedDeps: Record<string, unknown> = {}
     for (const dep of this._dependencies) {
       const value = await dep.promise.resolve()
-      const key = dep.path.length > 0 ? dep.path.join('.') : `dep_${this._dependencies.indexOf(dep)}`
+      const key =
+        dep.path.length > 0 ? dep.path.join('.') : `dep_${this._dependencies.indexOf(dep)}`
       resolvedDeps[key] = value
     }
 
     // Substitute resolved dependencies into prompt
     let finalPrompt = this._prompt
     for (const [key, value] of Object.entries(resolvedDeps)) {
-      finalPrompt = finalPrompt.replace(
-        new RegExp(`\\$\\{${key}\\}`, 'g'),
-        String(value)
-      )
+      finalPrompt = finalPrompt.replace(new RegExp(`\\$\\{${key}\\}`, 'g'), String(value))
     }
 
     // Build schema from accessed properties
@@ -264,16 +263,31 @@ export class AIPromise<T> implements PromiseLike<T> {
     // 1. Runtime type checking validates the response structure
     // 2. The type parameter T corresponds to the expected output type for each mode
     let value = result.object as T
-    if (this._options.type === 'text' && typeof value === 'object' && value !== null && 'text' in value) {
+    if (
+      this._options.type === 'text' &&
+      typeof value === 'object' &&
+      value !== null &&
+      'text' in value
+    ) {
       value = (value as { text: T }).text
-    } else if (this._options.type === 'boolean' && typeof value === 'object' && value !== null && 'answer' in value) {
+    } else if (
+      this._options.type === 'boolean' &&
+      typeof value === 'object' &&
+      value !== null &&
+      'answer' in value
+    ) {
       const answer = (value as { answer: string | boolean }).answer
       // When type === 'boolean', T is constrained to boolean at the call site.
       // TypeScript can't express this dependent relationship, so we use a simple cast.
       // Runtime validation: answer is verified to be 'true', 'false', or boolean.
       const booleanValue = answer === 'true' || answer === true
       value = booleanValue as T
-    } else if ((this._options.type === 'list' || this._options.type === 'extract') && typeof value === 'object' && value !== null && 'items' in value) {
+    } else if (
+      (this._options.type === 'list' || this._options.type === 'extract') &&
+      typeof value === 'object' &&
+      value !== null &&
+      'items' in value
+    ) {
       value = (value as { items: T }).items
     }
 
@@ -301,7 +315,11 @@ export class AIPromise<T> implements PromiseLike<T> {
         case 'list':
           return { items: ['List items'] }
         case 'extract':
-          return { items: ['Extracted items'] }
+          return {
+            items: [
+              'Array of extracted items as strings - extract ALL matching items from the text',
+            ],
+          }
         case 'lists':
           return { categories: ['Category names'], data: 'JSON object with categorized lists' }
         case 'boolean':
@@ -380,9 +398,7 @@ export class AIPromise<T> implements PromiseLike<T> {
    * }))
    * ```
    */
-  map<U>(
-    callback: (item: T extends (infer I)[] ? I : T, index: number) => U
-  ): BatchMapPromise<U> {
+  map<U>(callback: (item: T extends (infer I)[] ? I : T, index: number) => U): BatchMapPromise<U> {
     // Create a wrapper that resolves this promise first, then maps
     const mapPromise = new BatchMapPromise<U>([], [], {})
 
@@ -391,7 +407,7 @@ export class AIPromise<T> implements PromiseLike<T> {
     // with a compatible async function returning Promise<U[]>
     const self = this
     Object.defineProperty(mapPromise, 'resolve', {
-      value: async function(): Promise<U[]> {
+      value: async function (): Promise<U[]> {
         // First, resolve the list
         const items = await self.resolve()
 
@@ -400,10 +416,7 @@ export class AIPromise<T> implements PromiseLike<T> {
         }
 
         // Now create the actual batch map with the resolved items
-        const actualBatchMap = createBatchMap(
-          items as (T extends (infer I)[] ? I : T)[],
-          callback
-        )
+        const actualBatchMap = createBatchMap(items as (T extends (infer I)[] ? I : T)[], callback)
 
         return actualBatchMap.resolve()
       },
@@ -433,7 +446,7 @@ export class AIPromise<T> implements PromiseLike<T> {
     const self = this
 
     Object.defineProperty(mapPromise, 'resolve', {
-      value: async function(): Promise<U[]> {
+      value: async function (): Promise<U[]> {
         const items = await self.resolve()
         if (!Array.isArray(items)) {
           throw new Error('Cannot map over non-array result')
@@ -459,7 +472,7 @@ export class AIPromise<T> implements PromiseLike<T> {
     const self = this
 
     Object.defineProperty(mapPromise, 'resolve', {
-      value: async function(): Promise<U[]> {
+      value: async function (): Promise<U[]> {
         const items = await self.resolve()
         if (!Array.isArray(items)) {
           throw new Error('Cannot map over non-array result')
@@ -618,13 +631,27 @@ const PROXY_HANDLERS: ProxyHandler<AIPromise<unknown>> = {
     }
 
     // Handle AIPromise methods
-    if (prop === 'map' || prop === 'forEach' || prop === 'resolve' || prop === 'stream' || prop === 'addDependency' || prop === 'mapImmediate' || prop === 'mapDeferred') {
+    if (
+      prop === 'map' ||
+      prop === 'forEach' ||
+      prop === 'resolve' ||
+      prop === 'stream' ||
+      prop === 'addDependency' ||
+      prop === 'mapImmediate' ||
+      prop === 'mapDeferred'
+    ) {
       const method = (target as unknown as Record<string, (...args: unknown[]) => unknown>)[prop]
       return method?.bind(target)
     }
 
     // Handle internal properties
-    if (prop.startsWith('_') || prop === 'prompt' || prop === 'path' || prop === 'isResolved' || prop === 'accessedProps') {
+    if (
+      prop.startsWith('_') ||
+      prop === 'prompt' ||
+      prop === 'path' ||
+      prop === 'isResolved' ||
+      prop === 'accessedProps'
+    ) {
       return (target as unknown as Record<string, unknown>)[prop]
     }
 
@@ -637,14 +664,11 @@ const PROXY_HANDLERS: ProxyHandler<AIPromise<unknown>> = {
     }
 
     // Return a new AIPromise for the property path
-    return new AIPromise<unknown>(
-      target.prompt,
-      {
-        ...target['_options'],
-        parent: target,
-        propertyPath: [...target.path, prop],
-      }
-    )
+    return new AIPromise<unknown>(target.prompt, {
+      ...target['_options'],
+      parent: target,
+      propertyPath: [...target.path, prop],
+    })
   },
 
   // Prevent mutation
@@ -707,7 +731,7 @@ function analyzeRecordingResult(result: unknown, recording: MapRecording): Simpl
       // Infer schema from the promise's accessed properties or type
       if (aiPromise.accessedProps.size > 0) {
         schema[key] = Object.fromEntries(
-          Array.from(aiPromise.accessedProps).map(p => [p, `The ${p}`])
+          Array.from(aiPromise.accessedProps).map((p) => [p, `The ${p}`])
         )
       } else {
         // Access private _options through type-safe assertion
@@ -767,7 +791,10 @@ export function createTextPromise(prompt: string, options?: FunctionOptions): AI
 /**
  * Create an AIPromise for object generation with dynamic schema
  */
-export function createObjectPromise<T = unknown>(prompt: string, options?: FunctionOptions): AIPromise<T> {
+export function createObjectPromise<T = unknown>(
+  prompt: string,
+  options?: FunctionOptions
+): AIPromise<T> {
   return new AIPromise<T>(prompt, { ...options, type: 'object' })
 }
 
@@ -781,21 +808,30 @@ export function createListPromise(prompt: string, options?: FunctionOptions): AI
 /**
  * Create an AIPromise for multiple lists generation
  */
-export function createListsPromise(prompt: string, options?: FunctionOptions): AIPromise<Record<string, string[]>> {
+export function createListsPromise(
+  prompt: string,
+  options?: FunctionOptions
+): AIPromise<Record<string, string[]>> {
   return new AIPromise<Record<string, string[]>>(prompt, { ...options, type: 'lists' })
 }
 
 /**
  * Create an AIPromise for boolean/is check
  */
-export function createBooleanPromise(prompt: string, options?: FunctionOptions): AIPromise<boolean> {
+export function createBooleanPromise(
+  prompt: string,
+  options?: FunctionOptions
+): AIPromise<boolean> {
   return new AIPromise<boolean>(prompt, { ...options, type: 'boolean' })
 }
 
 /**
  * Create an AIPromise for extraction
  */
-export function createExtractPromise<T = unknown>(prompt: string, options?: FunctionOptions): AIPromise<T[]> {
+export function createExtractPromise<T = unknown>(
+  prompt: string,
+  options?: FunctionOptions
+): AIPromise<T[]> {
   return new AIPromise<T[]>(prompt, { ...options, type: 'extract' })
 }
 
@@ -842,8 +878,7 @@ export function createAITemplateFunction<T>(
   type: AIPromiseOptions['type'],
   baseOptions?: FunctionOptions
 ): ((strings: TemplateStringsArray, ...values: unknown[]) => AIPromise<T>) &
-   ((prompt: string, options?: FunctionOptions) => AIPromise<T>) {
-
+  ((prompt: string, options?: FunctionOptions) => AIPromise<T>) {
   function templateFn(
     promptOrStrings: string | TemplateStringsArray,
     ...args: unknown[]
@@ -867,7 +902,14 @@ export function createAITemplateFunction<T>(
 
     // If we're in recording mode (inside a .map() callback), capture this operation
     if (isInRecordingMode()) {
-      const batchType = type === 'text' ? 'text' : type === 'boolean' ? 'boolean' : type === 'list' ? 'list' : 'object'
+      const batchType =
+        type === 'text'
+          ? 'text'
+          : type === 'boolean'
+          ? 'boolean'
+          : type === 'list'
+          ? 'list'
+          : 'object'
       captureOperation(prompt, batchType, options.baseSchema, options.system)
     }
 
@@ -934,10 +976,7 @@ function createStreamingAIPromise<T>(
 
     let finalPrompt = rawPromise.prompt
     for (const [key, value] of Object.entries(resolvedDeps)) {
-      finalPrompt = finalPrompt.replace(
-        new RegExp(`\\$\\{${key}\\}`, 'g'),
-        String(value)
-      )
+      finalPrompt = finalPrompt.replace(new RegExp(`\\$\\{${key}\\}`, 'g'), String(value))
     }
 
     return finalPrompt
@@ -954,16 +993,31 @@ function createStreamingAIPromise<T>(
   // 2. The type parameter T corresponds to the expected output type for each mode
   const extractFinalValue = (obj: unknown): T => {
     let value = obj as T
-    if (promiseOptions.type === 'text' && typeof value === 'object' && value !== null && 'text' in value) {
+    if (
+      promiseOptions.type === 'text' &&
+      typeof value === 'object' &&
+      value !== null &&
+      'text' in value
+    ) {
       value = (value as { text: T }).text
-    } else if (promiseOptions.type === 'boolean' && typeof value === 'object' && value !== null && 'answer' in value) {
+    } else if (
+      promiseOptions.type === 'boolean' &&
+      typeof value === 'object' &&
+      value !== null &&
+      'answer' in value
+    ) {
       const answer = (value as { answer: string | boolean }).answer
       // When type === 'boolean', T is constrained to boolean at the call site.
       // TypeScript can't express this dependent relationship, so we use a simple cast.
       // Runtime validation: answer is verified to be 'true', 'false', or boolean.
       const booleanValue = answer === 'true' || answer === true
       value = booleanValue as T
-    } else if ((promiseOptions.type === 'list' || promiseOptions.type === 'extract') && typeof value === 'object' && value !== null && 'items' in value) {
+    } else if (
+      (promiseOptions.type === 'list' || promiseOptions.type === 'extract') &&
+      typeof value === 'object' &&
+      value !== null &&
+      'items' in value
+    ) {
       value = (value as { items: T }).items
     }
     return value
@@ -1116,28 +1170,26 @@ function createStreamingAIPromise<T>(
   }
 
   // Create a lazy result promise that starts streaming when accessed
-  const lazyResult: Promise<T> & { _started?: boolean } = Object.assign(
-    {
-      then<TResult1 = T, TResult2 = never>(
-        onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | null,
-        onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
-      ): Promise<TResult1 | TResult2> {
-        ensureStreamStarted()
-        return resultPromise.then(onfulfilled, onrejected)
-      },
-      catch<TResult = never>(
-        onrejected?: ((reason: unknown) => TResult | PromiseLike<TResult>) | null
-      ): Promise<T | TResult> {
-        ensureStreamStarted()
-        return resultPromise.catch(onrejected)
-      },
-      finally(onfinally?: (() => void) | null): Promise<T> {
-        ensureStreamStarted()
-        return resultPromise.finally(onfinally)
-      },
-      [Symbol.toStringTag]: 'Promise' as const,
-    }
-  ) as Promise<T> & { _started?: boolean }
+  const lazyResult: Promise<T> & { _started?: boolean } = Object.assign({
+    then<TResult1 = T, TResult2 = never>(
+      onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | null,
+      onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
+    ): Promise<TResult1 | TResult2> {
+      ensureStreamStarted()
+      return resultPromise.then(onfulfilled, onrejected)
+    },
+    catch<TResult = never>(
+      onrejected?: ((reason: unknown) => TResult | PromiseLike<TResult>) | null
+    ): Promise<T | TResult> {
+      ensureStreamStarted()
+      return resultPromise.catch(onrejected)
+    },
+    finally(onfinally?: (() => void) | null): Promise<T> {
+      ensureStreamStarted()
+      return resultPromise.finally(onfinally)
+    },
+    [Symbol.toStringTag]: 'Promise' as const,
+  }) as Promise<T> & { _started?: boolean }
 
   // Create the streaming object
   const streamingPromise: StreamingAIPromise<T> = {

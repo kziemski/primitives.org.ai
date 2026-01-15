@@ -122,18 +122,45 @@ export async function generate(
 }
 
 // Helper functions
-async function generateTextContent(prompt: string, model: string, options: GenerateOptions): Promise<string> {
-  const result = await generateText({ model, prompt, system: options.system, temperature: options.temperature, maxTokens: options.maxTokens })
+async function generateTextContent(
+  prompt: string,
+  model: string,
+  options: GenerateOptions
+): Promise<string> {
+  const result = await generateText({
+    model,
+    prompt,
+    system: options.system,
+    temperature: options.temperature,
+    maxTokens: options.maxTokens,
+  })
   return result.text
 }
 
-async function generateJsonContent(prompt: string, model: string, schema: SimpleSchema | undefined, options: GenerateOptions): Promise<unknown> {
+async function generateJsonContent(
+  prompt: string,
+  model: string,
+  schema: SimpleSchema | undefined,
+  options: GenerateOptions
+): Promise<unknown> {
   const effectiveSchema = schema || { result: 'The generated result' }
-  const result = await generateObject({ model, schema: effectiveSchema, prompt, system: options.system, temperature: options.temperature, maxTokens: options.maxTokens })
+  const result = await generateObject({
+    model,
+    schema: effectiveSchema,
+    prompt,
+    system: options.system,
+    temperature: options.temperature,
+    maxTokens: options.maxTokens,
+  })
   return result.object
 }
 
-async function generateCodeContent(prompt: string, model: string, language: string, options: GenerateOptions): Promise<string> {
+async function generateCodeContent(
+  prompt: string,
+  model: string,
+  language: string,
+  options: GenerateOptions
+): Promise<string> {
   const result = await generateObject({
     model,
     schema: { code: `The ${language} implementation code` },
@@ -145,7 +172,11 @@ async function generateCodeContent(prompt: string, model: string, language: stri
   return (result.object as { code: string }).code
 }
 
-async function generateListContent(prompt: string, model: string, options: GenerateOptions): Promise<string[]> {
+async function generateListContent(
+  prompt: string,
+  model: string,
+  options: GenerateOptions
+): Promise<string[]> {
   const result = await generateObject({
     model,
     schema: { items: ['List items'] },
@@ -157,7 +188,11 @@ async function generateListContent(prompt: string, model: string, options: Gener
   return (result.object as { items: string[] }).items
 }
 
-async function generateListsContent(prompt: string, model: string, options: GenerateOptions): Promise<Record<string, string[]>> {
+async function generateListsContent(
+  prompt: string,
+  model: string,
+  options: GenerateOptions
+): Promise<Record<string, string[]>> {
   const result = await generateObject({
     model,
     schema: {
@@ -165,7 +200,9 @@ async function generateListsContent(prompt: string, model: string, options: Gene
       data: 'JSON string containing the categorized lists',
     },
     prompt: `Generate categorized lists for: ${prompt}\n\nFirst identify appropriate category names, then provide the lists as a JSON object.`,
-    system: options.system || 'Generate multiple categorized lists. Determine appropriate categories based on the prompt.',
+    system:
+      options.system ||
+      'Generate multiple categorized lists. Determine appropriate categories based on the prompt.',
     temperature: options.temperature,
     maxTokens: options.maxTokens,
   })
@@ -181,7 +218,11 @@ async function generateListsContent(prompt: string, model: string, options: Gene
   }
 }
 
-async function generateBooleanContent(prompt: string, model: string, options: GenerateOptions): Promise<boolean> {
+async function generateBooleanContent(
+  prompt: string,
+  model: string,
+  options: GenerateOptions
+): Promise<boolean> {
   const result = await generateObject({
     model,
     schema: { answer: 'true | false' },
@@ -193,7 +234,11 @@ async function generateBooleanContent(prompt: string, model: string, options: Ge
   return (result.object as { answer: string }).answer === 'true'
 }
 
-async function generateSummaryContent(prompt: string, model: string, options: GenerateOptions): Promise<string> {
+async function generateSummaryContent(
+  prompt: string,
+  model: string,
+  options: GenerateOptions
+): Promise<string> {
   const result = await generateObject({
     model,
     schema: { summary: 'A concise summary of the content' },
@@ -205,14 +250,27 @@ async function generateSummaryContent(prompt: string, model: string, options: Ge
   return (result.object as { summary: string }).summary
 }
 
-async function generateExtractContent(prompt: string, model: string, schema: SimpleSchema | undefined, options: GenerateOptions): Promise<unknown[]> {
-  const effectiveSchema = schema || { items: ['Extracted items'] }
+async function generateExtractContent(
+  prompt: string,
+  model: string,
+  schema: SimpleSchema | undefined,
+  options: GenerateOptions
+): Promise<unknown[]> {
+  const effectiveSchema = schema || {
+    items: ['Array of extracted items as strings - extract ALL matching items from the text'],
+  }
   const result = await generateObject({
     model,
     schema: effectiveSchema,
-    prompt: `Extract from the following:\n\n${prompt}`,
-    system: options.system || 'Extract the requested information.',
-    temperature: options.temperature,
+    prompt: `Extract the following from the text below. Return ALL matching items in the items array.
+
+Task: ${prompt}
+
+IMPORTANT: Return the extracted items as an array. If the task asks for email addresses, return all email addresses found. If it asks for names, return all names found. Do not return an empty array if there are items to extract.`,
+    system:
+      options.system ||
+      'You are a precise data extraction assistant. Extract exactly what is requested and return it as an array of items. Be thorough - find ALL matching items in the text.',
+    temperature: options.temperature ?? 0, // Use low temperature for extraction tasks
     maxTokens: options.maxTokens,
   })
   const obj = result.object as Record<string, unknown>
@@ -222,7 +280,11 @@ async function generateExtractContent(prompt: string, model: string, schema: Sim
   return Object.values(obj).flat() as unknown[]
 }
 
-async function generateYamlContent(prompt: string, model: string, options: GenerateOptions): Promise<string> {
+async function generateYamlContent(
+  prompt: string,
+  model: string,
+  options: GenerateOptions
+): Promise<string> {
   const result = await generateObject({
     model,
     schema: { yaml: 'The YAML content' },
@@ -234,7 +296,12 @@ async function generateYamlContent(prompt: string, model: string, options: Gener
   return (result.object as { yaml: string }).yaml
 }
 
-async function generateDiagramContent(prompt: string, model: string, format: string, options: GenerateOptions): Promise<string> {
+async function generateDiagramContent(
+  prompt: string,
+  model: string,
+  format: string,
+  options: GenerateOptions
+): Promise<string> {
   const result = await generateObject({
     model,
     schema: { diagram: `The ${format} diagram code` },
@@ -246,7 +313,12 @@ async function generateDiagramContent(prompt: string, model: string, format: str
   return (result.object as { diagram: string }).diagram
 }
 
-async function generateSlidesContent(prompt: string, model: string, slideCount: number, options: GenerateOptions): Promise<string> {
+async function generateSlidesContent(
+  prompt: string,
+  model: string,
+  slideCount: number,
+  options: GenerateOptions
+): Promise<string> {
   const result = await generateObject({
     model,
     schema: { slides: `Slidev/Marp markdown with ${slideCount} slides` },
@@ -445,17 +517,14 @@ function doImpl(
     prompt = promptOrStrings as string
   }
 
-  const promise = new AIPromise<{ summary: string; actions: string[] }>(
-    prompt,
-    {
-      type: 'object',
-      baseSchema: {
-        summary: 'Summary of what was done',
-        actions: ['List of actions taken'],
-      },
-      system: 'You are a task executor. Describe what actions you would take.',
-    }
-  )
+  const promise = new AIPromise<{ summary: string; actions: string[] }>(prompt, {
+    type: 'object',
+    baseSchema: {
+      summary: 'Summary of what was done',
+      actions: ['List of actions taken'],
+    },
+    system: 'You are a task executor. Describe what actions you would take.',
+  })
 
   for (const dep of dependencies) {
     promise.addDependency(dep.promise, dep.path)
@@ -474,7 +543,11 @@ export { doImpl as do }
  * const { summary, findings, sources } = await research`${competitor} vs our product`
  * ```
  */
-export const research = createAITemplateFunction<{ summary: string; findings: string[]; sources: string[] }>('object', {
+export const research = createAITemplateFunction<{
+  summary: string
+  findings: string[]
+  sources: string[]
+}>('object', {
   system: 'You are a research analyst. Provide thorough research.',
 })
 
@@ -545,10 +618,7 @@ export function decide(
   let criteria: string
 
   if (Array.isArray(criteriaOrStrings) && 'raw' in criteriaOrStrings) {
-    criteria = criteriaOrStrings.reduce(
-      (acc, str, i) => acc + str + (templateArgs[i] ?? ''),
-      ''
-    )
+    criteria = criteriaOrStrings.reduce((acc, str, i) => acc + str + (templateArgs[i] ?? ''), '')
   } else {
     criteria = criteriaOrStrings as string
   }
@@ -572,10 +642,11 @@ export function decide(
     // Override resolve to return the actual option
     const originalResolve = promise.resolve.bind(promise)
     ;(promise as any).resolve = async () => {
-      const result = await originalResolve() as { chosenIndex: string | number }
-      const index = typeof result.chosenIndex === 'string'
-        ? parseInt(result.chosenIndex, 10)
-        : result.chosenIndex
+      const result = (await originalResolve()) as { chosenIndex: string | number }
+      const index =
+        typeof result.chosenIndex === 'string'
+          ? parseInt(result.chosenIndex, 10)
+          : result.chosenIndex
       return options[index - 1] as T
     }
 
@@ -618,13 +689,18 @@ export const ask = createAITemplateFunction<HumanResult<string>>('object', {
 /**
  * Request human approval
  */
-export const approve = createAITemplateFunction<HumanResult<{ approved: boolean; notes?: string }>>('object', {
-  system: 'Generate an approval request.',
-})
+export const approve = createAITemplateFunction<HumanResult<{ approved: boolean; notes?: string }>>(
+  'object',
+  {
+    system: 'Generate an approval request.',
+  }
+)
 
 /**
  * Request human review
  */
-export const review = createAITemplateFunction<HumanResult<{ rating?: number; feedback: string; approved?: boolean }>>('object', {
+export const review = createAITemplateFunction<
+  HumanResult<{ rating?: number; feedback: string; approved?: boolean }>
+>('object', {
   system: 'Generate a review request.',
 })
