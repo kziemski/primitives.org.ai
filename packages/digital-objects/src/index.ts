@@ -28,7 +28,11 @@ export type {
   ListOptions,
   ActionOptions,
   DigitalObjectsProvider,
+  Direction,
 } from './types.js'
+
+// Validation utilities
+export { validateDirection } from './types.js'
 
 // Memory Provider
 export { MemoryProvider, createMemoryProvider } from './memory-provider.js'
@@ -63,3 +67,21 @@ export type {
   SemanticSearchOptions,
   HybridSearchOptions,
 } from './ai-database-adapter.js'
+
+// Errors
+export {
+  DigitalObjectsError,
+  NotFoundError,
+  ValidationError,
+  ConflictError,
+  errorToResponse,
+} from './errors.js'
+
+// Schema Validation
+export { validateOnly, validateData } from './schema-validation.js'
+export type {
+  SchemaValidationError,
+  ValidationErrorCode,
+  ValidationResult,
+  ValidationOptions,
+} from './schema-validation.js'

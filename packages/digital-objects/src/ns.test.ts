@@ -145,18 +145,32 @@ const createMockSqlStorage = (): MockSqlStorage => {
       return { rowsWritten: 0, [Symbol.iterator]: () => results[Symbol.iterator]() }
     }
 
-    // Handle SELECT * FROM things WHERE noun = ? (with potential ORDER BY, LIMIT, OFFSET)
+    // Handle SELECT * FROM things WHERE noun = ? (with potential json_extract, ORDER BY, LIMIT, OFFSET)
     if (sql.includes('SELECT * FROM things WHERE noun = ?')) {
       let results = tables.get('things')!.filter((t) => t.noun === params[0])
+      let paramIndex = 1
+
+      // Handle json_extract WHERE clauses for filtering
+      const jsonExtractMatches = sql.match(/json_extract\(data, '\$\.(\w+)'\) = \?/g)
+      if (jsonExtractMatches) {
+        for (const match of jsonExtractMatches) {
+          const fieldMatch = match.match(/json_extract\(data, '\$\.(\w+)'\)/)
+          if (fieldMatch) {
+            const field = fieldMatch[1]
+            const value = params[paramIndex++]
+            results = results.filter((t) => {
+              const data = typeof t.data === 'string' ? JSON.parse(t.data as string) : t.data
+              return data[field] === value
+            })
+          }
+        }
+      }
 
       // Handle LIMIT
       const limitMatch = sql.match(/LIMIT \?/)
       if (limitMatch) {
-        const limitIndex = params.findIndex((_, i) => i > 0 && sql.includes('LIMIT'))
-        if (params.length > 1) {
-          const limit = params[1] as number
-          results = results.slice(0, limit)
-        }
+        const limit = params[paramIndex++] as number
+        results = results.slice(0, limit)
       }
 
       return { rowsWritten: 0, [Symbol.iterator]: () => results[Symbol.iterator]() }
@@ -976,7 +990,7 @@ describe('NS Durable Object', () => {
         const created = await ns.create('Post', { title: 'Original' })
 
         const request = createRequest('PATCH', `/things/${created.id}`, {
-          title: 'Updated',
+          data: { title: 'Updated' },
         })
         const response = await ns.fetch(request)
 
@@ -1155,14 +1169,15 @@ describe('NS Durable Object', () => {
         expect(response.status).toBe(404)
       })
 
-      it('should return 500 for internal errors', async () => {
-        // Create a request that will cause an error (update non-existent thing)
-        const request = createRequest('PATCH', '/things/nonexistent', { title: 'Test' })
+      it('should return 404 for not found errors with proper error response', async () => {
+        // Create a request that will cause a NotFoundError (update non-existent thing)
+        const request = createRequest('PATCH', '/things/nonexistent', { data: { title: 'Test' } })
         const response = await ns.fetch(request)
 
-        expect(response.status).toBe(500)
-        const text = await response.text()
-        expect(text).toContain('Thing not found')
+        expect(response.status).toBe(404)
+        const body = await response.json()
+        expect(body.error).toBe('NOT_FOUND')
+        expect(body.message).toContain('Thing not found')
       })
 
       it('should handle malformed JSON gracefully', async () => {

@@ -1,0 +1,467 @@
+---
+title: Things
+description: Entity instances with CRUD operations
+icon: Cube
+---
+
+Things are entity instances that implement Nouns. They store your actual data with automatic ID generation, timestamps, and type tracking.
+
+## What is a Thing?
+
+A Thing is an instance of a Noun with data and metadata:
+
+```typescript
+interface Thing<T = Record<string, unknown>> {
+  id: string          // Unique identifier
+  noun: string        // References noun.name ('Post', 'User')
+  data: T             // Your actual data
+  createdAt: Date     // When created
+  updatedAt: Date     // When last modified
+}
+```
+
+## Creating Things
+
+### Basic Creation
+
+```typescript
+import { MemoryProvider } from 'digital-objects'
+
+const provider = new MemoryProvider()
+
+// Create with auto-generated ID
+const post = await provider.create('Post', {
+  title: 'Hello World',
+  content: 'This is my first post',
+})
+// {
+//   id: 'abc123-...',
+//   noun: 'Post',
+//   data: { title: 'Hello World', content: '...' },
+//   createdAt: Date,
+//   updatedAt: Date
+// }
+```
+
+### With Custom ID
+
+```typescript
+// Create with a specific ID
+const post = await provider.create('Post', {
+  title: 'Hello World',
+}, 'post_001')
+// { id: 'post_001', noun: 'Post', ... }
+```
+
+### Typed Creation
+
+```typescript
+interface Post {
+  title: string
+  content: string
+  published: boolean
+}
+
+const post = await provider.create<Post>('Post', {
+  title: 'Hello World',
+  content: 'This is my first post',
+  published: false,
+})
+// post.data is typed as Post
+```
+
+## Reading Things
+
+### Get by ID
+
+```typescript
+const post = await provider.get('abc123')
+if (post) {
+  console.log(post.data.title)  // 'Hello World'
+}
+```
+
+### Get with Type
+
+```typescript
+interface Post {
+  title: string
+  content: string
+}
+
+const post = await provider.get<Post>('abc123')
+if (post) {
+  console.log(post.data.title)   // Typed as string
+  console.log(post.data.content) // Typed as string
+}
+```
+
+### List by Noun
+
+```typescript
+// List all posts
+const posts = await provider.list('Post')
+for (const post of posts) {
+  console.log(post.data.title)
+}
+```
+
+### List with Options
+
+```typescript
+// Pagination
+const posts = await provider.list('Post', {
+  limit: 10,
+  offset: 20,
+})
+
+// Ordering
+const posts = await provider.list('Post', {
+  orderBy: 'title',
+  order: 'asc',
+})
+
+// Filtering
+const posts = await provider.list('Post', {
+  where: { published: true },
+})
+
+// Combined
+const posts = await provider.list('Post', {
+  where: { published: true },
+  orderBy: 'createdAt',
+  order: 'desc',
+  limit: 10,
+  offset: 0,
+})
+```
+
+### Find by Properties
+
+```typescript
+// Find posts by author
+const posts = await provider.find('Post', {
+  authorId: 'user_123',
+})
+
+// Find users by email
+const users = await provider.find('User', {
+  email: 'alice@example.com',
+})
+
+// Find with multiple conditions
+const posts = await provider.find('Post', {
+  published: true,
+  category: 'tech',
+})
+```
+
+### Search
+
+```typescript
+// Full-text search across all fields
+const results = await provider.search('hello world')
+
+// Search with limit
+const results = await provider.search('typescript', { limit: 5 })
+```
+
+## Updating Things
+
+### Partial Update
+
+```typescript
+// Update specific fields
+const updated = await provider.update('abc123', {
+  title: 'Updated Title',
+})
+// Only title is changed, other fields preserved
+```
+
+### Full Update
+
+```typescript
+interface Post {
+  title: string
+  content: string
+  published: boolean
+}
+
+const post = await provider.get<Post>('abc123')
+if (post) {
+  // Spread existing data to preserve all fields
+  const updated = await provider.update<Post>('abc123', {
+    ...post.data,
+    published: true,
+  })
+}
+```
+
+### Update Returns New State
+
+```typescript
+const updated = await provider.update('abc123', { title: 'New Title' })
+
+console.log(updated.data.title)      // 'New Title'
+console.log(updated.updatedAt)       // New timestamp
+console.log(updated.createdAt)       // Original timestamp (unchanged)
+```
+
+## Deleting Things
+
+### Delete by ID
+
+```typescript
+const deleted = await provider.delete('abc123')
+if (deleted) {
+  console.log('Post deleted')
+} else {
+  console.log('Post not found')
+}
+```
+
+### Delete Returns Boolean
+
+```typescript
+const success = await provider.delete('nonexistent')
+// false (thing didn't exist)
+
+const success = await provider.delete('abc123')
+// true (thing was deleted)
+```
+
+## Batch Operations
+
+### Create Many
+
+```typescript
+const posts = await provider.createMany('Post', [
+  { title: 'Post 1', content: 'Content 1' },
+  { title: 'Post 2', content: 'Content 2' },
+  { title: 'Post 3', content: 'Content 3' },
+])
+// Returns array of created Things
+```
+
+### Update Many
+
+```typescript
+const updated = await provider.updateMany([
+  { id: 'post_1', data: { published: true } },
+  { id: 'post_2', data: { published: true } },
+  { id: 'post_3', data: { published: false } },
+])
+// Returns array of updated Things
+```
+
+### Delete Many
+
+```typescript
+const results = await provider.deleteMany(['post_1', 'post_2', 'post_3'])
+// Returns array of booleans: [true, true, false]
+```
+
+## Type Safety
+
+### Define Interfaces
+
+```typescript
+interface User {
+  name: string
+  email: string
+  role: 'admin' | 'user'
+}
+
+interface Post {
+  title: string
+  content: string
+  authorId: string
+  published: boolean
+}
+```
+
+### Use Throughout
+
+```typescript
+// Create with type
+const user = await provider.create<User>('User', {
+  name: 'Alice',
+  email: 'alice@example.com',
+  role: 'admin',
+})
+
+// Get with type
+const retrieved = await provider.get<User>(user.id)
+retrieved?.data.role  // 'admin' | 'user'
+
+// List with type
+const users = await provider.list<User>('User')
+users[0].data.email  // Typed as string
+
+// Update with type
+const updated = await provider.update<User>(user.id, {
+  role: 'user',
+})
+```
+
+## ListOptions
+
+Control query behavior:
+
+```typescript
+interface ListOptions {
+  limit?: number                    // Max results (default: 100, max: 1000)
+  offset?: number                   // Skip first N results
+  where?: Record<string, unknown>   // Filter by field values
+  orderBy?: string                  // Field to sort by
+  order?: 'asc' | 'desc'            // Sort direction
+}
+```
+
+### Query Limits
+
+To prevent memory exhaustion, queries have automatic limits:
+
+```typescript
+// Default limit is 100
+const posts = await provider.list('Post')
+// Returns max 100 posts
+
+// Maximum limit is 1000
+const posts = await provider.list('Post', { limit: 5000 })
+// Returns max 1000 posts
+
+// Explicit limit respected up to max
+const posts = await provider.list('Post', { limit: 50 })
+// Returns max 50 posts
+```
+
+## Common Patterns
+
+### Repository Pattern
+
+```typescript
+class PostRepository {
+  constructor(private provider: DigitalObjectsProvider) {}
+
+  async create(data: Omit<Post, 'id'>): Promise<Thing<Post>> {
+    return this.provider.create<Post>('Post', data)
+  }
+
+  async findById(id: string): Promise<Thing<Post> | null> {
+    return this.provider.get<Post>(id)
+  }
+
+  async findPublished(): Promise<Thing<Post>[]> {
+    return this.provider.find<Post>('Post', { published: true })
+  }
+
+  async publish(id: string): Promise<Thing<Post>> {
+    return this.provider.update<Post>(id, { published: true })
+  }
+}
+```
+
+### Soft Delete
+
+```typescript
+interface Post {
+  title: string
+  content: string
+  deletedAt?: string
+}
+
+// Soft delete
+await provider.update<Post>(id, {
+  deletedAt: new Date().toISOString(),
+})
+
+// Query only non-deleted
+const posts = await provider.list<Post>('Post')
+const active = posts.filter(p => !p.data.deletedAt)
+```
+
+### Versioning
+
+```typescript
+interface VersionedPost {
+  title: string
+  content: string
+  version: number
+}
+
+// Create with version
+await provider.create<VersionedPost>('Post', {
+  title: 'Hello',
+  content: 'World',
+  version: 1,
+})
+
+// Increment version on update
+const post = await provider.get<VersionedPost>(id)
+if (post) {
+  await provider.update<VersionedPost>(id, {
+    content: 'Updated content',
+    version: post.data.version + 1,
+  })
+}
+```
+
+### Audit Fields
+
+```typescript
+interface AuditedPost {
+  title: string
+  content: string
+  createdBy: string
+  updatedBy: string
+}
+
+// Create with audit fields
+await provider.create<AuditedPost>('Post', {
+  title: 'Hello',
+  content: 'World',
+  createdBy: currentUserId,
+  updatedBy: currentUserId,
+})
+
+// Update with audit
+await provider.update<AuditedPost>(id, {
+  content: 'Updated',
+  updatedBy: currentUserId,
+})
+```
+
+## Error Handling
+
+### Thing Not Found
+
+```typescript
+const thing = await provider.get('nonexistent')
+if (!thing) {
+  throw new Error('Thing not found')
+}
+
+// Or with update
+try {
+  await provider.update('nonexistent', { title: 'New' })
+} catch (error) {
+  // Error: Thing not found: nonexistent
+}
+```
+
+### Type Mismatches
+
+```typescript
+// TypeScript catches type errors at compile time
+const post = await provider.create<Post>('Post', {
+  title: 'Hello',
+  // Error: missing 'content' field
+})
+```
+
+## Next Steps
+
+- [Actions](/digital-objects/actions) - Record events on things
+- [Graph](/digital-objects/graph) - Query relationships between things
+- [Providers](/digital-objects/providers) - Choose storage backend

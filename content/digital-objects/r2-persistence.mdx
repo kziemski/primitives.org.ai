@@ -1,0 +1,446 @@
+---
+title: R2 Persistence
+description: Snapshots, WAL, and JSONL export/import
+icon: CloudUpload
+---
+
+Digital Objects provides backup and restore functionality using Cloudflare R2 object storage. Support includes full snapshots, write-ahead logging (WAL), and JSONL export/import.
+
+## Overview
+
+| Feature | Description | Use Case |
+|---------|-------------|----------|
+| Snapshots | Full state backup | Point-in-time recovery |
+| WAL | Incremental logging | Continuous backup |
+| JSONL | Line-delimited JSON | Data portability |
+
+## Snapshots
+
+### Creating a Snapshot
+
+Capture the complete state of a namespace:
+
+```typescript
+import { createSnapshot } from 'digital-objects'
+
+const result = await createSnapshot(provider, r2, 'my-namespace')
+// { key: 'snapshots/my-namespace/latest.json', size: 12345, timestamp: 1234567890 }
+```
+
+### With Timestamp
+
+Include timestamp in the filename for versioned backups:
+
+```typescript
+const result = await createSnapshot(provider, r2, 'my-namespace', {
+  timestamp: true,
+})
+// { key: 'snapshots/my-namespace/1234567890.json', ... }
+```
+
+### Restoring from Snapshot
+
+Restore state to a provider:
+
+```typescript
+import { restoreSnapshot } from 'digital-objects'
+
+// Restore from latest
+await restoreSnapshot(provider, r2, 'my-namespace')
+
+// Restore from specific snapshot
+await restoreSnapshot(provider, r2, 'my-namespace', 'snapshots/my-namespace/1234567890.json')
+```
+
+### Snapshot Structure
+
+```typescript
+interface Snapshot {
+  version: number          // Schema version
+  timestamp: number        // Unix timestamp
+  namespace: string        // Namespace identifier
+  nouns: Noun[]            // All noun definitions
+  verbs: Verb[]            // All verb definitions
+  things: Thing<unknown>[] // All entity instances
+  actions: Action<unknown>[] // All action records
+}
+```
+
+### Example Snapshot Workflow
+
+```typescript
+import { MemoryProvider, createSnapshot, restoreSnapshot } from 'digital-objects'
+
+// Production: periodic backup
+async function backupJob(provider: DigitalObjectsProvider, r2: R2Bucket) {
+  // Create timestamped snapshot
+  const result = await createSnapshot(provider, r2, 'production', {
+    timestamp: true,
+  })
+
+  console.log(`Backup created: ${result.key} (${result.size} bytes)`)
+
+  // Also update latest
+  await createSnapshot(provider, r2, 'production', {
+    timestamp: false,
+  })
+}
+
+// Recovery: restore from backup
+async function restore(r2: R2Bucket) {
+  const provider = new MemoryProvider()
+
+  // Restore from latest
+  await restoreSnapshot(provider, r2, 'production')
+
+  return provider
+}
+```
+
+## Write-Ahead Log (WAL)
+
+For continuous backup, use the write-ahead log to capture every operation.
+
+### Appending to WAL
+
+```typescript
+import { appendWAL } from 'digital-objects'
+
+// Log a create operation
+await appendWAL(r2, 'my-namespace', {
+  type: 'create',
+  noun: 'Post',
+  id: 'post_123',
+  data: { title: 'Hello' },
+  timestamp: Date.now(),
+})
+
+// Log an update
+await appendWAL(r2, 'my-namespace', {
+  type: 'update',
+  id: 'post_123',
+  data: { title: 'Updated Title' },
+  timestamp: Date.now(),
+})
+
+// Log a delete
+await appendWAL(r2, 'my-namespace', {
+  type: 'delete',
+  id: 'post_123',
+  timestamp: Date.now(),
+})
+```
+
+### WAL Entry Types
+
+```typescript
+type WALEntry =
+  | { type: 'defineNoun'; data: Noun; timestamp: number }
+  | { type: 'defineVerb'; data: Verb; timestamp: number }
+  | { type: 'create'; noun: string; id: string; data: unknown; timestamp: number }
+  | { type: 'update'; id: string; data: unknown; timestamp: number }
+  | { type: 'delete'; id: string; timestamp: number }
+  | { type: 'perform'; verb: string; subject?: string; object?: string; data?: unknown; timestamp: number }
+```
+
+### Replaying WAL
+
+Rebuild state from WAL entries:
+
+```typescript
+import { replayWAL } from 'digital-objects'
+
+// Replay all entries
+const count = await replayWAL(provider, r2, 'my-namespace')
+console.log(`Replayed ${count} entries`)
+
+// Replay entries after a timestamp
+const count = await replayWAL(provider, r2, 'my-namespace', lastSnapshotTime)
+```
+
+### Compacting WAL
+
+Remove old WAL entries after creating a snapshot:
+
+```typescript
+import { compactWAL, createSnapshot } from 'digital-objects'
+
+// Create snapshot
+const snapshot = await createSnapshot(provider, r2, 'my-namespace', {
+  timestamp: true,
+})
+
+// Compact WAL entries older than the snapshot
+const deleted = await compactWAL(r2, 'my-namespace', snapshot.timestamp)
+console.log(`Compacted ${deleted} WAL entries`)
+```
+
+### WAL + Snapshot Strategy
+
+```typescript
+// Initial state: restore from snapshot + replay recent WAL
+async function initialize(provider: DigitalObjectsProvider, r2: R2Bucket) {
+  // Get latest snapshot timestamp
+  const snapshotKey = 'snapshots/production/latest.json'
+  const obj = await r2.get(snapshotKey)
+
+  if (obj) {
+    const snapshot = await obj.json<Snapshot>()
+
+    // Restore from snapshot
+    await restoreSnapshot(provider, r2, 'production')
+
+    // Replay WAL entries after snapshot
+    const replayed = await replayWAL(provider, r2, 'production', snapshot.timestamp)
+    console.log(`Restored from snapshot, replayed ${replayed} WAL entries`)
+  }
+}
+
+// During operation: log all mutations
+async function createPost(provider: DigitalObjectsProvider, r2: R2Bucket, data: PostData) {
+  const post = await provider.create('Post', data)
+
+  // Log to WAL
+  await appendWAL(r2, 'production', {
+    type: 'create',
+    noun: 'Post',
+    id: post.id,
+    data,
+    timestamp: Date.now(),
+  })
+
+  return post
+}
+```
+
+## JSONL Export/Import
+
+JSON Lines format for data portability and streaming.
+
+### Export to JSONL
+
+```typescript
+import { exportJSONL } from 'digital-objects'
+
+const jsonl = await exportJSONL(provider)
+// {"type":"noun","data":{"name":"Post",...}}
+// {"type":"verb","data":{"name":"create",...}}
+// {"type":"thing","data":{"id":"post_123",...}}
+// {"type":"action","data":{"id":"action_456",...}}
+```
+
+### Import from JSONL
+
+```typescript
+import { importJSONL } from 'digital-objects'
+
+const jsonl = `
+{"type":"noun","data":{"name":"Post","singular":"post","plural":"posts"}}
+{"type":"verb","data":{"name":"create"}}
+{"type":"thing","data":{"id":"post_1","noun":"Post","data":{"title":"Hello"}}}
+`
+
+const stats = await importJSONL(provider, jsonl)
+// { nouns: 1, verbs: 1, things: 1, actions: 0 }
+```
+
+### Export to R2
+
+```typescript
+import { exportToR2 } from 'digital-objects'
+
+const result = await exportToR2(provider, r2, 'exports/production.jsonl')
+// { key: 'exports/production.jsonl', size: 12345 }
+```
+
+### Import from R2
+
+```typescript
+import { importFromR2 } from 'digital-objects'
+
+const stats = await importFromR2(provider, r2, 'exports/production.jsonl')
+// { nouns: 10, verbs: 5, things: 1000, actions: 5000 }
+```
+
+### JSONL Use Cases
+
+```typescript
+// Migration between environments
+async function migrate(sourceR2: R2Bucket, destR2: R2Bucket) {
+  // Export from source
+  const source = new NSClient({ baseUrl: sourceUrl, namespace: 'production' })
+  await exportToR2(source, sourceR2, 'migration.jsonl')
+
+  // Copy to destination R2 (or use same R2)
+  const obj = await sourceR2.get('migration.jsonl')
+  if (obj) {
+    await destR2.put('migration.jsonl', await obj.text())
+  }
+
+  // Import to destination
+  const dest = new NSClient({ baseUrl: destUrl, namespace: 'production' })
+  await importFromR2(dest, destR2, 'migration.jsonl')
+}
+
+// Incremental export for analytics
+async function exportForAnalytics(provider: DigitalObjectsProvider) {
+  const jsonl = await exportJSONL(provider)
+  const lines = jsonl.split('\n').filter(Boolean)
+
+  // Send to analytics pipeline
+  for (const line of lines) {
+    const entry = JSON.parse(line)
+    if (entry.type === 'thing') {
+      await sendToAnalytics(entry.data)
+    }
+  }
+}
+```
+
+## R2 Bucket Setup
+
+### Wrangler Configuration
+
+```toml
+# wrangler.toml
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "my-app-storage"
+```
+
+### In Your Worker
+
+```typescript
+interface Env {
+  NS: DurableObjectNamespace
+  STORAGE: R2Bucket
+}
+
+export default {
+  async fetch(request: Request, env: Env) {
+    const url = new URL(request.url)
+
+    if (url.pathname === '/backup') {
+      const ns = env.NS.get(env.NS.idFromName('default'))
+      // ns implements DigitalObjectsProvider
+      const result = await createSnapshot(ns, env.STORAGE, 'default')
+      return Response.json(result)
+    }
+
+    // ...
+  }
+}
+```
+
+## Scheduled Backups
+
+```typescript
+// Scheduled handler for periodic backups
+export default {
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+    const ns = env.NS.get(env.NS.idFromName('default'))
+
+    // Create timestamped backup
+    const result = await createSnapshot(ns, env.STORAGE, 'default', {
+      timestamp: true,
+    })
+
+    // Update latest
+    await createSnapshot(ns, env.STORAGE, 'default')
+
+    // Compact old WAL entries
+    await compactWAL(env.STORAGE, 'default', result.timestamp)
+
+    console.log(`Backup completed: ${result.key}`)
+  },
+
+  // ...fetch handler
+}
+```
+
+```toml
+# wrangler.toml
+[triggers]
+crons = ["0 */6 * * *"]  # Every 6 hours
+```
+
+## Error Handling
+
+```typescript
+try {
+  await restoreSnapshot(provider, r2, 'my-namespace')
+} catch (error) {
+  if (error.message.includes('not found')) {
+    console.log('No snapshot exists, starting fresh')
+  } else {
+    throw error
+  }
+}
+
+try {
+  await importFromR2(provider, r2, 'missing.jsonl')
+} catch (error) {
+  if (error.message.includes('File not found')) {
+    console.log('Import file does not exist')
+  } else {
+    throw error
+  }
+}
+```
+
+## Best Practices
+
+### Backup Strategy
+
+```typescript
+// 1. Create snapshots periodically (hourly/daily)
+// 2. Use WAL for continuous backup between snapshots
+// 3. Compact WAL after each snapshot
+// 4. Keep multiple timestamped snapshots for point-in-time recovery
+// 5. Test restores regularly
+```
+
+### Data Integrity
+
+```typescript
+// Verify restore
+async function verifyRestore(original: DigitalObjectsProvider, restored: DigitalObjectsProvider) {
+  const originalNouns = await original.listNouns()
+  const restoredNouns = await restored.listNouns()
+
+  if (originalNouns.length !== restoredNouns.length) {
+    throw new Error('Noun count mismatch')
+  }
+
+  // ... verify things, actions, etc.
+}
+```
+
+### Retention Policy
+
+```typescript
+// Clean up old snapshots
+async function cleanupOldSnapshots(r2: R2Bucket, namespace: string, keepDays: number) {
+  const list = await r2.list({ prefix: `snapshots/${namespace}/` })
+  const cutoff = Date.now() - (keepDays * 24 * 60 * 60 * 1000)
+
+  const toDelete = list.objects
+    .filter(obj => {
+      const timestamp = parseInt(obj.key.split('/').pop()?.replace('.json', '') ?? '0')
+      return timestamp > 0 && timestamp < cutoff
+    })
+    .map(obj => obj.key)
+
+  if (toDelete.length > 0) {
+    await r2.delete(toDelete)
+  }
+
+  return toDelete.length
+}
+```
+
+## Next Steps
+
+- [Providers](/digital-objects/providers) - Storage backends
+- [Things](/digital-objects/things) - Entity CRUD operations
+- [Actions](/digital-objects/actions) - Events and relationships

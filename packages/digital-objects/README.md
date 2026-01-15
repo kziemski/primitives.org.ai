@@ -2,6 +2,8 @@
 
 Unified storage primitive for AI primitives - a linguistically-aware entity and graph system.
 
+> **Documentation:** For comprehensive guides and examples, see the [Digital Objects documentation](https://primitives.org.ai/digital-objects).
+
 ## Overview
 
 `digital-objects` provides a coherent model for defining and managing entities (nouns/things) and relationships (verbs/actions). It automatically derives linguistic forms (pluralization, verb conjugation) and unifies events, graph edges, and audit trails into a single "action" concept.
@@ -365,6 +367,102 @@ type FieldDefinition =
   | `${string}.${string}`      // Relation: 'Author.posts'
   | `[${string}.${string}]`    // Array relation: '[Tag.posts]'
   | `${PrimitiveType}?`        // Optional field
+```
+
+## Schema Validation
+
+Digital Objects provides runtime schema validation with clear, actionable error messages.
+
+### Enable Validation
+
+Validation is opt-in. Pass `{ validate: true }` to `create()` or `update()`:
+
+```typescript
+// Define a noun with schema
+await provider.defineNoun({
+  name: 'User',
+  schema: {
+    email: { type: 'string', required: true },
+    age: 'number',
+    bio: 'string?', // Optional
+  },
+})
+
+// Validation enabled - will throw on errors
+await provider.create('User', { name: 'Alice' }, undefined, { validate: true })
+// Error: Validation failed (1 error):
+//   - Missing required field 'email'
+```
+
+### Pre-flight Validation
+
+Use `validateOnly()` to check data before attempting operations:
+
+```typescript
+import { validateOnly } from 'digital-objects'
+
+const schema = {
+  email: { type: 'string', required: true },
+  age: 'number',
+}
+
+const result = validateOnly({ age: '25' }, schema)
+
+if (!result.valid) {
+  console.log('Errors:', result.errors)
+  // [
+  //   {
+  //     field: 'email',
+  //     message: "Missing required field 'email'",
+  //     code: 'REQUIRED_FIELD',
+  //     expected: 'string',
+  //     received: 'undefined'
+  //   },
+  //   {
+  //     field: 'age',
+  //     message: "Field 'age' has wrong type: expected number, got string",
+  //     code: 'TYPE_MISMATCH',
+  //     expected: 'number',
+  //     received: 'string',
+  //     suggestion: 'Convert to number: 25'
+  //   }
+  // ]
+}
+```
+
+### Error Codes
+
+| Code | Description |
+|------|-------------|
+| `REQUIRED_FIELD` | A required field is missing or null |
+| `TYPE_MISMATCH` | Value has wrong type for the field |
+| `INVALID_FORMAT` | Value format doesn't match expected pattern |
+| `UNKNOWN_FIELD` | Field not defined in schema (future feature) |
+
+### Suggestions
+
+Validation errors include helpful suggestions when possible:
+
+```typescript
+// String that looks like a number
+{ age: '25' }
+// suggestion: "Convert to number: 25"
+
+// Number when string expected
+{ name: 42 }
+// suggestion: 'Convert to string: "42"'
+
+// String boolean
+{ active: 'true' }
+// suggestion: "Convert to boolean: true"
+
+// Wrong type for array
+{ tags: 'single-tag' }
+// suggestion: "Wrap value in an array: [value]"
+
+// Wrong type for date
+{ createdAt: 1705312800000 }
+// suggestion: "Provide a valid ISO 8601 date string"
 ```
 
 ## Installation

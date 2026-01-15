@@ -1,0 +1,245 @@
+---
+title: Digital Objects
+description: Unified storage primitive for AI primitives
+icon: Box
+---
+
+Digital Objects provides a unified nouns/verbs/things/actions model that forms the foundation for AI-native applications. It combines entity storage, event sourcing, and graph relationships into a single coherent abstraction.
+
+## Why Digital Objects?
+
+Traditional databases separate schemas from data, events from relationships, and audit trails from business logic. Digital Objects unifies these concepts:
+
+| Concept | Traditional | Digital Objects |
+|---------|-------------|-----------------|
+| Schema | Separate DDL | **Nouns** with linguistic forms |
+| Data | Raw records | **Things** with metadata |
+| Events | Event tables | **Actions** are events |
+| Relationships | Join tables | **Actions** are graph edges |
+| Audit | Separate logs | **Actions** include audit trail |
+
+## Core Concepts
+
+```
+Nouns     ──define──>  Things
+  │                      │
+  │                      │
+Verbs     ──define──>  Actions ──────> Graph Edges
+                         │              Event Log
+                         └─────────────> Audit Trail
+```
+
+### Nouns
+
+Entity type definitions with linguistic consistency:
+
+```typescript
+import { MemoryProvider } from 'digital-objects'
+
+const provider = new MemoryProvider()
+
+// Define a noun with auto-derived forms
+await provider.defineNoun({ name: 'BlogPost' })
+// Creates: singular='blog post', plural='blog posts', slug='blog-post'
+```
+
+### Verbs
+
+Action definitions with full conjugation support:
+
+```typescript
+await provider.defineVerb({ name: 'publish' })
+// Creates: action='publish', act='publishes', activity='publishing',
+//          event='published', reverseBy='publishedBy', reverseAt='publishedAt'
+```
+
+### Things
+
+Entity instances that implement nouns:
+
+```typescript
+const post = await provider.create('BlogPost', {
+  title: 'Getting Started',
+  content: 'Welcome to Digital Objects...',
+})
+// { id: 'abc123', noun: 'BlogPost', data: {...}, createdAt, updatedAt }
+```
+
+### Actions
+
+Events + relationships + audit trail unified:
+
+```typescript
+const action = await provider.perform('publish', authorId, postId, {
+  visibility: 'public',
+})
+// Creates a graph edge: author --publish--> post
+// Also serves as an event record and audit entry
+```
+
+## Quick Start
+
+### Installation
+
+```bash
+npm install digital-objects
+```
+
+### Basic Usage
+
+```typescript
+import { MemoryProvider } from 'digital-objects'
+
+// Create a provider
+const provider = new MemoryProvider()
+
+// Define your domain
+await provider.defineNoun({ name: 'User' })
+await provider.defineNoun({ name: 'Post' })
+await provider.defineVerb({ name: 'create' })
+await provider.defineVerb({ name: 'follow' })
+
+// Create entities
+const alice = await provider.create('User', { name: 'Alice' })
+const bob = await provider.create('User', { name: 'Bob' })
+const post = await provider.create('Post', {
+  title: 'Hello World',
+  author: alice.id,
+})
+
+// Create relationships via actions
+await provider.perform('create', alice.id, post.id)
+await provider.perform('follow', bob.id, alice.id)
+
+// Query the graph
+const followers = await provider.related(alice.id, 'follow', 'in')
+// [{ id: bob.id, noun: 'User', data: { name: 'Bob' }, ... }]
+```
+
+### With Cloudflare Workers
+
+```typescript
+import { NS } from 'digital-objects/ns'
+
+export default {
+  async fetch(request: Request, env: Env) {
+    const ns = env.NS.get(env.NS.idFromName('my-namespace'))
+    return ns.fetch(request)
+  }
+}
+
+// wrangler.toml
+// [[durable_objects.bindings]]
+// name = "NS"
+// class_name = "NS"
+```
+
+## Architecture
+
+Digital Objects supports multiple storage backends:
+
+| Provider | Use Case | Storage |
+|----------|----------|---------|
+| `MemoryProvider` | Testing, development | In-memory Maps |
+| `NS` | Production on Workers | SQLite in Durable Objects |
+| `NSClient` | External access | HTTP to NS |
+
+All providers implement the same `DigitalObjectsProvider` interface, making it easy to switch between them.
+
+## Key Features
+
+### Linguistic Consistency
+
+Nouns and verbs automatically derive all grammatical forms:
+
+```typescript
+import { deriveNoun, deriveVerb } from 'digital-objects'
+
+deriveNoun('BlogPost')
+// { singular: 'blog post', plural: 'blog posts', slug: 'blog-post' }
+
+deriveVerb('publish')
+// { action: 'publish', act: 'publishes', activity: 'publishing',
+//   event: 'published', reverseBy: 'publishedBy', reverseAt: 'publishedAt' }
+```
+
+### Unified Graph Model
+
+Actions serve triple duty as events, relationships, and audit records:
+
+```typescript
+// This single action:
+await provider.perform('assign', managerId, taskId, { priority: 'high' })
+
+// Creates:
+// 1. A graph edge: manager --assign--> task
+// 2. An event record: "assign happened at {time}"
+// 3. An audit entry: "who did what to whom"
+```
+
+### R2 Persistence
+
+Backup and restore with Cloudflare R2:
+
+```typescript
+import { createSnapshot, restoreSnapshot } from 'digital-objects'
+
+// Backup
+await createSnapshot(provider, r2, 'my-namespace')
+
+// Restore
+await restoreSnapshot(provider, r2, 'my-namespace')
+```
+
+## Type Safety
+
+Full TypeScript support with generics:
+
+```typescript
+interface User {
+  name: string
+  email: string
+}
+
+interface Post {
+  title: string
+  content: string
+}
+
+const user = await provider.create<User>('User', {
+  name: 'Alice',
+  email: 'alice@example.com',
+})
+// user.data is typed as User
+
+const posts = await provider.list<Post>('Post')
+// posts is Thing<Post>[]
+```
+
+## When to Use Digital Objects
+
+**Use digital-objects when you need:**
+- A unified model for entities, relationships, and events
+- Linguistic consistency (auto-pluralization, verb conjugation)
+- Cloudflare Durable Objects as your backend
+- Graph traversal capabilities
+- Built-in audit trail
+
+**Consider alternatives when you need:**
+- Complex SQL joins (use a traditional ORM)
+- Real-time subscriptions (add Durable Objects WebSockets)
+- Full-text search with ranking (add a search engine)
+
+## Next Steps
+
+- [Nouns](/digital-objects/nouns) - Learn about entity type definitions
+- [Verbs](/digital-objects/verbs) - Understand action conjugations
+- [Things](/digital-objects/things) - CRUD operations for entities
+- [Actions](/digital-objects/actions) - Events, edges, and audit trails
+- [Graph](/digital-objects/graph) - Traverse relationships
+- [Providers](/digital-objects/providers) - Choose your storage backend
+- [R2 Persistence](/digital-objects/r2-persistence) - Backup and restore
+
+## Related
+
+- [Database](/database) - The ai-database package for SQL-like operations with promise pipelining

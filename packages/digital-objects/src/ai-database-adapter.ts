@@ -5,12 +5,7 @@
  * This enables ai-database to use digital-objects as its storage backend.
  */
 
-import type {
-  DigitalObjectsProvider,
-  Thing,
-  Action,
-  ListOptions as DOListOptions,
-} from './types.js'
+import type { DigitalObjectsProvider, Thing, ListOptions as DOListOptions } from './types.js'
 
 // These types match ai-database's DBProvider interface
 export interface ListOptions {
@@ -134,7 +129,7 @@ export function createDBProviderAdapter(provider: DigitalObjectsProvider): DBPro
     },
 
     async update(
-      type: string,
+      _type: string,
       id: string,
       data: Record<string, unknown>
     ): Promise<Record<string, unknown>> {
@@ -142,7 +137,7 @@ export function createDBProviderAdapter(provider: DigitalObjectsProvider): DBPro
       return thingToEntity(thing)
     },
 
-    async delete(type: string, id: string): Promise<boolean> {
+    async delete(_type: string, id: string): Promise<boolean> {
       return provider.delete(id)
     },
 
@@ -155,10 +150,10 @@ export function createDBProviderAdapter(provider: DigitalObjectsProvider): DBPro
     },
 
     async relate(
-      fromType: string,
+      _fromType: string,
       fromId: string,
       relation: string,
-      toType: string,
+      _toType: string,
       toId: string,
       metadata?: { matchMode?: 'exact' | 'fuzzy'; similarity?: number; matchedType?: string }
     ): Promise<void> {
@@ -172,10 +167,10 @@ export function createDBProviderAdapter(provider: DigitalObjectsProvider): DBPro
     },
 
     async unrelate(
-      fromType: string,
+      _fromType: string,
       fromId: string,
       relation: string,
-      toType: string,
+      _toType: string,
       toId: string
     ): Promise<void> {
       // Find the action(s) matching this relation and delete them

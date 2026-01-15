@@ -125,10 +125,8 @@ export function singularize(word: string): string {
 
   // Words ending in 'ves' -> replace with 'f' or 'fe'
   if (/ves$/.test(w)) {
-    // Try 'fe' first (e.g., 'lives' -> 'life')
-    const feSingular = w.slice(0, -3) + 'fe'
+    // Default to 'f' (most common, e.g., 'leaves' -> 'leaf')
     const fSingular = w.slice(0, -3) + 'f'
-    // Default to 'f' (most common)
     return fSingular
   }
 
@@ -188,7 +186,6 @@ export function deriveVerb(name: string): {
 
   if (irregulars[base]) {
     const irr = irregulars[base]
-    const capitalizedEvent = capitalize(irr.event)
     return {
       action: base,
       act: irr.act,
@@ -253,8 +250,4 @@ export function deriveVerb(name: string): {
     reverseAt: `${event}At`,
     reverseIn: `${event}In`,
   }
-}
-
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1)
 }

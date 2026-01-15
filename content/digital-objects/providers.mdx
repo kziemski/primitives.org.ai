@@ -1,0 +1,442 @@
+---
+title: Providers
+description: MemoryProvider vs NS vs NSClient storage backends
+icon: Database
+---
+
+Digital Objects supports multiple storage backends through the `DigitalObjectsProvider` interface. Choose the right provider for your use case.
+
+## Provider Overview
+
+| Provider | Storage | Use Case |
+|----------|---------|----------|
+| `MemoryProvider` | In-memory Maps | Testing, development, ephemeral data |
+| `NS` | SQLite in Durable Objects | Production on Cloudflare Workers |
+| `NSClient` | HTTP to NS | External access, edge workers |
+
+All providers implement the same interface, making it easy to swap between them.
+
+## DigitalObjectsProvider Interface
+
+```typescript
+interface DigitalObjectsProvider {
+  // Nouns
+  defineNoun(def: NounDefinition): Promise<Noun>
+  getNoun(name: string): Promise<Noun | null>
+  listNouns(): Promise<Noun[]>
+
+  // Verbs
+  defineVerb(def: VerbDefinition): Promise<Verb>
+  getVerb(name: string): Promise<Verb | null>
+  listVerbs(): Promise<Verb[]>
+
+  // Things
+  create<T>(noun: string, data: T, id?: string): Promise<Thing<T>>
+  get<T>(id: string): Promise<Thing<T> | null>
+  list<T>(noun: string, options?: ListOptions): Promise<Thing<T>[]>
+  find<T>(noun: string, where: Partial<T>): Promise<Thing<T>[]>
+  update<T>(id: string, data: Partial<T>): Promise<Thing<T>>
+  delete(id: string): Promise<boolean>
+  search<T>(query: string, options?: ListOptions): Promise<Thing<T>[]>
+
+  // Actions
+  perform<T>(verb: string, subject?: string, object?: string, data?: T): Promise<Action<T>>
+  getAction<T>(id: string): Promise<Action<T> | null>
+  listActions<T>(options?: ActionOptions): Promise<Action<T>[]>
+  deleteAction(id: string): Promise<boolean>
+
+  // Graph
+  related<T>(id: string, verb?: string, direction?: 'out' | 'in' | 'both', options?: ListOptions): Promise<Thing<T>[]>
+  edges<T>(id: string, verb?: string, direction?: 'out' | 'in' | 'both', options?: ListOptions): Promise<Action<T>[]>
+
+  // Batch
+  createMany<T>(noun: string, items: T[]): Promise<Thing<T>[]>
+  updateMany<T>(updates: Array<{ id: string; data: Partial<T> }>): Promise<Thing<T>[]>
+  deleteMany(ids: string[]): Promise<boolean[]>
+  performMany<T>(actions: Array<{ verb: string; subject?: string; object?: string; data?: T }>): Promise<Action<T>[]>
+
+  // Lifecycle
+  close?(): Promise<void>
+}
+```
+
+## MemoryProvider
+
+In-memory storage using JavaScript Maps. Perfect for testing and development.
+
+### Installation
+
+```typescript
+import { MemoryProvider, createMemoryProvider } from 'digital-objects'
+```
+
+### Usage
+
+```typescript
+// Class instantiation
+const provider = new MemoryProvider()
+
+// Or factory function
+const provider = createMemoryProvider()
+```
+
+### Characteristics
+
+| Feature | Value |
+|---------|-------|
+| Persistence | None (memory only) |
+| Performance | Very fast |
+| Concurrency | Single-threaded |
+| Distribution | Single process |
+| Best for | Tests, prototypes, ephemeral data |
+
+### Example
+
+```typescript
+import { MemoryProvider } from 'digital-objects'
+
+const provider = new MemoryProvider()
+
+// Define schema
+await provider.defineNoun({ name: 'Post' })
+await provider.defineVerb({ name: 'create' })
+
+// Create data
+const post = await provider.create('Post', { title: 'Hello' })
+
+// Query
+const posts = await provider.list('Post')
+
+// Cleanup (clears all data)
+await provider.close()
+```
+
+### Testing Pattern
+
+```typescript
+import { describe, it, beforeEach, afterEach, expect } from 'vitest'
+import { MemoryProvider } from 'digital-objects'
+
+describe('My App', () => {
+  let provider: MemoryProvider
+
+  beforeEach(() => {
+    provider = new MemoryProvider()
+  })
+
+  afterEach(async () => {
+    await provider.close()
+  })
+
+  it('creates posts', async () => {
+    const post = await provider.create('Post', { title: 'Test' })
+    expect(post.data.title).toBe('Test')
+  })
+})
+```
+
+## NS (Durable Object)
+
+SQLite-based storage in Cloudflare Durable Objects. Production-grade persistence.
+
+### Installation
+
+```typescript
+// Import from ns subpath
+import { NS } from 'digital-objects/ns'
+```
+
+### Wrangler Configuration
+
+```toml
+# wrangler.toml
+name = "my-app"
+main = "src/index.ts"
+
+[[durable_objects.bindings]]
+name = "NS"
+class_name = "NS"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["NS"]
+```
+
+### Export the Class
+
+```typescript
+// src/index.ts
+export { NS } from 'digital-objects/ns'
+
+export default {
+  async fetch(request: Request, env: Env) {
+    // Route to NS
+    const ns = env.NS.get(env.NS.idFromName('default'))
+    return ns.fetch(request)
+  }
+}
+
+interface Env {
+  NS: DurableObjectNamespace
+}
+```
+
+### Characteristics
+
+| Feature | Value |
+|---------|-------|
+| Persistence | SQLite (automatic) |
+| Performance | Fast, edge-local |
+| Concurrency | Single-threaded per namespace |
+| Distribution | Global, edge locations |
+| Best for | Production, multi-tenant apps |
+
+### Multi-Tenancy
+
+Each namespace ID creates an isolated instance:
+
+```typescript
+export default {
+  async fetch(request: Request, env: Env) {
+    const url = new URL(request.url)
+
+    // Extract tenant from URL, header, or auth
+    const tenant = url.searchParams.get('tenant') ?? 'default'
+
+    // Get tenant-specific NS
+    const ns = env.NS.get(env.NS.idFromName(tenant))
+    return ns.fetch(request)
+  }
+}
+```
+
+### SQLite Schema
+
+NS automatically creates these tables:
+
+```sql
+CREATE TABLE nouns (
+  name TEXT PRIMARY KEY,
+  singular TEXT NOT NULL,
+  plural TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  description TEXT,
+  schema TEXT,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE verbs (
+  name TEXT PRIMARY KEY,
+  action TEXT NOT NULL,
+  act TEXT NOT NULL,
+  activity TEXT NOT NULL,
+  event TEXT NOT NULL,
+  reverse_by TEXT,
+  reverse_at TEXT,
+  reverse_in TEXT,
+  inverse TEXT,
+  description TEXT,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE things (
+  id TEXT PRIMARY KEY,
+  noun TEXT NOT NULL,
+  data TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE actions (
+  id TEXT PRIMARY KEY,
+  verb TEXT NOT NULL,
+  subject TEXT,
+  object TEXT,
+  data TEXT,
+  status TEXT NOT NULL DEFAULT 'completed',
+  created_at INTEGER NOT NULL,
+  completed_at INTEGER
+);
+```
+
+## NSClient
+
+HTTP client for accessing NS Durable Objects from external services.
+
+### Installation
+
+```typescript
+import { NSClient, createNSClient } from 'digital-objects'
+```
+
+### Usage
+
+```typescript
+// Class instantiation (recommended)
+const client = new NSClient({
+  baseUrl: 'https://ns.example.com',
+  namespace: 'my-tenant',
+})
+
+// Or factory function
+const client = createNSClient({
+  baseUrl: 'https://ns.example.com',
+  namespace: 'my-tenant',
+})
+```
+
+### Options
+
+```typescript
+interface NSClientOptions {
+  /** Base URL of the NS worker */
+  baseUrl: string
+
+  /** Namespace ID (default: 'default') */
+  namespace?: string
+
+  /** Custom fetch function */
+  fetch?: typeof fetch
+}
+```
+
+### Characteristics
+
+| Feature | Value |
+|---------|-------|
+| Persistence | Via NS backend |
+| Performance | Network latency |
+| Concurrency | Unlimited clients |
+| Distribution | Any environment |
+| Best for | External access, Node.js servers |
+
+### Example
+
+```typescript
+import { NSClient } from 'digital-objects'
+
+const client = new NSClient({
+  baseUrl: 'https://ns.my-app.workers.dev',
+  namespace: 'production',
+})
+
+// Use like any other provider
+await client.defineNoun({ name: 'Post' })
+const post = await client.create('Post', { title: 'Hello' })
+const posts = await client.list('Post')
+```
+
+### Service Bindings
+
+For Worker-to-Worker communication, use service bindings:
+
+```typescript
+const client = new NSClient({
+  baseUrl: 'http://ns', // Service binding name
+  namespace: 'my-tenant',
+  fetch: env.NS_SERVICE.fetch.bind(env.NS_SERVICE),
+})
+```
+
+```toml
+# wrangler.toml
+[[services]]
+binding = "NS_SERVICE"
+service = "ns-worker"
+```
+
+## Choosing a Provider
+
+### Development
+
+```typescript
+// Use MemoryProvider for fast iteration
+import { MemoryProvider } from 'digital-objects'
+
+const provider = new MemoryProvider()
+```
+
+### Testing
+
+```typescript
+// MemoryProvider is perfect for tests
+import { MemoryProvider } from 'digital-objects'
+
+const provider = new MemoryProvider()
+// Tests run in isolation, no cleanup needed between test files
+```
+
+### Production (Workers)
+
+```typescript
+// Use NS directly in Cloudflare Workers
+import { NS } from 'digital-objects/ns'
+
+export { NS }
+
+export default {
+  async fetch(request: Request, env: Env) {
+    const ns = env.NS.get(env.NS.idFromName('default'))
+    return ns.fetch(request)
+  }
+}
+```
+
+### Production (External)
+
+```typescript
+// Use NSClient from Node.js or other environments
+import { NSClient } from 'digital-objects'
+
+const client = new NSClient({
+  baseUrl: process.env.NS_URL!,
+  namespace: process.env.NS_NAMESPACE!,
+})
+```
+
+## Provider Switching
+
+The consistent interface allows easy switching:
+
+```typescript
+import { DigitalObjectsProvider, MemoryProvider, NSClient } from 'digital-objects'
+
+function createProvider(): DigitalObjectsProvider {
+  if (process.env.NODE_ENV === 'test') {
+    return new MemoryProvider()
+  }
+
+  return new NSClient({
+    baseUrl: process.env.NS_URL!,
+    namespace: process.env.NS_NAMESPACE!,
+  })
+}
+
+// Use the same code regardless of provider
+const provider = createProvider()
+const post = await provider.create('Post', { title: 'Hello' })
+```
+
+## Query Limits
+
+All providers enforce query limits to prevent memory exhaustion:
+
+```typescript
+// Default limit: 100
+// Maximum limit: 1000
+
+const posts = await provider.list('Post')
+// Returns max 100 posts
+
+const posts = await provider.list('Post', { limit: 500 })
+// Returns max 500 posts
+
+const posts = await provider.list('Post', { limit: 5000 })
+// Returns max 1000 posts (capped at MAX_LIMIT)
+```
+
+## Next Steps
+
+- [R2 Persistence](/digital-objects/r2-persistence) - Backup and restore data
+- [Things](/digital-objects/things) - CRUD operations
+- [Actions](/digital-objects/actions) - Events and relationships

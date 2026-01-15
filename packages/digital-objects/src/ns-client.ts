@@ -261,6 +261,38 @@ export class NSClient implements DigitalObjectsProvider {
     return this.request(`/edges/${encodeURIComponent(id)}`, undefined, params)
   }
 
+  // ==================== Batch Operations ====================
+
+  async createMany<T>(noun: string, items: T[]): Promise<Thing<T>[]> {
+    return this.request('/batch/things', {
+      method: 'POST',
+      body: JSON.stringify({ noun, items }),
+    })
+  }
+
+  async updateMany<T>(updates: Array<{ id: string; data: Partial<T> }>): Promise<Thing<T>[]> {
+    return this.request('/batch/things', {
+      method: 'PATCH',
+      body: JSON.stringify({ updates }),
+    })
+  }
+
+  async deleteMany(ids: string[]): Promise<boolean[]> {
+    return this.request('/batch/things', {
+      method: 'DELETE',
+      body: JSON.stringify({ ids }),
+    })
+  }
+
+  async performMany<T>(
+    actions: Array<{ verb: string; subject?: string; object?: string; data?: T }>
+  ): Promise<Action<T>[]> {
+    return this.request('/batch/actions', {
+      method: 'POST',
+      body: JSON.stringify({ actions }),
+    })
+  }
+
   // ==================== Lifecycle ====================
 
   async close(): Promise<void> {

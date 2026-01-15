@@ -1,9 +1,32 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { DigitalObjectsProvider, Noun, Verb, Thing, Action } from './types'
-import { DEFAULT_LIMIT, MAX_LIMIT } from './types'
+import { DEFAULT_LIMIT, MAX_LIMIT, validateDirection } from './types'
 import { createMemoryProvider } from './memory-provider'
 
 const createProvider = createMemoryProvider
+
+describe('validateDirection', () => {
+  it('should return valid direction values unchanged', () => {
+    expect(validateDirection('in')).toBe('in')
+    expect(validateDirection('out')).toBe('out')
+    expect(validateDirection('both')).toBe('both')
+  })
+
+  it('should throw error for invalid direction values', () => {
+    expect(() => validateDirection('invalid')).toThrow(
+      'Invalid direction: "invalid". Must be "in", "out", or "both".'
+    )
+    expect(() => validateDirection('')).toThrow(
+      'Invalid direction: "". Must be "in", "out", or "both".'
+    )
+    expect(() => validateDirection('up')).toThrow(
+      'Invalid direction: "up". Must be "in", "out", or "both".'
+    )
+    expect(() => validateDirection('IN')).toThrow(
+      'Invalid direction: "IN". Must be "in", "out", or "both".'
+    )
+  })
+})
 
 describe('DigitalObjectsProvider Contract', () => {
   let provider: DigitalObjectsProvider
@@ -279,6 +302,37 @@ describe('DigitalObjectsProvider Contract', () => {
       const relatedAfter = await provider.related(author.id, 'write', 'out')
       expect(relatedAfter).toHaveLength(0)
     })
+
+    it('should throw error for invalid direction in related()', async () => {
+      const author = await provider.create('Author', { name: 'Henry' })
+
+      await expect(
+        provider.related(author.id, 'write', 'invalid' as 'out' | 'in' | 'both')
+      ).rejects.toThrow('Invalid direction: "invalid". Must be "in", "out", or "both".')
+    })
+
+    it('should throw error for invalid direction in edges()', async () => {
+      const author = await provider.create('Author', { name: 'Ivy' })
+
+      await expect(
+        provider.edges(author.id, 'write', 'sideways' as 'out' | 'in' | 'both')
+      ).rejects.toThrow('Invalid direction: "sideways". Must be "in", "out", or "both".')
+    })
+
+    it('should accept valid direction values', async () => {
+      const author = await provider.create('Author', { name: 'Jack' })
+      const post = await provider.create('Post', { title: 'Test' })
+      await provider.perform('write', author.id, post.id)
+
+      // All valid directions should work without throwing
+      await expect(provider.related(author.id, 'write', 'out')).resolves.toHaveLength(1)
+      await expect(provider.related(post.id, 'write', 'in')).resolves.toHaveLength(1)
+      await expect(provider.related(author.id, 'write', 'both')).resolves.toHaveLength(1)
+
+      await expect(provider.edges(author.id, 'write', 'out')).resolves.toHaveLength(1)
+      await expect(provider.edges(post.id, 'write', 'in')).resolves.toHaveLength(1)
+      await expect(provider.edges(author.id, 'write', 'both')).resolves.toHaveLength(1)
+    })
   })
 
   describe('Query Limits', () => {
@@ -387,6 +441,235 @@ describe('DigitalObjectsProvider Contract', () => {
     it('should export DEFAULT_LIMIT and MAX_LIMIT constants', () => {
       expect(DEFAULT_LIMIT).toBe(100)
       expect(MAX_LIMIT).toBe(1000)
+    })
+  })
+
+  describe('Batch Operations', () => {
+    beforeEach(async () => {
+      await provider.defineNoun({ name: 'Product' })
+      await provider.defineVerb({ name: 'tag' })
+    })
+
+    describe('createMany', () => {
+      it('should create multiple things at once', async () => {
+        const items = [
+          { name: 'Product A', price: 10 },
+          { name: 'Product B', price: 20 },
+          { name: 'Product C', price: 30 },
+        ]
+
+        const created = await provider.createMany('Product', items)
+
+        expect(created).toHaveLength(3)
+        expect(created[0].data.name).toBe('Product A')
+        expect(created[1].data.name).toBe('Product B')
+        expect(created[2].data.name).toBe('Product C')
+        expect(created[0].noun).toBe('Product')
+        expect(created[0].id).toBeDefined()
+      })
+
+      it('should return empty array for empty input', async () => {
+        const created = await provider.createMany('Product', [])
+        expect(created).toHaveLength(0)
+      })
+
+      it('should persist all created things', async () => {
+        const items = [
+          { name: 'P1', price: 100 },
+          { name: 'P2', price: 200 },
+        ]
+
+        const created = await provider.createMany('Product', items)
+
+        // Verify all are persisted
+        for (const thing of created) {
+          const fetched = await provider.get(thing.id)
+          expect(fetched).not.toBeNull()
+          expect(fetched!.data).toEqual(thing.data)
+        }
+      })
+    })
+
+    describe('updateMany', () => {
+      it('should update multiple things at once', async () => {
+        const p1 = await provider.create('Product', { name: 'P1', price: 10 })
+        const p2 = await provider.create('Product', { name: 'P2', price: 20 })
+        const p3 = await provider.create('Product', { name: 'P3', price: 30 })
+
+        const updated = await provider.updateMany([
+          { id: p1.id, data: { price: 15 } },
+          { id: p2.id, data: { price: 25 } },
+          { id: p3.id, data: { price: 35, discount: true } },
+        ])
+
+        expect(updated).toHaveLength(3)
+        expect(updated[0].data.price).toBe(15)
+        expect(updated[0].data.name).toBe('P1') // Original data preserved
+        expect(updated[1].data.price).toBe(25)
+        expect(updated[2].data.price).toBe(35)
+        expect(updated[2].data.discount).toBe(true)
+      })
+
+      it('should return empty array for empty input', async () => {
+        const updated = await provider.updateMany([])
+        expect(updated).toHaveLength(0)
+      })
+
+      it('should throw error if any ID not found', async () => {
+        const p1 = await provider.create('Product', { name: 'P1', price: 10 })
+
+        await expect(
+          provider.updateMany([
+            { id: p1.id, data: { price: 15 } },
+            { id: 'non-existent-id', data: { price: 25 } },
+          ])
+        ).rejects.toThrow()
+      })
+
+      it('should persist all updates', async () => {
+        const p1 = await provider.create('Product', { name: 'P1', price: 10 })
+        const p2 = await provider.create('Product', { name: 'P2', price: 20 })
+
+        await provider.updateMany([
+          { id: p1.id, data: { price: 100 } },
+          { id: p2.id, data: { price: 200 } },
+        ])
+
+        const fetched1 = await provider.get(p1.id)
+        const fetched2 = await provider.get(p2.id)
+
+        expect(fetched1!.data.price).toBe(100)
+        expect(fetched2!.data.price).toBe(200)
+      })
+    })
+
+    describe('deleteMany', () => {
+      it('should delete multiple things at once', async () => {
+        const p1 = await provider.create('Product', { name: 'P1' })
+        const p2 = await provider.create('Product', { name: 'P2' })
+        const p3 = await provider.create('Product', { name: 'P3' })
+
+        const results = await provider.deleteMany([p1.id, p2.id, p3.id])
+
+        expect(results).toHaveLength(3)
+        expect(results).toEqual([true, true, true])
+
+        // Verify all are deleted
+        expect(await provider.get(p1.id)).toBeNull()
+        expect(await provider.get(p2.id)).toBeNull()
+        expect(await provider.get(p3.id)).toBeNull()
+      })
+
+      it('should return empty array for empty input', async () => {
+        const results = await provider.deleteMany([])
+        expect(results).toHaveLength(0)
+      })
+
+      it('should return false for non-existent IDs', async () => {
+        const p1 = await provider.create('Product', { name: 'P1' })
+
+        const results = await provider.deleteMany([p1.id, 'non-existent-1', 'non-existent-2'])
+
+        expect(results).toHaveLength(3)
+        expect(results[0]).toBe(true) // Existing was deleted
+        expect(results[1]).toBe(false) // Non-existent
+        expect(results[2]).toBe(false) // Non-existent
+      })
+
+      it('should only delete specified items', async () => {
+        const p1 = await provider.create('Product', { name: 'P1' })
+        const p2 = await provider.create('Product', { name: 'P2' })
+        const p3 = await provider.create('Product', { name: 'P3' })
+
+        await provider.deleteMany([p1.id, p3.id])
+
+        expect(await provider.get(p1.id)).toBeNull()
+        expect(await provider.get(p2.id)).not.toBeNull() // P2 should remain
+        expect(await provider.get(p3.id)).toBeNull()
+      })
+    })
+
+    describe('performMany', () => {
+      it('should perform multiple actions at once', async () => {
+        const p1 = await provider.create('Product', { name: 'P1' })
+        const p2 = await provider.create('Product', { name: 'P2' })
+        const p3 = await provider.create('Product', { name: 'P3' })
+
+        const actions = await provider.performMany([
+          { verb: 'tag', subject: undefined, object: p1.id, data: { tag: 'electronics' } },
+          { verb: 'tag', subject: undefined, object: p2.id, data: { tag: 'clothing' } },
+          { verb: 'tag', subject: undefined, object: p3.id, data: { tag: 'books' } },
+        ])
+
+        expect(actions).toHaveLength(3)
+        expect(actions[0].verb).toBe('tag')
+        expect(actions[0].object).toBe(p1.id)
+        expect(actions[0].data?.tag).toBe('electronics')
+        expect(actions[1].data?.tag).toBe('clothing')
+        expect(actions[2].data?.tag).toBe('books')
+        expect(actions[0].status).toBe('completed')
+      })
+
+      it('should return empty array for empty input', async () => {
+        const actions = await provider.performMany([])
+        expect(actions).toHaveLength(0)
+      })
+
+      it('should persist all performed actions', async () => {
+        const p1 = await provider.create('Product', { name: 'P1' })
+        const p2 = await provider.create('Product', { name: 'P2' })
+
+        const performed = await provider.performMany([
+          { verb: 'tag', object: p1.id, data: { tag: 'sale' } },
+          { verb: 'tag', object: p2.id, data: { tag: 'new' } },
+        ])
+
+        // Verify all actions are persisted
+        for (const action of performed) {
+          const fetched = await provider.getAction(action.id)
+          expect(fetched).not.toBeNull()
+          expect(fetched!.verb).toBe('tag')
+        }
+      })
+
+      it('should support actions with subject and object', async () => {
+        await provider.defineNoun({ name: 'User' })
+        const user = await provider.create('User', { name: 'Admin' })
+        const product = await provider.create('Product', { name: 'Item' })
+
+        const actions = await provider.performMany([
+          { verb: 'tag', subject: user.id, object: product.id, data: { action: 'categorized' } },
+        ])
+
+        expect(actions[0].subject).toBe(user.id)
+        expect(actions[0].object).toBe(product.id)
+      })
+
+      it('should support actions without data', async () => {
+        const p1 = await provider.create('Product', { name: 'P1' })
+
+        const actions = await provider.performMany([{ verb: 'tag', object: p1.id }])
+
+        expect(actions).toHaveLength(1)
+        expect(actions[0].data).toBeUndefined()
+      })
+    })
+
+    describe('batch performance benefit', () => {
+      it('should handle large batches efficiently', async () => {
+        const items = Array.from({ length: 100 }, (_, i) => ({
+          name: `Product ${i}`,
+          price: i * 10,
+        }))
+
+        const start = Date.now()
+        const created = await provider.createMany('Product', items)
+        const duration = Date.now() - start
+
+        expect(created).toHaveLength(100)
+        // Just verify it completes - performance varies by implementation
+        expect(duration).toBeLessThan(5000) // Should be much faster, but give buffer
+      })
     })
   })
 })

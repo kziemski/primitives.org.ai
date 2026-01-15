@@ -16,6 +16,22 @@ export const DEFAULT_LIMIT = 100
 export const MAX_LIMIT = 1000
 
 /**
+ * Direction for graph traversal
+ */
+export type Direction = 'in' | 'out' | 'both'
+
+/**
+ * Validates direction parameter for graph traversal methods.
+ * @throws Error if direction is not 'in', 'out', or 'both'
+ */
+export function validateDirection(direction: string): Direction {
+  if (direction !== 'in' && direction !== 'out' && direction !== 'both') {
+    throw new Error(`Invalid direction: "${direction}". Must be "in", "out", or "both".`)
+  }
+  return direction
+}
+
+/**
  * Noun - Entity type definition with linguistic forms
  */
 export interface Noun {
@@ -101,12 +117,28 @@ export type ActionStatus = 'pending' | 'active' | 'completed' | 'failed' | 'canc
 
 /**
  * Field definition for schemas
+ *
+ * Can be either a simple type string or an extended definition with options
  */
-export type FieldDefinition =
+export type FieldDefinition = SimpleFieldType | ExtendedFieldDefinition
+
+/**
+ * Simple field type - just a type string
+ */
+export type SimpleFieldType =
   | PrimitiveType
   | `${string}.${string}` // Relation: 'Author.posts'
   | `[${string}.${string}]` // Array relation: '[Tag.posts]'
   | `${PrimitiveType}?` // Optional
+
+/**
+ * Extended field definition with options like required, default, etc.
+ */
+export interface ExtendedFieldDefinition {
+  type: PrimitiveType | 'object' | 'array'
+  required?: boolean
+  default?: unknown
+}
 
 export type PrimitiveType =
   | 'string'
@@ -117,6 +149,13 @@ export type PrimitiveType =
   | 'json'
   | 'markdown'
   | 'url'
+
+/**
+ * Validation options for create/update operations
+ */
+export interface ValidationOptions {
+  validate?: boolean
+}
 
 /**
  * List options for queries
@@ -156,11 +195,11 @@ export interface DigitalObjectsProvider {
   listVerbs(): Promise<Verb[]>
 
   // Things
-  create<T>(noun: string, data: T, id?: string): Promise<Thing<T>>
+  create<T>(noun: string, data: T, id?: string, options?: ValidationOptions): Promise<Thing<T>>
   get<T>(id: string): Promise<Thing<T> | null>
   list<T>(noun: string, options?: ListOptions): Promise<Thing<T>[]>
   find<T>(noun: string, where: Partial<T>): Promise<Thing<T>[]>
-  update<T>(id: string, data: Partial<T>): Promise<Thing<T>>
+  update<T>(id: string, data: Partial<T>, options?: ValidationOptions): Promise<Thing<T>>
   delete(id: string): Promise<boolean>
   search<T>(query: string, options?: ListOptions): Promise<Thing<T>[]>
 
@@ -174,14 +213,22 @@ export interface DigitalObjectsProvider {
   related<T>(
     id: string,
     verb?: string,
-    direction?: 'out' | 'in' | 'both',
+    direction?: Direction,
     options?: ListOptions
   ): Promise<Thing<T>[]>
   edges<T>(
     id: string,
     verb?: string,
-    direction?: 'out' | 'in' | 'both',
+    direction?: Direction,
     options?: ListOptions
+  ): Promise<Action<T>[]>
+
+  // Batch operations
+  createMany<T>(noun: string, items: T[]): Promise<Thing<T>[]>
+  updateMany<T>(updates: Array<{ id: string; data: Partial<T> }>): Promise<Thing<T>[]>
+  deleteMany(ids: string[]): Promise<boolean[]>
+  performMany<T>(
+    actions: Array<{ verb: string; subject?: string; object?: string; data?: T }>
   ): Promise<Action<T>[]>
 
   // Lifecycle

@@ -15,9 +15,13 @@ import type {
   ActionStatus,
   ListOptions,
   ActionOptions,
+  ValidationOptions,
+  Direction,
 } from './types.js'
-import { DEFAULT_LIMIT, MAX_LIMIT } from './types.js'
+import { DEFAULT_LIMIT, MAX_LIMIT, validateDirection } from './types.js'
 import { deriveNoun, deriveVerb } from './linguistic.js'
+import { validateData } from './schema-validation.js'
+import { NotFoundError } from './errors.js'
 
 /**
  * Calculate effective limit with safety bounds
@@ -92,7 +96,18 @@ export class MemoryProvider implements DigitalObjectsProvider {
 
   // ==================== Things ====================
 
-  async create<T>(noun: string, data: T, id?: string): Promise<Thing<T>> {
+  async create<T>(
+    noun: string,
+    data: T,
+    id?: string,
+    options?: ValidationOptions
+  ): Promise<Thing<T>> {
+    // Validate data against noun schema if validation is enabled
+    if (options?.validate) {
+      const nounDef = this.nouns.get(noun)
+      validateData(data as Record<string, unknown>, nounDef?.schema, options)
+    }
+
     const thing: Thing<T> = {
       id: id ?? generateId(),
       noun,
@@ -162,10 +177,19 @@ export class MemoryProvider implements DigitalObjectsProvider {
     return this.list<T>(noun, { where: where as Record<string, unknown> })
   }
 
-  async update<T>(id: string, data: Partial<T>): Promise<Thing<T>> {
+  async update<T>(id: string, data: Partial<T>, options?: ValidationOptions): Promise<Thing<T>> {
     const existing = this.things.get(id)
     if (!existing) {
-      throw new Error(`Thing not found: ${id}`)
+      throw new NotFoundError('Thing', id)
+    }
+
+    // Merge data for validation
+    const mergedData = { ...existing.data, ...data } as T
+
+    // Validate merged data against noun schema if validation is enabled
+    if (options?.validate) {
+      const nounDef = this.nouns.get(existing.noun)
+      validateData(mergedData as Record<string, unknown>, nounDef?.schema, options)
     }
 
     // Ensure updatedAt is always strictly newer than createdAt
@@ -177,7 +201,7 @@ export class MemoryProvider implements DigitalObjectsProvider {
 
     const updated: Thing<T> = {
       ...existing,
-      data: { ...existing.data, ...data } as T,
+      data: mergedData,
       updatedAt,
     }
     this.things.set(id, updated as Thing)
@@ -258,10 +282,11 @@ export class MemoryProvider implements DigitalObjectsProvider {
   async related<T>(
     id: string,
     verb?: string,
-    direction: 'out' | 'in' | 'both' = 'out',
+    direction: Direction = 'out',
     options?: ListOptions
   ): Promise<Thing<T>[]> {
-    const edgesList = await this.edges(id, verb, direction)
+    const validDirection = validateDirection(direction)
+    const edgesList = await this.edges(id, verb, validDirection)
     const relatedIds = new Set<string>()
 
     for (const edge of edgesList) {
@@ -293,9 +318,10 @@ export class MemoryProvider implements DigitalObjectsProvider {
   async edges<T>(
     id: string,
     verb?: string,
-    direction: 'out' | 'in' | 'both' = 'out',
+    direction: Direction = 'out',
     options?: ListOptions
   ): Promise<Action<T>[]> {
+    const validDirection = validateDirection(direction)
     let results = Array.from(this.actions.values()) as Action<T>[]
 
     if (verb) {
@@ -303,8 +329,8 @@ export class MemoryProvider implements DigitalObjectsProvider {
     }
 
     results = results.filter((a) => {
-      if (direction === 'out') return a.subject === id
-      if (direction === 'in') return a.object === id
+      if (validDirection === 'out') return a.subject === id
+      if (validDirection === 'in') return a.object === id
       return a.subject === id || a.object === id
     })
 
@@ -313,6 +339,26 @@ export class MemoryProvider implements DigitalObjectsProvider {
     results = results.slice(0, limit)
 
     return results
+  }
+
+  // ==================== Batch Operations ====================
+
+  async createMany<T>(noun: string, items: T[]): Promise<Thing<T>[]> {
+    return Promise.all(items.map((item) => this.create(noun, item)))
+  }
+
+  async updateMany<T>(updates: Array<{ id: string; data: Partial<T> }>): Promise<Thing<T>[]> {
+    return Promise.all(updates.map((u) => this.update(u.id, u.data)))
+  }
+
+  async deleteMany(ids: string[]): Promise<boolean[]> {
+    return Promise.all(ids.map((id) => this.delete(id)))
+  }
+
+  async performMany<T>(
+    actions: Array<{ verb: string; subject?: string; object?: string; data?: T }>
+  ): Promise<Action<T>[]> {
+    return Promise.all(actions.map((a) => this.perform(a.verb, a.subject, a.object, a.data)))
   }
 
   // ==================== Lifecycle ====================

@@ -1,0 +1,396 @@
+---
+title: Graph
+description: Traverse relationships with related() and edges()
+icon: Network
+---
+
+Digital Objects provides graph traversal capabilities through the `related()` and `edges()` methods. Actions serve as directed edges in a graph, enabling powerful relationship queries.
+
+## Graph Model
+
+Actions form a directed graph where:
+
+- **Nodes** are Things (entities)
+- **Edges** are Actions (with verb labels)
+- **Direction** flows from subject to object
+
+```
+         follows
+  alice ──────────> bob
+    │                │
+    │ wrote          │ wrote
+    │                │
+    ▼                ▼
+  post1           post2
+    ▲                ▲
+    │                │
+    └─── likes ──────┘
+           charlie
+```
+
+## related()
+
+Find Things connected to a given Thing via actions:
+
+```typescript
+async related<T>(
+  id: string,
+  verb?: string,
+  direction?: 'out' | 'in' | 'both',
+  options?: ListOptions
+): Promise<Thing<T>[]>
+```
+
+### Outgoing Relationships
+
+Find Things this entity points to:
+
+```typescript
+// Who does alice follow?
+const following = await provider.related(aliceId, 'follow', 'out')
+// [{ id: bobId, noun: 'User', data: { name: 'Bob' }, ... }]
+
+// What posts did alice write?
+const posts = await provider.related(aliceId, 'write', 'out')
+```
+
+### Incoming Relationships
+
+Find Things that point to this entity:
+
+```typescript
+// Who follows bob?
+const followers = await provider.related(bobId, 'follow', 'in')
+// [{ id: aliceId, noun: 'User', data: { name: 'Alice' }, ... }]
+
+// Who liked this post?
+const likers = await provider.related(postId, 'like', 'in')
+```
+
+### Bidirectional
+
+Find Things connected in either direction:
+
+```typescript
+// All connections (friends)
+const connections = await provider.related(userId, 'connect', 'both')
+```
+
+### All Verbs
+
+Omit verb to get relationships of any type:
+
+```typescript
+// All outgoing relationships
+const allOutgoing = await provider.related(userId, undefined, 'out')
+
+// All incoming relationships
+const allIncoming = await provider.related(userId, undefined, 'in')
+
+// All connections regardless of verb
+const allConnected = await provider.related(userId, undefined, 'both')
+```
+
+## edges()
+
+Find the Action edges themselves (not the connected Things):
+
+```typescript
+async edges<T>(
+  id: string,
+  verb?: string,
+  direction?: 'out' | 'in' | 'both',
+  options?: ListOptions
+): Promise<Action<T>[]>
+```
+
+### Use Cases for edges()
+
+```typescript
+// Get the edge metadata
+const followEdges = await provider.edges(aliceId, 'follow', 'out')
+for (const edge of followEdges) {
+  console.log(`Followed at ${edge.createdAt}`)
+  console.log(`Edge data: ${JSON.stringify(edge.data)}`)
+}
+
+// When you need edge timestamps
+const likeEdges = await provider.edges(postId, 'like', 'in')
+const sortedByRecent = likeEdges.sort(
+  (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
+)
+
+// When you need edge IDs for deletion
+const edges = await provider.edges(userId, 'follow', 'out')
+for (const edge of edges) {
+  if (edge.object === targetId) {
+    await provider.deleteAction(edge.id)
+  }
+}
+```
+
+## Direction
+
+| Direction | Meaning | Query |
+|-----------|---------|-------|
+| `'out'` | Subject = ID | Things I point to |
+| `'in'` | Object = ID | Things that point to me |
+| `'both'` | Either | All connected things |
+
+```typescript
+// Visual representation:
+//
+//   A ──verb──> B
+//   │           │
+//   │ (subject) │ (object)
+//   │           │
+// out from A    in to B
+
+// From A's perspective:
+await provider.related(A, 'verb', 'out')  // Returns [B]
+await provider.related(A, 'verb', 'in')   // Returns []
+
+// From B's perspective:
+await provider.related(B, 'verb', 'out')  // Returns []
+await provider.related(B, 'verb', 'in')   // Returns [A]
+```
+
+## Common Patterns
+
+### Social Graph
+
+```typescript
+// Follow someone
+await provider.perform('follow', currentUserId, targetUserId)
+
+// Get following list
+const following = await provider.related(userId, 'follow', 'out')
+
+// Get followers
+const followers = await provider.related(userId, 'follow', 'in')
+
+// Check if following
+const followingList = await provider.related(userId, 'follow', 'out')
+const isFollowing = followingList.some(u => u.id === targetId)
+
+// Unfollow
+const edges = await provider.edges(userId, 'follow', 'out')
+const followEdge = edges.find(e => e.object === targetId)
+if (followEdge) {
+  await provider.deleteAction(followEdge.id)
+}
+```
+
+### Content Authorship
+
+```typescript
+// Create a post
+const post = await provider.create('Post', { title: 'Hello' })
+await provider.perform('write', authorId, post.id)
+
+// Get author's posts
+const posts = await provider.related(authorId, 'write', 'out')
+
+// Get post's author
+const authors = await provider.related(post.id, 'write', 'in')
+const author = authors[0] // Assuming single author
+```
+
+### Tags/Categories
+
+```typescript
+// Tag a post
+await provider.perform('tag', postId, tagId)
+
+// Get all tags for a post
+const tags = await provider.related(postId, 'tag', 'out')
+
+// Get all posts with a tag
+const posts = await provider.related(tagId, 'tag', 'in')
+```
+
+### Comments
+
+```typescript
+// Add a comment
+const comment = await provider.create('Comment', {
+  content: 'Great post!',
+})
+await provider.perform('comment', userId, postId, {
+  commentId: comment.id,
+})
+
+// Get post comments
+const commentEdges = await provider.edges(postId, 'comment', 'in')
+const comments = await Promise.all(
+  commentEdges.map(async (edge) => {
+    const commenter = await provider.get(edge.subject!)
+    return {
+      id: edge.data?.commentId,
+      author: commenter?.data,
+      createdAt: edge.createdAt,
+    }
+  })
+)
+```
+
+### Task Assignment
+
+```typescript
+// Assign a task
+await provider.perform('assign', managerId, taskId, {
+  assigneeId: workerId,
+  priority: 'high',
+})
+
+// Get tasks assigned by a manager
+const assigned = await provider.related(managerId, 'assign', 'out')
+
+// Get a worker's tasks
+const edges = await provider.edges(workerId, 'assign', 'in')
+const myTasks = edges
+  .filter(e => e.data?.assigneeId === workerId)
+  .map(e => provider.get(e.object!))
+```
+
+### Mutual Connections
+
+```typescript
+// Find mutual followers
+async function mutualFollowers(userA: string, userB: string) {
+  const followersA = await provider.related(userA, 'follow', 'in')
+  const followersB = await provider.related(userB, 'follow', 'in')
+
+  const followersAIds = new Set(followersA.map(f => f.id))
+  return followersB.filter(f => followersAIds.has(f.id))
+}
+
+// Find mutual following (friends)
+async function mutualFriends(userA: string, userB: string) {
+  const followingA = await provider.related(userA, 'follow', 'out')
+  const followingB = await provider.related(userB, 'follow', 'out')
+
+  const followingAIds = new Set(followingA.map(f => f.id))
+  return followingB.filter(f => followingAIds.has(f.id))
+}
+```
+
+### Recommendations
+
+```typescript
+// "Users who follow X also follow..."
+async function recommendUsers(userId: string) {
+  // Get who I follow
+  const following = await provider.related(userId, 'follow', 'out')
+  const followingIds = new Set(following.map(u => u.id))
+
+  // Get who they follow
+  const suggestions = new Map<string, number>()
+  for (const user of following) {
+    const theirFollowing = await provider.related(user.id, 'follow', 'out')
+    for (const suggestion of theirFollowing) {
+      if (suggestion.id !== userId && !followingIds.has(suggestion.id)) {
+        suggestions.set(
+          suggestion.id,
+          (suggestions.get(suggestion.id) ?? 0) + 1
+        )
+      }
+    }
+  }
+
+  // Return sorted by frequency
+  return [...suggestions.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([id]) => id)
+}
+```
+
+### Multi-Hop Traversal
+
+```typescript
+// Friends of friends
+async function friendsOfFriends(userId: string) {
+  const friends = await provider.related(userId, 'friend', 'both')
+  const friendIds = new Set(friends.map(f => f.id))
+  friendIds.add(userId) // Exclude self
+
+  const fof = new Set<string>()
+  for (const friend of friends) {
+    const theirFriends = await provider.related(friend.id, 'friend', 'both')
+    for (const fofUser of theirFriends) {
+      if (!friendIds.has(fofUser.id)) {
+        fof.add(fofUser.id)
+      }
+    }
+  }
+
+  return Promise.all([...fof].map(id => provider.get(id)))
+}
+```
+
+## Performance Tips
+
+### Use Limits
+
+```typescript
+// Limit results for large graphs
+const followers = await provider.related(popularUserId, 'follow', 'in', {
+  limit: 100,
+})
+```
+
+### Filter by Verb
+
+```typescript
+// More efficient than filtering all edges
+const posts = await provider.related(userId, 'write', 'out')
+
+// Less efficient
+const allEdges = await provider.edges(userId, undefined, 'out')
+const posts = allEdges.filter(e => e.verb === 'write')
+```
+
+### Batch Lookups
+
+```typescript
+// Instead of N+1 queries
+const following = await provider.related(userId, 'follow', 'out')
+for (const user of following) {
+  const theirPosts = await provider.related(user.id, 'write', 'out')
+  // ...
+}
+
+// Consider caching or parallel fetches
+const following = await provider.related(userId, 'follow', 'out')
+const allPosts = await Promise.all(
+  following.map(user => provider.related(user.id, 'write', 'out'))
+)
+```
+
+## Type Safety
+
+```typescript
+interface User {
+  name: string
+  email: string
+}
+
+interface Post {
+  title: string
+  content: string
+}
+
+// Typed results
+const followers = await provider.related<User>(userId, 'follow', 'in')
+followers[0].data.name // Typed as string
+
+const posts = await provider.related<Post>(userId, 'write', 'out')
+posts[0].data.title // Typed as string
+```
+
+## Next Steps
+
+- [Actions](/digital-objects/actions) - Learn about the edges themselves
+- [Providers](/digital-objects/providers) - Storage implementations
+- [R2 Persistence](/digital-objects/r2-persistence) - Backup your graph

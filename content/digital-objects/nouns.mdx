@@ -1,0 +1,337 @@
+---
+title: Nouns
+description: Entity type definitions with linguistic derivation
+icon: Tag
+---
+
+Nouns define entity types with full linguistic support. Every noun includes singular, plural, and slug forms that are automatically derived from the name.
+
+## What is a Noun?
+
+A Noun is a type definition that describes an entity category:
+
+```typescript
+interface Noun {
+  name: string        // 'Post', 'Author', 'BlogPost'
+  singular: string    // 'post', 'author', 'blog post'
+  plural: string      // 'posts', 'authors', 'blog posts'
+  slug: string        // 'post', 'author', 'blog-post'
+  description?: string
+  schema?: Record<string, FieldDefinition>
+  createdAt: Date
+}
+```
+
+## Linguistic Derivation
+
+Nouns are automatically derived from PascalCase names:
+
+```typescript
+import { deriveNoun } from 'digital-objects'
+
+deriveNoun('Post')
+// { singular: 'post', plural: 'posts', slug: 'post' }
+
+deriveNoun('BlogPost')
+// { singular: 'blog post', plural: 'blog posts', slug: 'blog-post' }
+
+deriveNoun('Category')
+// { singular: 'category', plural: 'categories', slug: 'category' }
+
+deriveNoun('Person')
+// { singular: 'person', plural: 'persons', slug: 'person' }
+```
+
+### Pluralization Rules
+
+The pluralization engine handles common English rules:
+
+| Rule | Example | Result |
+|------|---------|--------|
+| Default | post | posts |
+| -s, -x, -z, -ch, -sh | box | boxes |
+| Consonant + y | category | categories |
+| -f | leaf | leaves |
+| -fe | knife | knives |
+| Irregular | person | people |
+
+```typescript
+import { pluralize, singularize } from 'digital-objects'
+
+// Standard pluralization
+pluralize('post')      // 'posts'
+pluralize('box')       // 'boxes'
+pluralize('category')  // 'categories'
+pluralize('leaf')      // 'leaves'
+
+// Irregular plurals
+pluralize('person')    // 'people'
+pluralize('child')     // 'children'
+pluralize('mouse')     // 'mice'
+
+// Multi-word phrases (pluralizes last word)
+pluralize('blog post')     // 'blog posts'
+pluralize('product category') // 'product categories'
+
+// Reverse operation
+singularize('posts')   // 'post'
+singularize('people')  // 'person'
+singularize('categories') // 'category'
+```
+
+## Defining Nouns
+
+### Basic Definition
+
+```typescript
+import { MemoryProvider } from 'digital-objects'
+
+const provider = new MemoryProvider()
+
+// Minimal definition - forms are auto-derived
+const post = await provider.defineNoun({ name: 'Post' })
+// { name: 'Post', singular: 'post', plural: 'posts', slug: 'post', ... }
+```
+
+### Custom Forms
+
+Override auto-derived forms when needed:
+
+```typescript
+// Custom singular/plural for irregular words
+await provider.defineNoun({
+  name: 'Person',
+  singular: 'person',
+  plural: 'people',  // Override auto-derived 'persons'
+})
+
+// Custom description
+await provider.defineNoun({
+  name: 'BlogPost',
+  description: 'A blog article or story',
+})
+```
+
+### With Schema
+
+Define the shape of Things that implement this Noun:
+
+```typescript
+await provider.defineNoun({
+  name: 'Post',
+  schema: {
+    title: 'string',
+    content: 'markdown',
+    publishedAt: 'datetime?',  // Optional field
+    author: 'Author.posts',     // Relation to Author
+    tags: '[Tag.posts]',        // Array relation to Tag
+  },
+})
+```
+
+## Field Types
+
+Schemas support various field types:
+
+| Type | Description | Example |
+|------|-------------|---------|
+| `string` | Text content | `'title'` |
+| `number` | Numeric value | `'views'` |
+| `boolean` | True/false | `'published'` |
+| `date` | Date only | `'birthday'` |
+| `datetime` | Date and time | `'createdAt'` |
+| `json` | JSON object | `'metadata'` |
+| `markdown` | Markdown text | `'content'` |
+| `url` | URL string | `'website'` |
+
+### Optional Fields
+
+Append `?` for optional fields:
+
+```typescript
+schema: {
+  title: 'string',       // Required
+  subtitle: 'string?',   // Optional
+}
+```
+
+### Relations
+
+Define relationships using the `NounName.backref` syntax:
+
+```typescript
+// One-to-many: Post belongs to Author, Author has many posts
+await provider.defineNoun({
+  name: 'Post',
+  schema: {
+    author: 'Author.posts',  // Post -> Author, backref is 'posts'
+  },
+})
+
+// Many-to-many via array relation
+await provider.defineNoun({
+  name: 'Post',
+  schema: {
+    tags: '[Tag.posts]',  // Post has many Tags, Tag has many posts
+  },
+})
+```
+
+## Querying Nouns
+
+### Get a Noun
+
+```typescript
+const noun = await provider.getNoun('Post')
+if (noun) {
+  console.log(noun.singular)  // 'post'
+  console.log(noun.plural)    // 'posts'
+  console.log(noun.schema)    // { title: 'string', ... }
+}
+```
+
+### List All Nouns
+
+```typescript
+const nouns = await provider.listNouns()
+for (const noun of nouns) {
+  console.log(`${noun.name}: ${noun.description ?? 'No description'}`)
+}
+```
+
+## Use Cases
+
+### Auto-Generated UI Labels
+
+```typescript
+const noun = await provider.getNoun('BlogPost')
+
+// Form labels
+const label = noun.singular           // 'blog post'
+const pluralLabel = noun.plural       // 'blog posts'
+
+// URL paths
+const listPath = `/${noun.slug}s`     // '/blog-posts'
+const createPath = `/${noun.slug}/new` // '/blog-post/new'
+```
+
+### API Route Generation
+
+```typescript
+const nouns = await provider.listNouns()
+
+for (const noun of nouns) {
+  // Generate REST endpoints
+  app.get(`/api/${noun.slug}s`, listHandler(noun))
+  app.get(`/api/${noun.slug}s/:id`, getHandler(noun))
+  app.post(`/api/${noun.slug}s`, createHandler(noun))
+  app.patch(`/api/${noun.slug}s/:id`, updateHandler(noun))
+  app.delete(`/api/${noun.slug}s/:id`, deleteHandler(noun))
+}
+```
+
+### Schema Introspection
+
+```typescript
+const noun = await provider.getNoun('Post')
+
+if (noun.schema) {
+  for (const [field, type] of Object.entries(noun.schema)) {
+    console.log(`${field}: ${type}`)
+    // title: string
+    // content: markdown
+    // author: Author.posts
+  }
+}
+```
+
+### AI Content Generation
+
+```typescript
+const noun = await provider.getNoun('BlogPost')
+
+const prompt = `Generate a ${noun.singular} with the following fields:
+${Object.entries(noun.schema ?? {})
+  .map(([field, type]) => `- ${field} (${type})`)
+  .join('\n')
+}
+
+Description: ${noun.description ?? 'A blog post'}
+`
+```
+
+## NounDefinition Type
+
+The input type for defining nouns:
+
+```typescript
+interface NounDefinition {
+  name: string              // Required: PascalCase name
+  singular?: string         // Optional: override singular form
+  plural?: string           // Optional: override plural form
+  description?: string      // Optional: human-readable description
+  schema?: Record<string, FieldDefinition>  // Optional: field definitions
+}
+```
+
+## Best Practices
+
+### Naming Conventions
+
+```typescript
+// Good: PascalCase, singular
+await provider.defineNoun({ name: 'Post' })
+await provider.defineNoun({ name: 'BlogPost' })
+await provider.defineNoun({ name: 'UserProfile' })
+
+// Avoid: already plural
+await provider.defineNoun({ name: 'Posts' })     // Use 'Post'
+
+// Avoid: lowercase
+await provider.defineNoun({ name: 'post' })      // Use 'Post'
+
+// Avoid: snake_case
+await provider.defineNoun({ name: 'blog_post' }) // Use 'BlogPost'
+```
+
+### Schema Design
+
+```typescript
+// Prefer explicit types over json
+await provider.defineNoun({
+  name: 'Post',
+  schema: {
+    title: 'string',
+    content: 'markdown',
+    metadata: 'json',  // Only when structure is truly dynamic
+  },
+})
+
+// Use relations instead of storing IDs
+await provider.defineNoun({
+  name: 'Post',
+  schema: {
+    author: 'Author.posts',  // Not: authorId: 'string'
+  },
+})
+```
+
+### Descriptions
+
+```typescript
+// Always add descriptions for AI-assisted features
+await provider.defineNoun({
+  name: 'Post',
+  description: 'A blog article written by an author',
+  schema: {
+    title: 'string',     // Field descriptions come from the noun
+    content: 'markdown',
+  },
+})
+```
+
+## Next Steps
+
+- [Verbs](/digital-objects/verbs) - Define actions with conjugations
+- [Things](/digital-objects/things) - Create instances of nouns
+- [Actions](/digital-objects/actions) - Record events between things

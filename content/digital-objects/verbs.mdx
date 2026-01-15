@@ -1,0 +1,388 @@
+---
+title: Verbs
+description: Action definitions with automatic conjugation
+icon: Zap
+---
+
+Verbs define actions with full grammatical conjugation support. Every verb includes imperative, present, gerund, and past participle forms that are automatically derived.
+
+## What is a Verb?
+
+A Verb defines an action type with all its grammatical forms:
+
+```typescript
+interface Verb {
+  name: string        // 'create', 'publish'
+  action: string      // 'create' (imperative/base)
+  act: string         // 'creates' (3rd person singular)
+  activity: string    // 'creating' (present participle/gerund)
+  event: string       // 'created' (past participle)
+  reverseBy?: string  // 'createdBy' (actor reference)
+  reverseAt?: string  // 'createdAt' (timestamp reference)
+  reverseIn?: string  // 'createdIn' (location reference)
+  inverse?: string    // 'delete' (opposite action)
+  description?: string
+  createdAt: Date
+}
+```
+
+## Linguistic Derivation
+
+Verbs are automatically conjugated from the base form:
+
+```typescript
+import { deriveVerb } from 'digital-objects'
+
+deriveVerb('create')
+// {
+//   action: 'create',
+//   act: 'creates',
+//   activity: 'creating',
+//   event: 'created',
+//   reverseBy: 'createdBy',
+//   reverseAt: 'createdAt',
+//   reverseIn: 'createdIn'
+// }
+
+deriveVerb('publish')
+// {
+//   action: 'publish',
+//   act: 'publishes',
+//   activity: 'publishing',
+//   event: 'published',
+//   reverseBy: 'publishedBy',
+//   reverseAt: 'publishedAt',
+//   reverseIn: 'publishedIn'
+// }
+```
+
+### Conjugation Rules
+
+The conjugation engine handles regular and irregular verbs:
+
+| Form | Rule | Example |
+|------|------|---------|
+| 3rd Person | +s, +es, +ies | creates, publishes, carries |
+| Gerund | +ing, drop e | creating, publishing, running |
+| Past | +ed, +d, +ied | created, published, carried |
+
+```typescript
+// Regular verbs
+deriveVerb('create')   // creates, creating, created
+deriveVerb('update')   // updates, updating, updated
+deriveVerb('delete')   // deletes, deleting, deleted
+
+// -es endings
+deriveVerb('publish')  // publishes, publishing, published
+deriveVerb('watch')    // watches, watching, watched
+
+// -ies endings
+deriveVerb('carry')    // carries, carrying, carried
+deriveVerb('apply')    // applies, applying, applied
+
+// Doubled consonants
+deriveVerb('stop')     // stops, stopping, stopped
+deriveVerb('submit')   // submits, submitting, submitted
+
+// Irregular verbs (handled specially)
+deriveVerb('write')    // writes, writing, written
+deriveVerb('read')     // reads, reading, read
+deriveVerb('run')      // runs, running, run
+deriveVerb('do')       // does, doing, done
+```
+
+## Defining Verbs
+
+### Basic Definition
+
+```typescript
+import { MemoryProvider } from 'digital-objects'
+
+const provider = new MemoryProvider()
+
+// Minimal definition - forms are auto-derived
+const verb = await provider.defineVerb({ name: 'publish' })
+// { name: 'publish', action: 'publish', act: 'publishes', ... }
+```
+
+### Custom Forms
+
+Override auto-derived forms for irregular verbs:
+
+```typescript
+// Custom past participle
+await provider.defineVerb({
+  name: 'write',
+  event: 'written',  // Override auto-derived 'writed'
+})
+
+// Custom inverse
+await provider.defineVerb({
+  name: 'publish',
+  inverse: 'unpublish',
+})
+
+// Custom description
+await provider.defineVerb({
+  name: 'approve',
+  description: 'Grant approval for an item',
+})
+```
+
+### With Inverse
+
+Define bidirectional actions:
+
+```typescript
+await provider.defineVerb({
+  name: 'follow',
+  inverse: 'unfollow',
+})
+
+await provider.defineVerb({
+  name: 'archive',
+  inverse: 'unarchive',
+})
+
+await provider.defineVerb({
+  name: 'publish',
+  inverse: 'unpublish',
+})
+```
+
+## Querying Verbs
+
+### Get a Verb
+
+```typescript
+const verb = await provider.getVerb('publish')
+if (verb) {
+  console.log(verb.action)    // 'publish'
+  console.log(verb.act)       // 'publishes'
+  console.log(verb.activity)  // 'publishing'
+  console.log(verb.event)     // 'published'
+}
+```
+
+### List All Verbs
+
+```typescript
+const verbs = await provider.listVerbs()
+for (const verb of verbs) {
+  console.log(`${verb.action}: ${verb.description ?? 'No description'}`)
+}
+```
+
+## Use Cases
+
+### UI Labels
+
+```typescript
+const verb = await provider.getVerb('publish')
+
+// Button labels
+const buttonLabel = verb.action           // 'publish'
+const confirmLabel = `${verb.action}?`    // 'publish?'
+
+// Status indicators
+const inProgress = verb.activity          // 'publishing'
+const completed = verb.event              // 'published'
+
+// Notifications
+const notification = `Post ${verb.event}!` // 'Post published!'
+```
+
+### Form Field Generation
+
+```typescript
+const verb = await provider.getVerb('create')
+
+// Generate timestamp fields
+const fields = {
+  [verb.reverseAt]: 'datetime',   // createdAt
+  [verb.reverseBy]: 'string',     // createdBy
+}
+```
+
+### Activity Feeds
+
+```typescript
+const actions = await provider.listActions({ verb: 'publish' })
+const verb = await provider.getVerb('publish')
+
+for (const action of actions) {
+  const actor = await provider.get(action.subject)
+  const target = await provider.get(action.object)
+
+  // "Alice published 'Hello World'"
+  console.log(`${actor.data.name} ${verb.event} '${target.data.title}'`)
+}
+```
+
+### Audit Logs
+
+```typescript
+const verb = await provider.getVerb('update')
+
+// Generate audit entry
+const audit = {
+  action: verb.action,           // 'update'
+  actor: userId,
+  target: postId,
+  timestamp: new Date(),
+  field: verb.reverseAt,         // 'updatedAt'
+  actorField: verb.reverseBy,    // 'updatedBy'
+}
+```
+
+### Command/Event Naming
+
+```typescript
+const verbs = await provider.listVerbs()
+
+for (const verb of verbs) {
+  // Commands (imperative)
+  const command = `${verb.action}Post`     // 'createPost', 'publishPost'
+
+  // Events (past tense)
+  const event = `Post${capitalize(verb.event)}`  // 'PostCreated', 'PostPublished'
+
+  // Handlers
+  const handler = `handle${capitalize(verb.activity)}`  // 'handleCreating', 'handlePublishing'
+}
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
+```
+
+## VerbDefinition Type
+
+The input type for defining verbs:
+
+```typescript
+interface VerbDefinition {
+  name: string              // Required: base form
+  action?: string           // Optional: override imperative
+  act?: string              // Optional: override 3rd person
+  activity?: string         // Optional: override gerund
+  event?: string            // Optional: override past participle
+  reverseBy?: string        // Optional: override actor reference
+  reverseAt?: string        // Auto-generated from event
+  reverseIn?: string        // Optional: override location reference
+  inverse?: string          // Optional: opposite action
+  description?: string      // Optional: human-readable description
+}
+```
+
+## Reverse Forms
+
+The reverse forms are used for timestamps and actor tracking:
+
+```typescript
+const verb = await provider.getVerb('create')
+
+// Use in entity schema
+const postSchema = {
+  title: 'string',
+  [verb.reverseAt]: 'datetime',  // createdAt: datetime
+  [verb.reverseBy]: 'string',    // createdBy: string
+}
+
+// Use in update tracking
+const updateVerb = await provider.getVerb('update')
+const updatedFields = {
+  [updateVerb.reverseAt]: new Date(),  // updatedAt
+  [updateVerb.reverseBy]: userId,       // updatedBy
+}
+```
+
+## Common Verbs
+
+Digital Objects works well with these common action patterns:
+
+### CRUD Operations
+
+```typescript
+await provider.defineVerb({ name: 'create', inverse: 'delete' })
+await provider.defineVerb({ name: 'update' })
+await provider.defineVerb({ name: 'delete', inverse: 'create' })
+await provider.defineVerb({ name: 'read' })
+```
+
+### State Changes
+
+```typescript
+await provider.defineVerb({ name: 'publish', inverse: 'unpublish' })
+await provider.defineVerb({ name: 'archive', inverse: 'unarchive' })
+await provider.defineVerb({ name: 'activate', inverse: 'deactivate' })
+await provider.defineVerb({ name: 'approve', inverse: 'reject' })
+```
+
+### Relationships
+
+```typescript
+await provider.defineVerb({ name: 'follow', inverse: 'unfollow' })
+await provider.defineVerb({ name: 'like', inverse: 'unlike' })
+await provider.defineVerb({ name: 'subscribe', inverse: 'unsubscribe' })
+await provider.defineVerb({ name: 'assign', inverse: 'unassign' })
+```
+
+### Workflow
+
+```typescript
+await provider.defineVerb({ name: 'submit' })
+await provider.defineVerb({ name: 'review' })
+await provider.defineVerb({ name: 'approve', inverse: 'reject' })
+await provider.defineVerb({ name: 'complete' })
+```
+
+## Best Practices
+
+### Naming Conventions
+
+```typescript
+// Good: lowercase, imperative form
+await provider.defineVerb({ name: 'create' })
+await provider.defineVerb({ name: 'publish' })
+
+// Avoid: past tense
+await provider.defineVerb({ name: 'created' })  // Use 'create'
+
+// Avoid: gerund
+await provider.defineVerb({ name: 'creating' }) // Use 'create'
+
+// Avoid: nouns
+await provider.defineVerb({ name: 'creation' }) // Use 'create'
+```
+
+### Define Inverses
+
+```typescript
+// Always define inverse for reversible actions
+await provider.defineVerb({
+  name: 'publish',
+  inverse: 'unpublish',
+})
+
+// Helps with undo functionality
+const verb = await provider.getVerb('publish')
+const undoAction = verb.inverse  // 'unpublish'
+```
+
+### Use Descriptions
+
+```typescript
+// Add descriptions for clarity
+await provider.defineVerb({
+  name: 'promote',
+  description: 'Elevate a user to a higher role',
+  inverse: 'demote',
+})
+```
+
+## Next Steps
+
+- [Things](/digital-objects/things) - Create entity instances
+- [Actions](/digital-objects/actions) - Perform actions on things
+- [Graph](/digital-objects/graph) - Traverse relationships created by actions

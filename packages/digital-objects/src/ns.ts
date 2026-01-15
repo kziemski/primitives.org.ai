@@ -18,9 +18,36 @@ import type {
   ActionStatus,
   ListOptions,
   ActionOptions,
+  ValidationOptions,
+  Direction,
 } from './types.js'
-import { DEFAULT_LIMIT, MAX_LIMIT } from './types.js'
+import { DEFAULT_LIMIT, MAX_LIMIT, validateDirection } from './types.js'
 import { deriveNoun, deriveVerb } from './linguistic.js'
+import { validateData } from './schema-validation.js'
+import { NotFoundError, ValidationError, errorToResponse } from './errors.js'
+import { ZodError } from 'zod'
+import {
+  NounDefinitionSchema,
+  VerbDefinitionSchema,
+  CreateThingSchema,
+  UpdateThingSchema,
+  PerformActionSchema,
+  BatchCreateThingsSchema,
+  BatchUpdateThingsSchema,
+  BatchDeleteThingsSchema,
+  BatchPerformActionsSchema,
+} from './http-schemas.js'
+
+/**
+ * Convert a ZodError to a ValidationError
+ */
+function zodErrorToValidationError(error: ZodError): ValidationError {
+  const fieldErrors = error.errors.map((issue) => ({
+    field: issue.path.join('.') || 'root',
+    message: issue.message,
+  }))
+  return new ValidationError('Request validation failed', fieldErrors)
+}
 
 /**
  * Calculate effective limit with safety bounds
@@ -65,12 +92,12 @@ export interface Env {
 export class NS implements DigitalObjectsProvider {
   private sql: SqlStorage
   private initialized = false
-  private ctx: DurableObjectState
-  private env: Env
 
-  constructor(ctx: DurableObjectState, env: Env) {
-    this.ctx = ctx
-    this.env = env
+  // Caches for noun and verb definitions to reduce database lookups
+  private nounCache = new Map<string, Noun>()
+  private verbCache = new Map<string, Verb>()
+
+  constructor(ctx: DurableObjectState, _env: Env) {
     this.sql = ctx.storage.sql
   }
 
@@ -125,6 +152,7 @@ export class NS implements DigitalObjectsProvider {
       CREATE INDEX IF NOT EXISTS idx_actions_verb ON actions(verb);
       CREATE INDEX IF NOT EXISTS idx_actions_subject ON actions(subject);
       CREATE INDEX IF NOT EXISTS idx_actions_object ON actions(object);
+      CREATE INDEX IF NOT EXISTS idx_actions_status ON actions(status);
     `)
 
     this.initialized = true
@@ -141,7 +169,8 @@ export class NS implements DigitalObjectsProvider {
     try {
       // Route to appropriate handler
       if (path === '/nouns' && method === 'POST') {
-        const body = (await request.json()) as NounDefinition
+        const rawBody = await request.json()
+        const body = NounDefinitionSchema.parse(rawBody)
         const noun = await this.defineNoun(body)
         return Response.json(noun)
       }
@@ -158,7 +187,8 @@ export class NS implements DigitalObjectsProvider {
       }
 
       if (path === '/verbs' && method === 'POST') {
-        const body = (await request.json()) as VerbDefinition
+        const rawBody = await request.json()
+        const body = VerbDefinitionSchema.parse(rawBody)
         const verb = await this.defineVerb(body)
         return Response.json(verb)
       }
@@ -175,11 +205,8 @@ export class NS implements DigitalObjectsProvider {
       }
 
       if (path === '/things' && method === 'POST') {
-        const { noun, data, id } = (await request.json()) as {
-          noun: string
-          data: unknown
-          id?: string
-        }
+        const rawBody = await request.json()
+        const { noun, data, id } = CreateThingSchema.parse(rawBody)
         const thing = await this.create(noun, data, id)
         return Response.json(thing)
       }
@@ -192,8 +219,9 @@ export class NS implements DigitalObjectsProvider {
 
       if (path.startsWith('/things/') && method === 'PATCH') {
         const id = decodeURIComponent(path.slice('/things/'.length))
-        const data = await request.json()
-        const thing = await this.update(id, data as Record<string, unknown>)
+        const rawBody = await request.json()
+        const { data } = UpdateThingSchema.parse(rawBody)
+        const thing = await this.update(id, data)
         return Response.json(thing)
       }
 
@@ -231,12 +259,8 @@ export class NS implements DigitalObjectsProvider {
       }
 
       if (path === '/actions' && method === 'POST') {
-        const { verb, subject, object, data } = (await request.json()) as {
-          verb: string
-          subject?: string
-          object?: string
-          data?: unknown
-        }
+        const rawBody = await request.json()
+        const { verb, subject, object, data } = PerformActionSchema.parse(rawBody)
         const action = await this.perform(verb, subject, object, data)
         return Response.json(action)
       }
@@ -272,7 +296,8 @@ export class NS implements DigitalObjectsProvider {
       if (path.startsWith('/edges/') && method === 'GET') {
         const id = decodeURIComponent(path.slice('/edges/'.length))
         const verb = url.searchParams.get('verb') ?? undefined
-        const direction = (url.searchParams.get('direction') ?? 'out') as 'out' | 'in' | 'both'
+        const directionParam = url.searchParams.get('direction') ?? 'out'
+        const direction = validateDirection(directionParam)
         const edges = await this.edges(id, verb, direction)
         return Response.json(edges)
       }
@@ -280,14 +305,47 @@ export class NS implements DigitalObjectsProvider {
       if (path.startsWith('/related/') && method === 'GET') {
         const id = decodeURIComponent(path.slice('/related/'.length))
         const verb = url.searchParams.get('verb') ?? undefined
-        const direction = (url.searchParams.get('direction') ?? 'out') as 'out' | 'in' | 'both'
+        const directionParam = url.searchParams.get('direction') ?? 'out'
+        const direction = validateDirection(directionParam)
         const things = await this.related(id, verb, direction)
         return Response.json(things)
       }
 
-      return new Response('Not found', { status: 404 })
+      // Batch operations
+      if (path === '/batch/things' && method === 'POST') {
+        const rawBody = await request.json()
+        const { noun, items } = BatchCreateThingsSchema.parse(rawBody)
+        const things = await this.createMany(noun, items)
+        return Response.json(things)
+      }
+
+      if (path === '/batch/things' && method === 'PATCH') {
+        const rawBody = await request.json()
+        const { updates } = BatchUpdateThingsSchema.parse(rawBody)
+        const things = await this.updateMany(updates)
+        return Response.json(things)
+      }
+
+      if (path === '/batch/things' && method === 'DELETE') {
+        const rawBody = await request.json()
+        const { ids } = BatchDeleteThingsSchema.parse(rawBody)
+        const results = await this.deleteMany(ids)
+        return Response.json(results)
+      }
+
+      if (path === '/batch/actions' && method === 'POST') {
+        const rawBody = await request.json()
+        const { actions } = BatchPerformActionsSchema.parse(rawBody)
+        const results = await this.performMany(actions)
+        return Response.json(results)
+      }
+
+      return Response.json({ error: 'NOT_FOUND', message: 'Endpoint not found' }, { status: 404 })
     } catch (error) {
-      return new Response(String(error), { status: 500 })
+      // Convert ZodError to ValidationError for consistent error handling
+      const normalizedError = error instanceof ZodError ? zodErrorToValidationError(error) : error
+      const { body, status } = errorToResponse(normalizedError)
+      return Response.json(body, { status })
     }
   }
 
@@ -311,7 +369,7 @@ export class NS implements DigitalObjectsProvider {
       now
     )
 
-    return {
+    const noun: Noun = {
       name: def.name,
       singular: def.singular ?? derived.singular,
       plural: def.plural ?? derived.plural,
@@ -320,16 +378,25 @@ export class NS implements DigitalObjectsProvider {
       schema: def.schema,
       createdAt: new Date(now),
     }
+
+    // Update cache
+    this.nounCache.set(def.name, noun)
+
+    return noun
   }
 
   async getNoun(name: string): Promise<Noun | null> {
     await this.ensureInitialized()
 
+    // Check cache first
+    const cached = this.nounCache.get(name)
+    if (cached) return cached
+
     const rows = [...this.sql.exec('SELECT * FROM nouns WHERE name = ?', name)]
     if (rows.length === 0) return null
 
     const row = rows[0] as Record<string, unknown>
-    return {
+    const noun: Noun = {
       name: row.name as string,
       singular: row.singular as string,
       plural: row.plural as string,
@@ -338,6 +405,11 @@ export class NS implements DigitalObjectsProvider {
       schema: row.schema ? JSON.parse(row.schema as string) : undefined,
       createdAt: new Date(row.created_at as number),
     }
+
+    // Populate cache
+    this.nounCache.set(name, noun)
+
+    return noun
   }
 
   async listNouns(): Promise<Noun[]> {
@@ -383,7 +455,7 @@ export class NS implements DigitalObjectsProvider {
       now
     )
 
-    return {
+    const verb: Verb = {
       name: def.name,
       action: def.action ?? derived.action,
       act: def.act ?? derived.act,
@@ -396,16 +468,25 @@ export class NS implements DigitalObjectsProvider {
       description: def.description,
       createdAt: new Date(now),
     }
+
+    // Update cache
+    this.verbCache.set(def.name, verb)
+
+    return verb
   }
 
   async getVerb(name: string): Promise<Verb | null> {
     await this.ensureInitialized()
 
+    // Check cache first
+    const cached = this.verbCache.get(name)
+    if (cached) return cached
+
     const rows = [...this.sql.exec('SELECT * FROM verbs WHERE name = ?', name)]
     if (rows.length === 0) return null
 
     const row = rows[0] as Record<string, unknown>
-    return {
+    const verb: Verb = {
       name: row.name as string,
       action: row.action as string,
       act: row.act as string,
@@ -418,6 +499,11 @@ export class NS implements DigitalObjectsProvider {
       description: row.description as string | undefined,
       createdAt: new Date(row.created_at as number),
     }
+
+    // Populate cache
+    this.verbCache.set(name, verb)
+
+    return verb
   }
 
   async listVerbs(): Promise<Verb[]> {
@@ -444,8 +530,19 @@ export class NS implements DigitalObjectsProvider {
 
   // ==================== Things ====================
 
-  async create<T>(noun: string, data: T, id?: string): Promise<Thing<T>> {
+  async create<T>(
+    noun: string,
+    data: T,
+    id?: string,
+    options?: ValidationOptions
+  ): Promise<Thing<T>> {
     await this.ensureInitialized()
+
+    // Validate data against noun schema if validation is enabled
+    if (options?.validate) {
+      const nounDef = await this.getNoun(noun)
+      validateData(data as Record<string, unknown>, nounDef?.schema, options)
+    }
 
     const thingId = id ?? crypto.randomUUID()
     const now = Date.now()
@@ -491,6 +588,19 @@ export class NS implements DigitalObjectsProvider {
     let sql = 'SELECT * FROM things WHERE noun = ?'
     const params: unknown[] = [noun]
 
+    // Apply where filter in SQL using json_extract for better performance
+    if (options?.where) {
+      for (const [key, value] of Object.entries(options.where)) {
+        // Validate field name to prevent SQL injection
+        if (!validateOrderByField(key)) {
+          throw new Error(`Invalid where field: ${key}`)
+        }
+        sql += ` AND json_extract(data, '$.${key}') = ?`
+        // json_extract returns strings unquoted, numbers as numbers, booleans as 0/1, null as NULL
+        params.push(value)
+      }
+    }
+
     if (options?.orderBy) {
       // Validate orderBy field to prevent SQL injection
       if (!validateOrderByField(options.orderBy)) {
@@ -511,7 +621,7 @@ export class NS implements DigitalObjectsProvider {
     }
 
     const rows = [...this.sql.exec(sql, ...params)]
-    let results = rows.map((row) => {
+    const results = rows.map((row) => {
       const r = row as Record<string, unknown>
       return {
         id: r.id as string,
@@ -522,18 +632,6 @@ export class NS implements DigitalObjectsProvider {
       }
     })
 
-    // Apply where filter in JS (for JSON field matching)
-    if (options?.where) {
-      results = results.filter((t) => {
-        for (const [key, value] of Object.entries(options.where!)) {
-          if ((t.data as Record<string, unknown>)[key] !== value) {
-            return false
-          }
-        }
-        return true
-      })
-    }
-
     return results
   }
 
@@ -541,13 +639,20 @@ export class NS implements DigitalObjectsProvider {
     return this.list<T>(noun, { where: where as Record<string, unknown> })
   }
 
-  async update<T>(id: string, data: Partial<T>): Promise<Thing<T>> {
+  async update<T>(id: string, data: Partial<T>, options?: ValidationOptions): Promise<Thing<T>> {
     await this.ensureInitialized()
 
     const existing = await this.get<T>(id)
-    if (!existing) throw new Error(`Thing not found: ${id}`)
+    if (!existing) throw new NotFoundError('Thing', id)
 
     const updated = { ...existing.data, ...data } as T
+
+    // Validate merged data against noun schema if validation is enabled
+    if (options?.validate) {
+      const nounDef = await this.getNoun(existing.noun)
+      validateData(updated as Record<string, unknown>, nounDef?.schema, options)
+    }
+
     const now = Date.now()
 
     this.sql.exec(
@@ -708,10 +813,11 @@ export class NS implements DigitalObjectsProvider {
   async related<T>(
     id: string,
     verb?: string,
-    direction: 'out' | 'in' | 'both' = 'out',
+    direction: Direction = 'out',
     options?: ListOptions
   ): Promise<Thing<T>[]> {
-    const edgesList = await this.edges(id, verb, direction)
+    const validDirection = validateDirection(direction)
+    const edgesList = await this.edges(id, verb, validDirection)
     const relatedIds = new Set<string>()
 
     for (const edge of edgesList) {
@@ -743,18 +849,19 @@ export class NS implements DigitalObjectsProvider {
   async edges<T>(
     id: string,
     verb?: string,
-    direction: 'out' | 'in' | 'both' = 'out',
+    direction: Direction = 'out',
     options?: ListOptions
   ): Promise<Action<T>[]> {
+    const validDirection = validateDirection(direction)
     await this.ensureInitialized()
 
     let sql: string
     const params: unknown[] = []
 
-    if (direction === 'out') {
+    if (validDirection === 'out') {
       sql = 'SELECT * FROM actions WHERE subject = ?'
       params.push(id)
-    } else if (direction === 'in') {
+    } else if (validDirection === 'in') {
       sql = 'SELECT * FROM actions WHERE object = ?'
       params.push(id)
     } else {
@@ -786,6 +893,146 @@ export class NS implements DigitalObjectsProvider {
         completedAt: r.completed_at ? new Date(r.completed_at as number) : undefined,
       }
     })
+  }
+
+  // ==================== Batch Operations ====================
+
+  async createMany<T>(noun: string, items: T[]): Promise<Thing<T>[]> {
+    await this.ensureInitialized()
+
+    const now = Date.now()
+    const results: Thing<T>[] = []
+
+    // Use a transaction for atomic batch insert
+    this.sql.exec('BEGIN TRANSACTION')
+    try {
+      for (const item of items) {
+        const thingId = crypto.randomUUID()
+        this.sql.exec(
+          `INSERT INTO things (id, noun, data, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?)`,
+          thingId,
+          noun,
+          JSON.stringify(item),
+          now,
+          now
+        )
+        results.push({
+          id: thingId,
+          noun,
+          data: item,
+          createdAt: new Date(now),
+          updatedAt: new Date(now),
+        })
+      }
+      this.sql.exec('COMMIT')
+    } catch (error) {
+      this.sql.exec('ROLLBACK')
+      throw error
+    }
+
+    return results
+  }
+
+  async updateMany<T>(updates: Array<{ id: string; data: Partial<T> }>): Promise<Thing<T>[]> {
+    await this.ensureInitialized()
+
+    const now = Date.now()
+    const results: Thing<T>[] = []
+
+    // Use a transaction for atomic batch update
+    this.sql.exec('BEGIN TRANSACTION')
+    try {
+      for (const { id, data } of updates) {
+        const existing = await this.get<T>(id)
+        if (!existing) throw new NotFoundError('Thing', id)
+
+        const updated = { ...existing.data, ...data } as T
+        this.sql.exec(
+          `UPDATE things SET data = ?, updated_at = ? WHERE id = ?`,
+          JSON.stringify(updated),
+          now,
+          id
+        )
+        results.push({
+          ...existing,
+          data: updated,
+          updatedAt: new Date(now),
+        })
+      }
+      this.sql.exec('COMMIT')
+    } catch (error) {
+      this.sql.exec('ROLLBACK')
+      throw error
+    }
+
+    return results
+  }
+
+  async deleteMany(ids: string[]): Promise<boolean[]> {
+    await this.ensureInitialized()
+
+    const results: boolean[] = []
+
+    // Use a transaction for atomic batch delete
+    this.sql.exec('BEGIN TRANSACTION')
+    try {
+      for (const id of ids) {
+        const result = this.sql.exec('DELETE FROM things WHERE id = ?', id)
+        results.push(result.rowsWritten > 0)
+      }
+      this.sql.exec('COMMIT')
+    } catch (error) {
+      this.sql.exec('ROLLBACK')
+      throw error
+    }
+
+    return results
+  }
+
+  async performMany<T>(
+    actions: Array<{ verb: string; subject?: string; object?: string; data?: T }>
+  ): Promise<Action<T>[]> {
+    await this.ensureInitialized()
+
+    const now = Date.now()
+    const results: Action<T>[] = []
+
+    // Use a transaction for atomic batch insert
+    this.sql.exec('BEGIN TRANSACTION')
+    try {
+      for (const action of actions) {
+        const id = crypto.randomUUID()
+        this.sql.exec(
+          `INSERT INTO actions (id, verb, subject, object, data, status, created_at, completed_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          id,
+          action.verb,
+          action.subject ?? null,
+          action.object ?? null,
+          action.data ? JSON.stringify(action.data) : null,
+          'completed',
+          now,
+          now
+        )
+        results.push({
+          id,
+          verb: action.verb,
+          subject: action.subject,
+          object: action.object,
+          data: action.data,
+          status: 'completed',
+          createdAt: new Date(now),
+          completedAt: new Date(now),
+        })
+      }
+      this.sql.exec('COMMIT')
+    } catch (error) {
+      this.sql.exec('ROLLBACK')
+      throw error
+    }
+
+    return results
   }
 
   async close(): Promise<void> {

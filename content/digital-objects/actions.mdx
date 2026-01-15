@@ -1,0 +1,398 @@
+---
+title: Actions
+description: Events, graph edges, and audit trail unified
+icon: Activity
+---
+
+Actions are the unified primitive that combines events, relationships, and audit trails. Every action simultaneously serves as a graph edge, an event record, and an audit entry.
+
+## What is an Action?
+
+An Action represents something that happened between entities:
+
+```typescript
+interface Action<T = Record<string, unknown>> {
+  id: string              // Unique identifier
+  verb: string            // References verb.name ('create', 'publish')
+  subject?: string        // Thing ID (actor/from)
+  object?: string         // Thing ID (target/to)
+  data?: T                // Payload/metadata
+  status: ActionStatus    // 'pending' | 'active' | 'completed' | 'failed' | 'cancelled'
+  createdAt: Date         // When action was initiated
+  completedAt?: Date      // When action completed
+}
+```
+
+## The Triple Role
+
+Every action serves three purposes simultaneously:
+
+```
+                    ┌─────────────────┐
+                    │     Action      │
+                    └────────┬────────┘
+            ┌────────────────┼────────────────┐
+            │                │                │
+       ┌────▼────┐      ┌────▼────┐      ┌────▼────┐
+       │  Graph  │      │  Event  │      │  Audit  │
+       │  Edge   │      │  Record │      │  Trail  │
+       └─────────┘      └─────────┘      └─────────┘
+```
+
+### As a Graph Edge
+
+```typescript
+// This action creates a directed edge in the graph:
+// alice --follows--> bob
+await provider.perform('follow', aliceId, bobId)
+
+// Query the graph
+const following = await provider.related(aliceId, 'follow', 'out')
+const followers = await provider.related(bobId, 'follow', 'in')
+```
+
+### As an Event
+
+```typescript
+// This action records that something happened:
+// "post was published at {time}"
+await provider.perform('publish', authorId, postId)
+
+// Query events
+const events = await provider.listActions({ verb: 'publish' })
+```
+
+### As an Audit Entry
+
+```typescript
+// This action records who did what:
+// "alice published post_123 at {time}"
+const action = await provider.perform('publish', aliceId, postId)
+
+// Audit trail
+console.log(`${action.subject} ${action.verb} ${action.object} at ${action.createdAt}`)
+```
+
+## Performing Actions
+
+### Basic Action
+
+```typescript
+import { MemoryProvider } from 'digital-objects'
+
+const provider = new MemoryProvider()
+
+// Perform an action
+const action = await provider.perform('create', authorId, postId)
+// {
+//   id: 'action_...',
+//   verb: 'create',
+//   subject: authorId,
+//   object: postId,
+//   status: 'completed',
+//   createdAt: Date,
+//   completedAt: Date
+// }
+```
+
+### With Metadata
+
+```typescript
+const action = await provider.perform('assign', managerId, taskId, {
+  priority: 'high',
+  deadline: '2024-12-31',
+  notes: 'Urgent task',
+})
+
+// Access metadata
+console.log(action.data?.priority)  // 'high'
+```
+
+### Subject-Only Actions
+
+```typescript
+// Actions without a target object
+const action = await provider.perform('login', userId)
+// alice logged in
+
+const action = await provider.perform('logout', userId)
+// alice logged out
+```
+
+### Object-Only Actions
+
+```typescript
+// Actions without a subject
+const action = await provider.perform('expire', undefined, couponId)
+// coupon expired (system action)
+```
+
+### Metadata-Only Actions
+
+```typescript
+// System events without subject/object
+const action = await provider.perform('deploy', undefined, undefined, {
+  version: '1.2.3',
+  environment: 'production',
+})
+```
+
+## Querying Actions
+
+### Get by ID
+
+```typescript
+const action = await provider.getAction('action_123')
+if (action) {
+  console.log(action.verb)    // 'publish'
+  console.log(action.subject) // 'user_123'
+  console.log(action.object)  // 'post_456'
+}
+```
+
+### List with Filters
+
+```typescript
+// All actions of a type
+const follows = await provider.listActions({ verb: 'follow' })
+
+// Actions by subject
+const userActions = await provider.listActions({ subject: userId })
+
+// Actions by object
+const postActions = await provider.listActions({ object: postId })
+
+// Combined filters
+const publishes = await provider.listActions({
+  verb: 'publish',
+  subject: authorId,
+  status: 'completed',
+})
+```
+
+### ActionOptions
+
+```typescript
+interface ActionOptions {
+  verb?: string                         // Filter by verb
+  subject?: string                      // Filter by subject ID
+  object?: string                       // Filter by object ID
+  status?: ActionStatus | ActionStatus[] // Filter by status
+  limit?: number                        // Max results
+  offset?: number                       // Skip N results
+}
+```
+
+## Action Status
+
+Actions have a lifecycle with status tracking:
+
+```
+pending → active → completed
+                 ↘ failed → (retry) → pending
+                 ↘ cancelled
+```
+
+| Status | Description |
+|--------|-------------|
+| `pending` | Action is queued, not yet started |
+| `active` | Action is currently being processed |
+| `completed` | Action finished successfully |
+| `failed` | Action encountered an error |
+| `cancelled` | Action was cancelled before completion |
+
+```typescript
+// Query by status
+const pending = await provider.listActions({ status: 'pending' })
+const failed = await provider.listActions({ status: 'failed' })
+
+// Multiple statuses
+const incomplete = await provider.listActions({
+  status: ['pending', 'active'],
+})
+```
+
+## Deleting Actions
+
+```typescript
+// Delete an action
+const deleted = await provider.deleteAction('action_123')
+if (deleted) {
+  console.log('Action deleted')
+}
+```
+
+**Note:** Deleting actions removes graph edges. Use with caution as it affects relationship queries.
+
+## Batch Operations
+
+### Perform Many
+
+```typescript
+const actions = await provider.performMany([
+  { verb: 'follow', subject: aliceId, object: bobId },
+  { verb: 'follow', subject: aliceId, object: charlieId },
+  { verb: 'like', subject: aliceId, object: postId, data: { emoji: 'heart' } },
+])
+```
+
+## Common Patterns
+
+### Activity Feed
+
+```typescript
+// Get recent activity for a user
+const activity = await provider.listActions({
+  subject: userId,
+  limit: 20,
+})
+
+for (const action of activity) {
+  const verb = await provider.getVerb(action.verb)
+  const target = action.object ? await provider.get(action.object) : null
+
+  console.log(`You ${verb?.event} ${target?.data.title ?? 'something'}`)
+  // "You published 'Hello World'"
+  // "You followed Alice"
+}
+```
+
+### Audit Log
+
+```typescript
+// Get audit history for an entity
+const audit = await provider.listActions({ object: entityId })
+
+for (const action of audit) {
+  const actor = action.subject ? await provider.get(action.subject) : null
+  const verb = await provider.getVerb(action.verb)
+
+  console.log(`${actor?.data.name ?? 'System'} ${verb?.event} this at ${action.createdAt}`)
+}
+```
+
+### Event Sourcing
+
+```typescript
+// Replay events to rebuild state
+const events = await provider.listActions({
+  object: entityId,
+  status: 'completed',
+})
+
+let state = {}
+for (const event of events) {
+  switch (event.verb) {
+    case 'create':
+      state = event.data ?? {}
+      break
+    case 'update':
+      state = { ...state, ...event.data }
+      break
+    case 'delete':
+      state = null
+      break
+  }
+}
+```
+
+### Undo Operations
+
+```typescript
+async function undo(actionId: string) {
+  const action = await provider.getAction(actionId)
+  if (!action) throw new Error('Action not found')
+
+  const verb = await provider.getVerb(action.verb)
+  if (!verb?.inverse) throw new Error('Action cannot be undone')
+
+  // Perform inverse action
+  return provider.perform(
+    verb.inverse,
+    action.subject,
+    action.object,
+    { undoing: action.id }
+  )
+}
+
+// Usage
+await provider.perform('publish', authorId, postId)
+// later...
+await undo(actionId) // performs 'unpublish'
+```
+
+### Notifications
+
+```typescript
+// Get actions where user is the target
+const notifications = await provider.listActions({
+  object: userId,
+  limit: 50,
+})
+
+for (const notification of notifications) {
+  const actor = action.subject ? await provider.get(action.subject) : null
+  const verb = await provider.getVerb(notification.verb)
+
+  // "Alice followed you"
+  // "Bob liked your post"
+  console.log(`${actor?.data.name} ${verb?.event} you`)
+}
+```
+
+### Rate Limiting
+
+```typescript
+async function checkRateLimit(userId: string, verb: string, limit: number) {
+  const recentActions = await provider.listActions({
+    verb,
+    subject: userId,
+    limit: limit + 1,
+  })
+
+  // Filter to last hour
+  const oneHourAgo = Date.now() - 60 * 60 * 1000
+  const recent = recentActions.filter(
+    a => a.createdAt.getTime() > oneHourAgo
+  )
+
+  if (recent.length >= limit) {
+    throw new Error(`Rate limit exceeded: max ${limit} ${verb} per hour`)
+  }
+}
+
+// Usage
+await checkRateLimit(userId, 'post', 10)
+await provider.perform('post', userId, undefined, { content: 'Hello!' })
+```
+
+## Type Safety
+
+```typescript
+interface LikeData {
+  emoji: string
+}
+
+interface AssignData {
+  priority: 'low' | 'medium' | 'high'
+  deadline?: string
+}
+
+// Typed actions
+const like = await provider.perform<LikeData>('like', userId, postId, {
+  emoji: 'heart',
+})
+like.data?.emoji // Typed as string
+
+const assign = await provider.perform<AssignData>('assign', managerId, taskId, {
+  priority: 'high',
+  deadline: '2024-12-31',
+})
+assign.data?.priority // Typed as 'low' | 'medium' | 'high'
+```
+
+## Next Steps
+
+- [Graph](/digital-objects/graph) - Traverse relationships via actions
+- [Providers](/digital-objects/providers) - Storage implementations
+- [R2 Persistence](/digital-objects/r2-persistence) - Backup and restore actions
