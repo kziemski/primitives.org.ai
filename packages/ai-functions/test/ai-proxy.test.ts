@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
-import { ai, AI, functions, withTemplate } from '../src/index.js'
+import { aiProxy as ai, AI, functions, withTemplate } from '../src/index.js'
 
 // Skip tests if no gateway configured
 const hasGateway = !!process.env.AI_GATEWAY_URL || !!process.env.ANTHROPIC_API_KEY
