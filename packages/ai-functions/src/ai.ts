@@ -107,7 +107,10 @@ export interface AISchemaOptions {
  * Schema-based functions
  */
 type SchemaFunctions<T extends Record<string, SimpleSchema>> = {
-  [K in keyof T]: (prompt?: string, options?: AISchemaOptions) => Promise<InferSimpleSchemaResult<T[K]>>
+  [K in keyof T]: (
+    prompt?: string,
+    options?: AISchemaOptions
+  ) => Promise<InferSimpleSchemaResult<T[K]>>
 }
 
 /**
@@ -165,7 +168,9 @@ export function AI<T extends Record<string, SimpleSchema>>(
  * const summary = await ai.summarize({ text: longText })
  * ```
  */
-export function AI(options: AIClientOptions): AIClient & Record<string, (...args: unknown[]) => Promise<unknown>>
+export function AI(
+  options: AIClientOptions
+): AIClient & Record<string, (...args: unknown[]) => Promise<unknown>>
 
 export function AI<T extends Record<string, SimpleSchema>>(
   schemasOrOptions: T | AIClientOptions,
@@ -204,11 +209,16 @@ export function AI<T extends Record<string, SimpleSchema>>(
     //     }
     //   }
     // }) as AIClient & Record<string, (...args: unknown[]) => Promise<unknown>>
-    throw new Error('RPC client mode requires rpc.do package (not yet published). Use schema-based mode instead.')
+    throw new Error(
+      'RPC client mode requires rpc.do package (not yet published). Use schema-based mode instead.'
+    )
   }
 
   // Schema functions mode - create a function for each schema
-  return createSchemaFunctions(schemasOrOptions as Record<string, SimpleSchema>, defaultOptions) as SchemaFunctions<T>
+  return createSchemaFunctions(
+    schemasOrOptions as Record<string, SimpleSchema>,
+    defaultOptions
+  ) as SchemaFunctions<T>
 }
 
 /**
@@ -238,7 +248,10 @@ function createSchemaFunctions<T extends Record<string, SimpleSchema>>(
   schemas: T,
   defaultOptions: AISchemaOptions = {}
 ): SchemaFunctions<T> {
-  const functions: Record<string, (prompt?: string, options?: AISchemaOptions) => Promise<unknown>> = {}
+  const functions: Record<
+    string,
+    (prompt?: string, options?: AISchemaOptions) => Promise<unknown>
+  > = {}
 
   for (const [name, schema] of Object.entries(schemas)) {
     functions[name] = async (prompt?: string, options?: AISchemaOptions) => {
@@ -272,7 +285,7 @@ function buildPromptFromSchema(schema: SimpleSchema, path = ''): string {
   }
 
   if (Array.isArray(schema)) {
-    return schema[0] as string || 'Generate items'
+    return (schema[0] as string) || 'Generate items'
   }
 
   if (typeof schema === 'object' && schema !== null) {
@@ -374,7 +387,7 @@ function convertValueToJSONSchema(value: unknown): JSONSchema {
 
     // Check for enum: 'option1 | option2 | option3'
     if (value.includes(' | ')) {
-      const options = value.split(' | ').map(s => s.trim())
+      const options = value.split(' | ').map((s) => s.trim())
       return { type: 'string', enum: options }
     }
 
@@ -407,26 +420,27 @@ function fillTemplate(template: string, args: Record<string, unknown>): string {
 }
 
 /**
- * Execute a code function - generates code with tests and examples
+ * Execute a code function - generates code based on specification
+ *
+ * Returns just the generated code string. For access to additional metadata
+ * like tests, examples, and documentation, use the full CodeFunctionResult type
+ * by defining a custom function.
  */
 async function executeCodeFunction<TInput>(
   definition: CodeFunctionDefinition<unknown, TInput>,
   args: TInput
-): Promise<CodeFunctionResult> {
-  const { name, description, language = 'typescript', instructions, includeTests = true, includeExamples = true } = definition
+): Promise<string> {
+  const { name, description, language = 'typescript', instructions, model = 'sonnet' } = definition
 
   const argsDescription = JSON.stringify(args, null, 2)
 
   const result = await generateObject({
-    model: 'sonnet',
+    model,
     schema: {
-      code: 'The complete implementation code with JSDoc comments',
-      tests: includeTests ? 'Vitest test code for the implementation' : undefined,
-      examples: includeExamples ? 'Example usage code' : undefined,
-      documentation: 'JSDoc or equivalent documentation string',
+      code: `The complete ${language} implementation code. Output ONLY the raw code without markdown formatting or code blocks.`,
     },
-    system: `You are an expert ${language} developer. Generate clean, well-documented, production-ready code.`,
-    prompt: `Generate a ${language} function with the following specification:
+    system: `You are an expert ${language} developer. Generate clean, well-documented, production-ready code. Output ONLY the code itself, without any markdown code fences or language tags.`,
+    prompt: `Generate a ${language} function/query with the following specification:
 
 Name: ${name}
 Description: ${description || 'No description provided'}
@@ -436,21 +450,15 @@ Return Type: ${JSON.stringify(definition.returnType)}
 ${instructions ? `Additional Instructions: ${instructions}` : ''}
 
 Requirements:
-- Include comprehensive JSDoc comments
+- Include appropriate comments/documentation
 - Follow best practices for ${language}
 - Handle edge cases appropriately
-${includeTests ? '- Include vitest tests that cover main functionality and edge cases' : ''}
-${includeExamples ? '- Include example usage showing how to call the function' : ''}`,
+- Return ONLY the code without markdown formatting`,
   })
 
-  const obj = result.object as { code: string; tests?: string; examples?: string; documentation: string }
-  return {
-    code: obj.code,
-    tests: obj.tests,
-    examples: obj.examples,
-    language,
-    documentation: obj.documentation,
-  }
+  const obj = result.object as { code: string }
+  // Return just the code string
+  return obj.code
 }
 
 /**
@@ -516,14 +524,21 @@ async function executeAgenticFunction<TOutput, TInput>(
   definition: AgenticFunctionDefinition<TOutput, TInput>,
   args: TInput
 ): Promise<TOutput> {
-  const { instructions, promptTemplate, tools = [], maxIterations = 10, model = 'sonnet', returnType } = definition
+  const {
+    instructions,
+    promptTemplate,
+    tools = [],
+    maxIterations = 10,
+    model = 'sonnet',
+    returnType,
+  } = definition
 
   const prompt = promptTemplate
     ? fillTemplate(promptTemplate, args as Record<string, unknown>)
     : JSON.stringify(args)
 
   // Build system prompt with tool descriptions
-  const toolDescriptions = tools.map(t => `- ${t.name}: ${t.description}`).join('\n')
+  const toolDescriptions = tools.map((t) => `- ${t.name}: ${t.description}`).join('\n')
   const systemPrompt = `${instructions}
 
 Available tools:
@@ -568,7 +583,7 @@ What is your next step?`,
     }
 
     // Execute tool call
-    const tool = tools.find(t => t.name === response.toolCall.name)
+    const tool = tools.find((t) => t.name === response.toolCall.name)
     if (tool) {
       let toolArgs: Record<string, unknown>
       try {
@@ -689,8 +704,8 @@ Generate the appropriate ${channel} UI/content to collect this response from a h
   // Runtime warning for developers
   console.warn(
     `[HumanFunction] Returning pending placeholder for channel '${channel}'. ` +
-    `Use isPendingHumanResult() to check before using the result. ` +
-    `Full channel integration is not yet implemented.`
+      `Use isPendingHumanResult() to check before using the result. ` +
+      `Full channel integration is not yet implemented.`
   )
 
   // Return a properly typed pending result
@@ -715,7 +730,8 @@ Generate the appropriate ${channel} UI/content to collect this response from a h
  */
 export function withTemplate<TArgs extends unknown[], TReturn>(
   fn: (prompt: string, ...args: TArgs) => TReturn
-): ((prompt: string, ...args: TArgs) => TReturn) & ((strings: TemplateStringsArray, ...values: unknown[]) => TReturn) {
+): ((prompt: string, ...args: TArgs) => TReturn) &
+  ((strings: TemplateStringsArray, ...values: unknown[]) => TReturn) {
   return function (promptOrStrings: string | TemplateStringsArray, ...args: unknown[]): TReturn {
     if (Array.isArray(promptOrStrings) && 'raw' in promptOrStrings) {
       // Tagged template literal call - pass empty args for optional params
@@ -729,7 +745,8 @@ export function withTemplate<TArgs extends unknown[], TReturn>(
     }
     // Regular function call
     return fn(promptOrStrings as string, ...(args as TArgs))
-  } as ((prompt: string, ...args: TArgs) => TReturn) & ((strings: TemplateStringsArray, ...values: unknown[]) => TReturn)
+  } as ((prompt: string, ...args: TArgs) => TReturn) &
+    ((strings: TemplateStringsArray, ...values: unknown[]) => TReturn)
 }
 
 // Default client management
@@ -1033,7 +1050,8 @@ Determine:
         ...baseDefinition,
         type: 'human' as const,
         channel: (analysis.channel || 'web') as HumanChannel,
-        instructions: analysis.instructions || `Please review and respond to this ${readableName} request`,
+        instructions:
+          analysis.instructions || `Please review and respond to this ${readableName} request`,
         promptTemplate: analysis.promptTemplate,
       }
       break
@@ -1060,7 +1078,9 @@ Determine:
 /**
  * Infer a schema from example arguments
  */
-function inferArgsSchema(args: Record<string, unknown>): Record<string, string | string[] | Record<string, unknown>> {
+function inferArgsSchema(
+  args: Record<string, unknown>
+): Record<string, string | string[] | Record<string, unknown>> {
   const schema: Record<string, string | string[] | Record<string, unknown>> = {}
 
   for (const [key, value] of Object.entries(args)) {
@@ -1149,7 +1169,10 @@ export const define = Object.assign(autoDefineImpl, {
   code: <TOutput, TInput>(
     definition: Omit<CodeFunctionDefinition<TOutput, TInput>, 'type'>
   ): DefinedFunction<TOutput, TInput> => {
-    const fn = defineFunction({ type: 'code', ...definition } as CodeFunctionDefinition<TOutput, TInput>)
+    const fn = defineFunction({ type: 'code', ...definition } as CodeFunctionDefinition<
+      TOutput,
+      TInput
+    >)
     functions.set(definition.name, fn as DefinedFunction)
     return fn
   },
@@ -1160,7 +1183,10 @@ export const define = Object.assign(autoDefineImpl, {
   generative: <TOutput, TInput>(
     definition: Omit<GenerativeFunctionDefinition<TOutput, TInput>, 'type'>
   ): DefinedFunction<TOutput, TInput> => {
-    const fn = defineFunction({ type: 'generative', ...definition } as GenerativeFunctionDefinition<TOutput, TInput>)
+    const fn = defineFunction({ type: 'generative', ...definition } as GenerativeFunctionDefinition<
+      TOutput,
+      TInput
+    >)
     functions.set(definition.name, fn as DefinedFunction)
     return fn
   },
@@ -1171,7 +1197,10 @@ export const define = Object.assign(autoDefineImpl, {
   agentic: <TOutput, TInput>(
     definition: Omit<AgenticFunctionDefinition<TOutput, TInput>, 'type'>
   ): DefinedFunction<TOutput, TInput> => {
-    const fn = defineFunction({ type: 'agentic', ...definition } as AgenticFunctionDefinition<TOutput, TInput>)
+    const fn = defineFunction({ type: 'agentic', ...definition } as AgenticFunctionDefinition<
+      TOutput,
+      TInput
+    >)
     functions.set(definition.name, fn as DefinedFunction)
     return fn
   },
@@ -1182,7 +1211,10 @@ export const define = Object.assign(autoDefineImpl, {
   human: <TOutput, TInput>(
     definition: Omit<HumanFunctionDefinition<TOutput, TInput>, 'type'>
   ): DefinedFunction<TOutput, TInput> => {
-    const fn = defineFunction({ type: 'human', ...definition } as HumanFunctionDefinition<TOutput, TInput>)
+    const fn = defineFunction({ type: 'human', ...definition } as HumanFunctionDefinition<
+      TOutput,
+      TInput
+    >)
     functions.set(definition.name, fn as DefinedFunction)
     return fn
   },
@@ -1194,8 +1226,23 @@ export const define = Object.assign(autoDefineImpl, {
 
 /** Known built-in method names that should not be auto-defined */
 const BUILTIN_METHODS = new Set([
-  'do', 'is', 'code', 'decide', 'diagram', 'generate', 'image', 'video', 'write', 'list', 'lists',
-  'functions', 'define', 'defineFunction', 'then', 'catch', 'finally',
+  'do',
+  'is',
+  'code',
+  'decide',
+  'diagram',
+  'generate',
+  'image',
+  'video',
+  'write',
+  'list',
+  'lists',
+  'functions',
+  'define',
+  'defineFunction',
+  'then',
+  'catch',
+  'finally',
 ])
 
 /**

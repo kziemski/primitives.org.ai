@@ -29,9 +29,14 @@ import type {
   EveryProxy,
   EveryProxyTarget,
   ParsedEvent,
-  DatabaseContext,
 } from './types.js'
 import { PLURAL_UNITS, isPluralUnitKey } from './types.js'
+import {
+  registerTimer,
+  clearTimersForWorkflow,
+  getTimerIdsForWorkflow,
+  registerProcessCleanup,
+} from './timer-registry.js'
 
 /**
  * Well-known cron patterns for common schedules
@@ -122,6 +127,16 @@ export interface WorkflowInstance {
   start: () => Promise<void>
   /** Stop the workflow */
   stop: () => Promise<void>
+  /** Destroy the workflow and clean up all resources */
+  destroy: () => Promise<void>
+  /** Dispose pattern for cleanup */
+  dispose: () => void
+  /** Symbol.dispose for using declaration support */
+  [Symbol.dispose]: () => void
+  /** Number of active timers */
+  timerCount: number
+  /** Get timer IDs for this workflow */
+  getTimerIds: () => string[]
 }
 
 /**
@@ -152,10 +167,16 @@ export interface WorkflowInstance {
  * await workflow.send('Customer.created', { name: 'John', email: 'john@example.com' })
  * ```
  */
+// Counter for generating unique workflow IDs
+let workflowCounter = 0
+
 export function Workflow(
   setup: ($: WorkflowContext) => void,
   options: WorkflowOptions = {}
 ): WorkflowInstance {
+  // Generate unique workflow ID
+  const workflowId = `workflow-${++workflowCounter}-${Date.now()}`
+
   // Registries for handlers captured during setup
   const eventRegistry: EventRegistration[] = []
   const scheduleRegistry: ScheduleRegistration[] = []
@@ -166,7 +187,7 @@ export function Workflow(
     history: [],
   }
 
-  // Schedule timers
+  // Schedule timers (local reference, actual timers are in registry)
   let scheduleTimers: NodeJS.Timeout[] = []
 
   /**
@@ -208,14 +229,17 @@ export function Workflow(
   const createOnProxy = (): OnProxy => {
     return new Proxy({} as OnProxy, {
       get(_target, noun: string) {
-        return new Proxy({}, {
-          get(_eventTarget, event: string) {
-            return (handler: EventHandler) => {
-              registerEventHandler(noun, event, handler)
-            }
+        return new Proxy(
+          {},
+          {
+            get(_eventTarget, event: string) {
+              return (handler: EventHandler) => {
+                registerEventHandler(noun, event, handler)
+              }
+            },
           }
-        })
-      }
+        )
+      },
     })
   }
 
@@ -236,14 +260,17 @@ export function Workflow(
               if (time) {
                 const cron = combineWithTime(pattern, time)
                 return (handlerFn: ScheduleHandler) => {
-                  registerScheduleHandler({ type: 'cron', expression: cron, natural: `${prop}.${timeKey}` }, handlerFn)
+                  registerScheduleHandler(
+                    { type: 'cron', expression: cron, natural: `${prop}.${timeKey}` },
+                    handlerFn
+                  )
                 }
               }
               return undefined
             },
             apply(_t, _thisArg, args) {
               registerScheduleHandler({ type: 'cron', expression: pattern, natural: prop }, args[0])
-            }
+            },
           })
         }
 
@@ -267,14 +294,14 @@ export function Workflow(
         if (typeof description === 'string' && typeof handler === 'function') {
           registerScheduleHandler({ type: 'natural', description }, handler)
         }
-      }
+      },
     }
 
     // Create callable target with proper typing
     // The function serves as the Proxy target - actual behavior is in the handler's apply trap
     // Cast to EveryProxy is safe: Proxy handler implements all EveryProxy behaviors dynamically
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const target: EveryProxyTarget = function(_description: string, _handler: ScheduleHandler) {}
+    const target: EveryProxyTarget = function (_description: string, _handler: ScheduleHandler) {}
     return new Proxy(target, handler) as unknown as EveryProxy
   }
 
@@ -288,9 +315,7 @@ export function Workflow(
       return
     }
 
-    const matching = eventRegistry.filter(
-      h => h.noun === parsed.noun && h.event === parsed.event
-    )
+    const matching = eventRegistry.filter((h) => h.noun === parsed.noun && h.event === parsed.event)
 
     if (matching.length === 0) {
       return
@@ -320,9 +345,7 @@ export function Workflow(
       throw new Error(`Invalid event format: ${event}. Expected Noun.event`)
     }
 
-    const matching = eventRegistry.filter(
-      h => h.noun === parsed.noun && h.event === parsed.event
-    )
+    const matching = eventRegistry.filter((h) => h.noun === parsed.noun && h.event === parsed.event)
 
     if (matching.length === 0) {
       throw new Error(`No handler registered for ${event}`)
@@ -373,13 +396,13 @@ export function Workflow(
 
       // Record to database if connected (durable) - fire async
       if (options.db) {
-        options.db.recordEvent(event, { ...data as object, _eventId: eventId }).catch(err => {
+        options.db.recordEvent(event, { ...(data as object), _eventId: eventId }).catch((err) => {
           console.error(`[workflow] Failed to record event ${event}:`, err)
         })
       }
 
       // Deliver event asynchronously
-      deliverEvent(event, { ...data as object, _eventId: eventId }).catch(err => {
+      deliverEvent(event, { ...(data as object), _eventId: eventId }).catch((err) => {
         console.error(`[workflow] Failed to deliver event ${event}:`, err)
       })
 
@@ -442,6 +465,9 @@ export function Workflow(
    * Start schedule handlers
    */
   const startSchedules = async (): Promise<void> => {
+    // Register process cleanup on first schedule start
+    registerProcessCleanup()
+
     for (const schedule of scheduleRegistry) {
       const { interval, handler } = schedule
 
@@ -466,8 +492,10 @@ export function Workflow(
         case 'natural':
           // Cron/natural need special handling - throw error to avoid silent failures
           throw new Error(
-            `Cron scheduling not yet implemented: "${interval.type === 'cron' ? interval.expression : interval.description}". ` +
-            `Use interval-based patterns like $.every.seconds(30), $.every.minutes(5), or $.every.hours(1) instead.`
+            `Cron scheduling not yet implemented: "${
+              interval.type === 'cron' ? interval.expression : interval.description
+            }". ` +
+              `Use interval-based patterns like $.every.seconds(30), $.every.minutes(5), or $.every.hours(1) instead.`
           )
       }
 
@@ -481,8 +509,20 @@ export function Workflow(
           }
         }, ms)
         scheduleTimers.push(timer)
+        // Register timer with global registry for cleanup tracking
+        registerTimer(workflowId, timer)
       }
     }
+  }
+
+  /**
+   * Clean up all timers and resources
+   */
+  const cleanup = (): void => {
+    // Clear via global registry (this also clears the intervals)
+    clearTimersForWorkflow(workflowId)
+    // Clear local references
+    scheduleTimers = []
   }
 
   const instance: WorkflowInstance = {
@@ -504,16 +544,35 @@ export function Workflow(
     },
 
     async start(): Promise<void> {
-      console.log(`[workflow] Starting with ${eventRegistry.length} event handlers and ${scheduleRegistry.length} schedules`)
+      console.log(
+        `[workflow] Starting with ${eventRegistry.length} event handlers and ${scheduleRegistry.length} schedules`
+      )
       await startSchedules()
     },
 
     async stop(): Promise<void> {
       console.log('[workflow] Stopping')
-      for (const timer of scheduleTimers) {
-        clearInterval(timer)
-      }
-      scheduleTimers = []
+      cleanup()
+    },
+
+    async destroy(): Promise<void> {
+      cleanup()
+    },
+
+    dispose(): void {
+      cleanup()
+    },
+
+    [Symbol.dispose](): void {
+      cleanup()
+    },
+
+    get timerCount(): number {
+      return getTimerIdsForWorkflow(workflowId).length
+    },
+
+    getTimerIds(): string[] {
+      return getTimerIdsForWorkflow(workflowId)
     },
   }
 
@@ -523,7 +582,9 @@ export function Workflow(
 /**
  * Create an isolated $ context for testing
  */
-export function createTestContext(): WorkflowContext & { emittedEvents: Array<{ event: string; data: unknown }> } {
+export function createTestContext(): WorkflowContext & {
+  emittedEvents: Array<{ event: string; data: unknown }>
+} {
   const emittedEvents: Array<{ event: string; data: unknown }> = []
   const stateContext: Record<string, unknown> = {}
   const history: WorkflowHistoryEntry[] = []
@@ -538,7 +599,7 @@ export function createTestContext(): WorkflowContext & { emittedEvents: Array<{ 
 
     send<T = unknown>(event: string, data: T): string {
       const eventId = crypto.randomUUID()
-      emittedEvents.push({ event, data: { ...data as object, _eventId: eventId } })
+      emittedEvents.push({ event, data: { ...(data as object), _eventId: eventId } })
       return eventId
     },
 
@@ -552,12 +613,15 @@ export function createTestContext(): WorkflowContext & { emittedEvents: Array<{ 
 
     on: new Proxy({} as OnProxy, {
       get() {
-        return new Proxy({}, {
-          get() {
-            return () => {} // No-op for testing
+        return new Proxy(
+          {},
+          {
+            get() {
+              return () => {} // No-op for testing
+            },
           }
-        })
-      }
+        )
+      },
     }),
 
     // Cast to EveryProxy is safe: Proxy handler implements all EveryProxy behaviors dynamically
@@ -568,7 +632,7 @@ export function createTestContext(): WorkflowContext & { emittedEvents: Array<{ 
         get() {
           return () => () => {} // No-op for testing
         },
-        apply() {}
+        apply() {},
       }
     ) as unknown as EveryProxy,
 
@@ -599,5 +663,14 @@ export function createTestContext(): WorkflowContext & { emittedEvents: Array<{ 
 
 // Also export standalone on/every for import { on, every } usage
 export { on, registerEventHandler, getEventHandlers, clearEventHandlers } from './on.js'
-export { every, registerScheduleHandler, getScheduleHandlers, clearScheduleHandlers, toCron, intervalToMs, formatInterval, setCronConverter } from './every.js'
+export {
+  every,
+  registerScheduleHandler,
+  getScheduleHandlers,
+  clearScheduleHandlers,
+  toCron,
+  intervalToMs,
+  formatInterval,
+  setCronConverter,
+} from './every.js'
 export { send } from './send.js'

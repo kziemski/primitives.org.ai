@@ -6,6 +6,10 @@ export const EventHandler = Symbol('EventHandler')
 export const WorkflowContext = Symbol('WorkflowContext')
 export const RelationshipOperator = Symbol('RelationshipOperator')
 export const ParsedField = Symbol('ParsedField')
+export const Thing = Symbol('Thing')
+export const ThingsMarker = Symbol('Things')
+export const ListOptionsMarker = Symbol('ListOptions')
+export const ListResultMarker = Symbol('ListResult')
 
 // Actual types (compile-time only)
 
@@ -55,7 +59,7 @@ export interface WorkflowContextType {
    * Guaranteed delivery with retries, returns trackable EventId
    * Use for important domain events that must not be lost
    */
-  send: <T = unknown>(event: string, data: T) => string  // Returns EventId
+  send: <T = unknown>(event: string, data: T) => string // Returns EventId
 
   /**
    * Try an action (fire and forget)
@@ -211,14 +215,32 @@ export interface Verb {
 
 /** Standard verbs for common operations */
 export const StandardVerbs = [
-  'create', 'update', 'delete', 'get', 'list', 'find',
-  'assign', 'unassign', 'publish', 'unpublish',
-  'archive', 'restore', 'approve', 'reject',
-  'start', 'stop', 'complete', 'cancel',
-  'send', 'receive', 'notify', 'subscribe', 'unsubscribe',
+  'create',
+  'update',
+  'delete',
+  'get',
+  'list',
+  'find',
+  'assign',
+  'unassign',
+  'publish',
+  'unpublish',
+  'archive',
+  'restore',
+  'approve',
+  'reject',
+  'start',
+  'stop',
+  'complete',
+  'cancel',
+  'send',
+  'receive',
+  'notify',
+  'subscribe',
+  'unsubscribe',
 ] as const
 
-export type StandardVerb = typeof StandardVerbs[number]
+export type StandardVerb = (typeof StandardVerbs)[number]
 
 // ============================================================================
 // Things Collection Types (do-p9q)
@@ -259,6 +281,71 @@ export interface Collection<T extends Thing = Thing> {
 
 export const THINGS_TYPE = 'https://schema.org.ai/Things'
 export const COLLECTION_TYPE = 'https://schema.org.ai/Collection'
+
+/**
+ * Sort direction for list queries
+ */
+export type SortDirection = 'asc' | 'desc'
+
+/**
+ * Sort specification
+ */
+export interface SortSpec {
+  /** Field to sort by */
+  field: string
+  /** Sort direction */
+  direction: SortDirection
+}
+
+/**
+ * Options for filtering, sorting, and paginating Things
+ */
+export interface ListOptions<T extends Thing = Thing> {
+  /** Maximum number of items to return */
+  limit?: number
+  /** Number of items to skip (offset-based pagination) */
+  offset?: number
+  /** Cursor for cursor-based pagination */
+  cursor?: string
+  /** Sort specifications */
+  sort?: SortSpec | SortSpec[]
+  /** Filter by field values */
+  filter?: Partial<T>
+  /** Text search query */
+  search?: string
+  /** Include soft-deleted items */
+  includeDeleted?: boolean
+}
+
+/**
+ * Pagination information for list results
+ */
+export interface PaginationInfo {
+  /** Total number of items matching the query */
+  total: number
+  /** Number of items returned */
+  count: number
+  /** Limit used for the query */
+  limit: number
+  /** Offset used for the query */
+  offset: number
+  /** Cursor for the next page (if available) */
+  nextCursor?: string
+  /** Cursor for the previous page (if available) */
+  prevCursor?: string
+  /** Whether there are more items */
+  hasMore: boolean
+}
+
+/**
+ * Result of listing Things with pagination
+ */
+export interface ListResult<T extends Thing = Thing> {
+  /** The items in this page */
+  items: T[]
+  /** Pagination information */
+  pagination: PaginationInfo
+}
 
 // ============================================================================
 // Event Schema - 5W+H (do-jbe)
@@ -407,3 +494,742 @@ export type EventId = Brand<string, 'EventId'>
 export const isThingId = (v: string): v is ThingId => v.includes('/')
 export const isActionId = (v: string): v is ActionId => v.startsWith('act_')
 export const isEventId = (v: string): v is EventId => v.startsWith('evt_')
+
+// ============================================================================
+// Worker Types (schema.org.ai)
+// ============================================================================
+
+import { z } from 'zod'
+
+/** Worker status values */
+export const WorkerStatus = ['idle', 'working', 'paused', 'offline'] as const
+export type WorkerStatusType = (typeof WorkerStatus)[number]
+
+/** Type URL constants */
+export const WORKER_TYPE = 'https://schema.org.ai/Worker' as const
+export const AGENT_TYPE = 'https://schema.org.ai/Agent' as const
+export const HUMAN_TYPE = 'https://schema.org.ai/Human' as const
+
+/** All worker types */
+export const WorkerTypes = [WORKER_TYPE, AGENT_TYPE, HUMAN_TYPE] as const
+
+// Runtime markers for type exports
+export const Worker = Symbol('Worker')
+export const Agent = Symbol('Agent')
+export const Human = Symbol('Human')
+
+/**
+ * Worker interface - base type for work executors
+ * Extends Thing with worker-specific fields
+ */
+export interface WorkerType extends Thing {
+  $type: typeof WORKER_TYPE | typeof AGENT_TYPE | typeof HUMAN_TYPE
+  /** Worker status */
+  status: WorkerStatusType
+  /** What the worker can do */
+  capabilities?: string[]
+  /** Reference to current task */
+  currentTask?: string
+}
+
+/**
+ * Agent interface - AI agent that can execute work
+ * Extends Worker with agent-specific fields
+ */
+export interface AgentType extends Omit<WorkerType, '$type'> {
+  $type: typeof AGENT_TYPE
+  /** AI model powering this agent */
+  model: string
+  /** Whether agent can act without human approval */
+  autonomous: boolean
+  /** AI provider (anthropic, openai, etc.) */
+  provider?: string
+  /** Base instructions for the agent */
+  systemPrompt?: string
+  /** Creativity/randomness setting (0-2) */
+  temperature?: number
+  /** Token limit for responses */
+  maxTokens?: number
+  /** Available tools/functions */
+  tools?: string[]
+}
+
+/**
+ * Human interface - Human worker that can execute work
+ * Extends Worker with human-specific fields
+ */
+export interface HumanType extends Omit<WorkerType, '$type'> {
+  $type: typeof HUMAN_TYPE
+  /** Contact email */
+  email?: string
+  /** Job role */
+  role?: string
+  /** Department */
+  department?: string
+  /** Reference to manager (another Human) */
+  manager?: string
+  /** Timezone (e.g., 'America/Los_Angeles') */
+  timezone?: string
+  /** Availability information */
+  availability?: {
+    schedule?: string
+    workingHours?: { start: string; end: string }
+  }
+}
+
+// ============================================================================
+// Zod Schemas for Worker Types
+// ============================================================================
+
+/** Base Worker schema */
+export const WorkerSchema = z.object({
+  $id: z.string().url(),
+  $type: z.enum([WORKER_TYPE, AGENT_TYPE, HUMAN_TYPE]),
+  status: z.enum(WorkerStatus),
+  name: z.string().optional(),
+  capabilities: z.array(z.string()).optional(),
+  currentTask: z.string().optional(),
+  // Thing properties
+  data: z.record(z.unknown()).optional(),
+  visibility: z.enum(['public', 'unlisted', 'org', 'user']).optional(),
+  createdAt: z.date().optional(),
+  updatedAt: z.date().optional(),
+  deletedAt: z.date().optional(),
+})
+
+/** Agent schema - extends Worker with agent-specific fields */
+export const AgentSchema = z.object({
+  $id: z.string().url(),
+  $type: z.literal(AGENT_TYPE),
+  status: z.enum(WorkerStatus),
+  model: z.string(),
+  autonomous: z.boolean(),
+  provider: z.string().optional(),
+  systemPrompt: z.string().optional(),
+  temperature: z.number().min(0).max(2).optional(),
+  maxTokens: z.number().positive().optional(),
+  tools: z.array(z.string()).optional(),
+  name: z.string().optional(),
+  capabilities: z.array(z.string()).optional(),
+  currentTask: z.string().optional(),
+  // Thing properties
+  data: z.record(z.unknown()).optional(),
+  visibility: z.enum(['public', 'unlisted', 'org', 'user']).optional(),
+  createdAt: z.date().optional(),
+  updatedAt: z.date().optional(),
+  deletedAt: z.date().optional(),
+})
+
+/** Human schema - extends Worker with human-specific fields */
+export const HumanSchema = z.object({
+  $id: z.string().url(),
+  $type: z.literal(HUMAN_TYPE),
+  status: z.enum(WorkerStatus),
+  email: z.string().email().optional(),
+  role: z.string().optional(),
+  department: z.string().optional(),
+  manager: z.string().optional(),
+  timezone: z.string().optional(),
+  availability: z
+    .object({
+      schedule: z.string().optional(),
+      workingHours: z
+        .object({
+          start: z.string(),
+          end: z.string(),
+        })
+        .optional(),
+    })
+    .optional(),
+  name: z.string().optional(),
+  capabilities: z.array(z.string()).optional(),
+  currentTask: z.string().optional(),
+  // Thing properties
+  data: z.record(z.unknown()).optional(),
+  visibility: z.enum(['public', 'unlisted', 'org', 'user']).optional(),
+  createdAt: z.date().optional(),
+  updatedAt: z.date().optional(),
+  deletedAt: z.date().optional(),
+})
+
+// ============================================================================
+// Type Guards for Worker Types
+// ============================================================================
+
+/**
+ * Type guard for Worker (includes Agent and Human subtypes)
+ */
+export function isWorker(v: unknown): v is WorkerType {
+  if (typeof v !== 'object' || v === null) return false
+  const obj = v as Record<string, unknown>
+  if (typeof obj.$type !== 'string') return false
+  return (
+    (WorkerTypes as readonly string[]).includes(obj.$type) &&
+    typeof obj.status === 'string' &&
+    WorkerStatus.includes(obj.status as WorkerStatusType)
+  )
+}
+
+/**
+ * Type guard for Agent
+ */
+export function isAgent(v: unknown): v is AgentType {
+  if (typeof v !== 'object' || v === null) return false
+  const obj = v as Record<string, unknown>
+  return (
+    obj.$type === AGENT_TYPE &&
+    typeof obj.model === 'string' &&
+    typeof obj.autonomous === 'boolean' &&
+    typeof obj.status === 'string' &&
+    WorkerStatus.includes(obj.status as WorkerStatusType)
+  )
+}
+
+/**
+ * Type guard for Human
+ */
+export function isHuman(v: unknown): v is HumanType {
+  if (typeof v !== 'object' || v === null) return false
+  const obj = v as Record<string, unknown>
+  return (
+    obj.$type === HUMAN_TYPE &&
+    typeof obj.status === 'string' &&
+    WorkerStatus.includes(obj.status as WorkerStatusType)
+  )
+}
+
+// ============================================================================
+// Factory Functions for Worker Types
+// ============================================================================
+
+let agentCounter = 0
+let humanCounter = 0
+
+/**
+ * Create a new Agent with auto-generated $id
+ */
+export function createAgent(opts: {
+  model: string
+  autonomous: boolean
+  name?: string
+  provider?: string
+  systemPrompt?: string
+  temperature?: number
+  maxTokens?: number
+  tools?: string[]
+  capabilities?: string[]
+}): AgentType {
+  return {
+    $id: `https://schema.org.ai/agents/${++agentCounter}`,
+    $type: AGENT_TYPE,
+    status: 'idle',
+    model: opts.model,
+    autonomous: opts.autonomous,
+    name: opts.name,
+    provider: opts.provider,
+    systemPrompt: opts.systemPrompt,
+    temperature: opts.temperature,
+    maxTokens: opts.maxTokens,
+    tools: opts.tools,
+    capabilities: opts.capabilities,
+  }
+}
+
+/**
+ * Create a new Human with auto-generated $id
+ */
+export function createHuman(opts?: {
+  name?: string
+  email?: string
+  role?: string
+  department?: string
+  manager?: string
+  timezone?: string
+  capabilities?: string[]
+  availability?: {
+    schedule?: string
+    workingHours?: { start: string; end: string }
+  }
+}): HumanType {
+  return {
+    $id: `https://schema.org.ai/humans/${++humanCounter}`,
+    $type: HUMAN_TYPE,
+    status: 'idle',
+    name: opts?.name,
+    email: opts?.email,
+    role: opts?.role,
+    department: opts?.department,
+    manager: opts?.manager,
+    timezone: opts?.timezone,
+    capabilities: opts?.capabilities,
+    availability: opts?.availability,
+  }
+}
+
+// ============================================================================
+// Tool Types (schema.org.ai)
+// ============================================================================
+
+/** Type URL for Tool */
+export const TOOL_TYPE = 'https://schema.org.ai/Tool'
+
+/** Standard tool parameter types */
+export const StandardToolTypes = ['string', 'number', 'boolean', 'object', 'array'] as const
+
+/** Standard capabilities */
+export const StandardCapabilities = [
+  'read',
+  'write',
+  'execute',
+  'delete',
+  'create',
+  'update',
+] as const
+
+/** Runtime marker for Tool type */
+export const Tool = Symbol('Tool')
+export const ToolInput = Symbol('ToolInput')
+export const ToolOutput = Symbol('ToolOutput')
+export const ToolParameter = Symbol('ToolParameter')
+export const ToolExecutionResult = Symbol('ToolExecutionResult')
+export const ToolValidationError = Symbol('ToolValidationError')
+export const ToolValidationResult = Symbol('ToolValidationResult')
+export const ToolExecutor = Symbol('ToolExecutor')
+export const ExecutableTool = Symbol('ExecutableTool')
+export const ValidatableTool = Symbol('ValidatableTool')
+export const Tools = Symbol('Tools')
+export const Toolbox = Symbol('Toolbox')
+export const ToolCapability = Symbol('ToolCapability')
+
+/**
+ * Tool parameter definition
+ */
+export interface ToolParameterType {
+  /** Parameter name */
+  name: string
+  /** Parameter type */
+  type: string
+  /** Description */
+  description?: string
+  /** Whether the parameter is required */
+  required: boolean
+  /** Default value */
+  default?: unknown
+  /** Allowed values */
+  enum?: unknown[]
+}
+
+/**
+ * Tool input schema
+ */
+export interface ToolInputType {
+  type: 'object'
+  properties: Record<string, unknown>
+  required?: string[]
+}
+
+/**
+ * Tool output schema
+ */
+export interface ToolOutputType {
+  type: string
+  description?: string
+  schema?: Record<string, unknown>
+}
+
+/**
+ * Tool execution result
+ */
+export interface ToolExecutionResultType {
+  success: boolean
+  data?: unknown
+  error?: string
+  duration?: number
+  metadata?: Record<string, unknown>
+}
+
+/**
+ * Tool validation error
+ */
+export interface ToolValidationErrorType {
+  field: string
+  message: string
+  code: string
+  expected?: unknown
+  received?: unknown
+}
+
+/**
+ * Tool validation result
+ */
+export interface ToolValidationResultType {
+  valid: boolean
+  errors: ToolValidationErrorType[]
+}
+
+/**
+ * Tool executor function type
+ */
+export type ToolExecutorType = (input: unknown) => Promise<ToolExecutionResultType>
+
+/**
+ * Tool capability
+ */
+export interface ToolCapabilityType {
+  name: string
+  description: string
+}
+
+/**
+ * Tool interface
+ */
+export interface ToolType extends Thing {
+  $id: string
+  $type: string
+  name: string
+  description: string
+  inputs: ToolParameterType[]
+  outputs: ToolOutputType
+}
+
+/**
+ * Executable tool with execute method
+ */
+export interface ExecutableToolType extends ToolType {
+  execute: ToolExecutorType
+}
+
+/**
+ * Validatable tool with validate method
+ */
+export interface ValidatableToolType extends ToolType {
+  validate: (input: unknown) => ToolValidationResultType
+}
+
+/**
+ * Tools collection
+ */
+export interface ToolsType extends Things<ToolType> {
+  itemType: 'https://schema.org.ai/Tool'
+}
+
+/**
+ * Toolbox - collection of related tools
+ */
+export interface ToolboxType {
+  name: string
+  description?: string
+  tools: ToolType[]
+}
+
+/** Branded ToolId type */
+export type ToolId = Brand<string, 'ToolId'>
+
+/** Runtime marker for ToolId */
+export const ToolId = Symbol('ToolId')
+
+/**
+ * Type guard for ToolId
+ */
+export function isToolId(v: string): v is ToolId {
+  return v.includes('/tool/') || v.includes('/tools/')
+}
+
+/**
+ * Type guard for Tool
+ */
+export function isTool(value: unknown): value is ToolType {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return (
+    typeof v.$id === 'string' &&
+    typeof v.$type === 'string' &&
+    v.$type === TOOL_TYPE &&
+    typeof v.name === 'string'
+  )
+}
+
+/**
+ * Type guard for ToolParameter
+ */
+export function isToolParameter(value: unknown): value is ToolParameterType {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return typeof v.name === 'string' && typeof v.type === 'string' && typeof v.required === 'boolean'
+}
+
+/**
+ * Type guard for ToolExecutionResult
+ */
+export function isToolExecutionResult(value: unknown): value is ToolExecutionResultType {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return typeof v.success === 'boolean'
+}
+
+/**
+ * Type guard for ToolValidationError
+ */
+export function isToolValidationError(value: unknown): value is ToolValidationErrorType {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return typeof v.field === 'string' && typeof v.message === 'string' && typeof v.code === 'string'
+}
+
+// ============================================================================
+// Business Model Framework Types (LeanCanvas, StoryBrand, Founder)
+// ============================================================================
+
+/** Runtime marker for LeanCanvas type */
+export const LeanCanvasMarker = Symbol('LeanCanvas')
+export const LeanCanvas = Symbol('LeanCanvas')
+
+/** Type URL for LeanCanvas */
+export const LEAN_CANVAS_TYPE = 'https://schema.org.ai/LeanCanvas'
+
+/**
+ * LeanCanvas - 9-box business model canvas
+ */
+export interface LeanCanvasType extends Thing {
+  $id: string
+  $type: string
+  /** Top 3 problems customers face */
+  problem: string[]
+  /** Top 3 solutions to those problems */
+  solution: string[]
+  /** Single clear compelling message */
+  uniqueValueProposition: string
+  /** What can't be easily copied */
+  unfairAdvantage: string
+  /** Target customer segments */
+  customerSegments: string[]
+  /** Key metrics to track */
+  keyMetrics: string[]
+  /** Paths to reach customers */
+  channels: string[]
+  /** Fixed and variable costs */
+  costStructure: string[]
+  /** Revenue streams */
+  revenueStreams: string[]
+  /** Canvas version for iterations */
+  version?: number
+  /** Reference to startup */
+  startupId?: string
+}
+
+/**
+ * Type guard for LeanCanvas
+ */
+export function isLeanCanvas(value: unknown): value is LeanCanvasType {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return typeof v.$id === 'string' && typeof v.$type === 'string' && v.$type === LEAN_CANVAS_TYPE
+}
+
+/** Runtime marker for StoryBrand type */
+export const StoryBrandMarker = Symbol('StoryBrand')
+export const StoryBrand = Symbol('StoryBrand')
+
+/** Type URL for StoryBrand */
+export const STORY_BRAND_TYPE = 'https://schema.org.ai/StoryBrand'
+
+/**
+ * StoryBrand - 7-part narrative framework
+ */
+export interface StoryBrandType extends Thing {
+  $id: string
+  $type: string
+  /** Character - the customer */
+  character: {
+    wants: string
+    identity: string
+  }
+  /** The problem */
+  problem: {
+    external: string
+    internal: string
+    philosophical: string
+  }
+  /** The guide - your brand */
+  guide: {
+    empathy: string
+    authority: string
+  }
+  /** The plan - steps to success */
+  plan: string[]
+  /** Call to action */
+  callToAction: {
+    direct: string
+    transitional?: string
+  }
+  /** Failure - what's at stake */
+  failure: string[]
+  /** Success - transformation */
+  success: string[]
+  /** Reference to startup */
+  startupId?: string
+  /** Reference to ICP */
+  icpId?: string
+}
+
+/**
+ * Type guard for StoryBrand
+ */
+export function isStoryBrand(value: unknown): value is StoryBrandType {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return typeof v.$id === 'string' && typeof v.$type === 'string' && v.$type === STORY_BRAND_TYPE
+}
+
+/** Runtime marker for Founder type */
+export const FounderMarker = Symbol('Founder')
+export const Founder = Symbol('Founder')
+export const FounderRole = Symbol('FounderRole')
+
+/** Type URL for Founder */
+export const FOUNDER_TYPE = 'https://schema.org.ai/Founder'
+
+/** Founder roles */
+export const FounderRoles = ['ceo', 'cto', 'cpo', 'coo', 'cfo', 'cmo', 'cro'] as const
+export type FounderRoleType = (typeof FounderRoles)[number]
+
+/**
+ * Founder - founding team member
+ */
+export interface FounderType extends Thing {
+  $id: string
+  $type: string
+  /** Founder name */
+  name: string
+  /** Email address */
+  email?: string
+  /** Role in the company */
+  role: FounderRoleType | string
+  /** Skills */
+  skills: string[]
+  /** Areas of expertise */
+  expertise?: string[]
+  /** Startups this founder is associated with */
+  startupIds?: string[]
+}
+
+/**
+ * Type guard for Founder
+ */
+export function isFounder(value: unknown): value is FounderType {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return typeof v.$id === 'string' && typeof v.$type === 'string' && v.$type === FOUNDER_TYPE
+}
+
+// ============================================================================
+// Startup Types (aip-unce)
+// ============================================================================
+
+/** Runtime marker for Startup type */
+export const Startup = Symbol('Startup')
+
+/** Runtime marker for StartupStage type */
+export const StartupStage = Symbol('StartupStage')
+
+/** Type URL for Startup */
+export const STARTUP_TYPE = 'https://schema.org.ai/Startup'
+
+/**
+ * Startup lifecycle stages
+ */
+export type StartupStageType = 'idea' | 'validating' | 'building' | 'scaling' | 'established'
+
+/**
+ * Startup entity with lifecycle states
+ *
+ * Represents a startup company with its current stage in the lifecycle.
+ */
+export interface StartupType extends Thing {
+  /** Unique identifier URL */
+  $id: string
+  /** Type URL (https://schema.org.ai/Startup) */
+  $type: string
+  /** Startup name */
+  name: string
+  /** Current lifecycle stage */
+  stage: StartupStageType
+  /** Description of the startup */
+  description?: string
+  /** Elevator pitch */
+  pitch?: string
+  /** Date founded */
+  founded?: Date
+  /** Website URL */
+  website?: string
+  /** Industry/sector */
+  industry?: string
+  /** Ideal Customer Profiles for this startup */
+  icps?: ICPType[]
+}
+
+/**
+ * Type guard for Startup
+ */
+export function isStartup(value: unknown): value is StartupType {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return (
+    typeof v.$id === 'string' &&
+    typeof v.$type === 'string' &&
+    v.$type === STARTUP_TYPE &&
+    typeof v.name === 'string' &&
+    typeof v.stage === 'string' &&
+    ['idea', 'validating', 'building', 'scaling', 'established'].includes(v.stage as string)
+  )
+}
+
+// ============================================================================
+// ICP (Ideal Customer Profile) Types (aip-unce)
+// ============================================================================
+
+/** Runtime marker for ICP type */
+export const ICP = Symbol('ICP')
+
+/** Type URL for ICP */
+export const ICP_TYPE = 'https://schema.org.ai/ICP'
+
+/**
+ * Ideal Customer Profile (ICP) with as/at/are/using/to framework
+ *
+ * Describes the ideal customer for a startup using a structured framework:
+ * - as: persona/role description (who they are)
+ * - at: company/context description (where they work)
+ * - are: current state/pain points (their situation)
+ * - using: current solutions (what they use today)
+ * - to: desired outcome/job to be done (what they want to achieve)
+ */
+export interface ICPType extends Thing {
+  /** Unique identifier URL */
+  $id: string
+  /** Type URL (https://schema.org.ai/ICP) */
+  $type: string
+  /** Profile name */
+  name?: string
+  /** Persona/role description - who they are */
+  as?: string
+  /** Company/context description - where they work */
+  at?: string
+  /** Current state/pain points - their situation */
+  are?: string
+  /** Current solutions - what they use today */
+  using?: string
+  /** Desired outcome/job to be done - what they want to achieve */
+  to?: string
+  /** Reference to the startup this ICP belongs to */
+  startup?: StartupType
+}
+
+/**
+ * Type guard for ICP
+ */
+export function isICP(value: unknown): value is ICPType {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return typeof v.$id === 'string' && typeof v.$type === 'string' && v.$type === ICP_TYPE
+}

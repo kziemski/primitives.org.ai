@@ -198,6 +198,11 @@ export interface BatchQueueOptions {
 // ============================================================================
 
 /**
+ * Event handler type for BatchQueue events
+ */
+export type BatchEventHandler<T = unknown> = (data: T) => void
+
+/**
  * BatchQueue collects AI operations for deferred batch execution
  */
 export class BatchQueue {
@@ -207,6 +212,11 @@ export class BatchQueue {
   private submitted = false
   private job: BatchJob | null = null
 
+  // Error handling properties
+  private _autoSubmitPromise: Promise<void> | null = null
+  private _submissionError: Error | null = null
+  private _eventHandlers: Map<string, Set<BatchEventHandler>> = new Map()
+
   constructor(options: BatchQueueOptions = {}) {
     this.options = {
       provider: 'openai',
@@ -214,6 +224,95 @@ export class BatchQueue {
       autoSubmit: false,
       ...options,
     }
+  }
+
+  /**
+   * Subscribe to batch events
+   * @param event - Event name ('error', 'partial-failure', 'complete')
+   * @param handler - Event handler function
+   */
+  on<T = unknown>(event: string, handler: BatchEventHandler<T>): void {
+    if (!this._eventHandlers.has(event)) {
+      this._eventHandlers.set(event, new Set())
+    }
+    this._eventHandlers.get(event)!.add(handler as BatchEventHandler)
+  }
+
+  /**
+   * Unsubscribe from batch events
+   */
+  off(event: string, handler: BatchEventHandler): void {
+    this._eventHandlers.get(event)?.delete(handler)
+  }
+
+  /**
+   * Emit an event to all subscribed handlers
+   */
+  private emit<T>(event: string, data: T): void {
+    this._eventHandlers.get(event)?.forEach((handler) => handler(data))
+  }
+
+  /**
+   * Get the auto-submit promise (if auto-submit was triggered)
+   */
+  get autoSubmitPromise(): Promise<void> | undefined {
+    return this._autoSubmitPromise ?? undefined
+  }
+
+  /**
+   * Get the last submission error (if any)
+   */
+  get submissionError(): Error | undefined {
+    return this._submissionError ?? undefined
+  }
+
+  /**
+   * Check if there was a submission error
+   */
+  get hasSubmissionError(): boolean {
+    return this._submissionError !== null
+  }
+
+  /**
+   * Await auto-submit completion or failure
+   * Returns a promise that resolves when auto-submit completes or rejects on error
+   */
+  awaitAutoSubmit(): Promise<void> {
+    if (!this._autoSubmitPromise) {
+      return Promise.resolve()
+    }
+    return this._autoSubmitPromise
+  }
+
+  /**
+   * Get items that failed during batch processing
+   */
+  getFailedItems(): BatchItem[] {
+    return this.items.filter((item) => item.status === 'failed')
+  }
+
+  /**
+   * Retry a failed submission
+   * Only available after a failed auto-submit
+   */
+  async retry(): Promise<BatchSubmitResult> {
+    if (!this._submissionError) {
+      throw new Error('No failed submission to retry')
+    }
+
+    // Reset error state and submitted flag
+    this._submissionError = null
+    this.submitted = false
+
+    // Reset item statuses
+    for (const item of this.items) {
+      if (item.status === 'failed') {
+        item.status = 'pending'
+        item.error = undefined
+      }
+    }
+
+    return this.submit()
   }
 
   /**
@@ -246,8 +345,50 @@ export class BatchQueue {
 
     // Auto-submit if we hit the limit
     if (this.options.autoSubmit && this.items.length >= (this.options.maxItems || 50000)) {
-      // Fire and forget - user can await the completion promise
-      this.submit().catch(console.error)
+      // Create a trackable promise for auto-submit
+      this._autoSubmitPromise = this.submit()
+        .then(() => {
+          // Success - promise is resolved
+        })
+        .catch((error: Error) => {
+          // Store error and update item statuses
+          this._submissionError = error
+          this.submitted = false // Reset to allow retry
+
+          // Update all items to failed status
+          for (const item of this.items) {
+            if (item.status === 'pending') {
+              item.status = 'failed'
+              item.error = error.message
+            }
+          }
+
+          // Create a synthetic failed job to store error info
+          const errorWithMeta = error as Error & {
+            status?: number
+            headers?: Record<string, string>
+          }
+          this.job = {
+            id: `failed_${Date.now()}`,
+            provider: this.options.provider || 'openai',
+            status: 'failed',
+            totalItems: this.items.length,
+            completedItems: 0,
+            failedItems: this.items.length,
+            createdAt: new Date(),
+            // Add rate limit retry info if available
+            ...(errorWithMeta.headers?.['retry-after'] && {
+              retryAfter: parseInt(errorWithMeta.headers['retry-after'], 10),
+            }),
+          } as BatchJob & { retryAfter?: number }
+
+          // Emit error event
+          this.emit('error', error)
+
+          // Log to console (current behavior) and re-throw
+          console.error(error)
+          throw error
+        })
     }
 
     return item
@@ -302,16 +443,35 @@ export class BatchQueue {
     const result = await adapter.submit(this.items, this.options)
     this.job = result.job
 
-    // When completion resolves, update item statuses
+    // When completion resolves, update item statuses and check for partial failures
     result.completion.then((results) => {
+      const failedResults: BatchResult[] = []
+
       for (const r of results) {
         const item = this.items.find((i) => i.id === r.id)
         if (item) {
           item.status = r.status
           item.result = r.result
           item.error = r.error
+
+          if (r.status === 'failed') {
+            failedResults.push(r)
+          }
         }
       }
+
+      // Emit partial-failure event if some items failed
+      if (failedResults.length > 0 && failedResults.length < results.length) {
+        this.emit('partial-failure', failedResults)
+      }
+
+      // Emit error event if there were any failures
+      if (failedResults.length > 0) {
+        this.emit('error', new Error(`${failedResults.length} items failed in batch`))
+      }
+
+      // Emit complete event
+      this.emit('complete', results)
     })
 
     return result
