@@ -18,7 +18,7 @@ export const metadata: Metadata = {
     template: '%s | Primitives.org.ai',
   },
   description:
-    'The fundamental abstractions for building AI-native software. Functions, Databases, Workflows, Agents, Products, Services, and Businesses.',
+    'The fundamental abstractions for building AI-native software — from Functions and Agents through Services and Businesses, authored in MDXLD.',
   keywords: [
     'AI',
     'primitives',
@@ -53,6 +53,9 @@ export const metadata: Metadata = {
     description: 'The fundamental abstractions for building AI-native software.',
     images: ['/og-image.png'],
   },
+  alternates: {
+    canonical: './',
+  },
   robots: {
     index: true,
     follow: true,
@@ -71,6 +74,29 @@ export default function Layout({ children }: LayoutProps<'/'>) {
     <html lang="en" className={inter.className} suppressHydrationWarning>
       <body className="flex flex-col min-h-screen">
         <RootProvider>{children}</RootProvider>
+        <footer className="border-t border-fd-border px-6 py-6 text-sm text-fd-muted-foreground">
+          <p>
+            The primitives are documented by{' '}
+            <a href="https://foundation.org.ai" className="underline">
+              The Org.AI Foundation
+            </a>
+            . They are authored in{' '}
+            <a href="https://mdx.org.ai" className="underline">
+              MDXLD
+            </a>
+            , our extension of{' '}
+            <a href="https://mdxjs.com" className="underline">
+              MDX
+            </a>
+            &nbsp;— an open standard authored by the MDX community.
+          </p>
+          <p className="mt-1 opacity-70">
+            Vocabulary at{' '}
+            <a href="https://schema.org.ai" className="underline">
+              schema.org.ai
+            </a>
+          </p>
+        </footer>
       </body>
     </html>
   )

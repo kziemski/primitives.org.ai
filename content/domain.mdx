@@ -14,7 +14,7 @@ Here's the key insight: **your domain namespace IS the `$context`** - and this w
 
 ### Semantic Context (JSON-LD)
 
-In [mdxld](https://mdxld.org), every domain defines a JSON-LD `@context` that gives semantic meaning to your data:
+In [MDXLD](https://mdx.org.ai), every domain defines a linked-data context that gives semantic meaning to your data. MDXLD writes it `$context` rather than JSON-LD's `@context` — see [Why `$` and not `@`](https://mdx.org.ai/docs#why--and-not-):
 
 ```yaml
 $context: https://acme.do/
@@ -209,4 +209,4 @@ This is why domains are so powerful: they're not just organizational units or UR
 - [Thing](/thing) - Instances within a domain
 - [Function](/function) - Capabilities exposed by a domain
 - [Agent](/agent) - Actors operating within domains
-- [mdxld](https://mdxld.org) - MDX with Linked Data and `$context`
+- [MDXLD](https://mdx.org.ai) - our extension of [MDX](https://mdxjs.com), with `$id` / `$type` / `$context` frontmatter (also served at [mdxld.org](https://mdxld.org))

@@ -14,7 +14,7 @@ export async function GET() {
 
 > The fundamental abstractions for building AI-native software.
 
-Primitives.org.ai provides seven core primitives that compose together to build anything—from simple functions to entire businesses.
+Primitives.org.ai documents the primitives that compose together to build anything—from simple functions to entire businesses. The set below is the runtime half; the authoring format is MDXLD.
 
 ## Core Primitives
 
@@ -25,6 +25,8 @@ Primitives.org.ai provides seven core primitives that compose together to build 
 - **Product**: Compose primitives into complete products with declarative interfaces.
 - **Service**: Services-as-Software—AI delivering work traditionally done by humans.
 - **Business**: Business-as-Code—traditional processes manifested as code.
+- **MDXLD**: The authoring format. An extension of MDX (an open standard by the MDX community, https://mdxjs.com) that adds $id/$type/$context linked-data frontmatter, making it also a superset of YAML-LD. $context is always https://schema.org.ai, unversioned. Documented at https://mdx.org.ai
+- **MDXUI**: Components and layouts selected from a document's $type.
 
 ## Documentation
 

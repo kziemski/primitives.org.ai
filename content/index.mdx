@@ -6,7 +6,7 @@ description: The fundamental abstractions for building AI-native software
 # Build Business-as-Code & AI-Delivered Services-as-Software
 
 Primitives for building software where humans and AI work together seamlessly.
-From functions to businesses, every layer is designed for the age of AI.
+From functions to businesses, every one of them is designed for the age of AI.
 
 <Cards columns={3}>
   <Card icon={<Code />} title="Function" href="/function">
@@ -37,6 +37,20 @@ From functions to businesses, every layer is designed for the age of AI.
     Organizations as executable code
   </Card>
 </Cards>
+
+## How it is written down
+
+Two of the primitives are not runtime objects but the format everything else is authored
+in, and they are documented on their own sites rather than restated here:
+
+- **[MDXLD](https://mdx.org.ai)** — our extension of [MDX](https://mdxjs.com). MDX is an
+  **open standard authored by the MDX community**, not by us; MDXLD is ours, a **superset**
+  of it that adds `$id`, `$type` and `$context` to the frontmatter, making it also a
+  superset of YAML-LD. Every valid MDX document is already a valid MDXLD document.
+  `$context` is always [`https://schema.org.ai`](https://schema.org.ai), unversioned.
+  Also served at [mdxld.org](https://mdxld.org).
+- **MDXUI** — components and layouts selected from a document's `$type`. Its home
+  (`ui.org.ai`) is not yet serving; until it does, the packages are the documentation.
 
 ## Built for the AI Era
 
