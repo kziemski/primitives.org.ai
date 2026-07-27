@@ -40,10 +40,11 @@ export const metadata: Metadata = {
     description: 'The fundamental abstractions for building AI-native software.',
     images: [
       {
-        url: '/og-image.png',
+        url: '/og.png',
         width: 1200,
         height: 630,
-        alt: 'Primitives.org.ai',
+        type: 'image/png',
+        alt: 'Primitives.org.ai — Build Business-as-Code & AI-Delivered Services-as-Software. The fundamental abstractions for building AI-native software.',
       },
     ],
   },
@@ -51,7 +52,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'Primitives.org.ai',
     description: 'The fundamental abstractions for building AI-native software.',
-    images: ['/og-image.png'],
+    images: ['/og.png'],
   },
   alternates: {
     canonical: './',
