@@ -6,5 +6,11 @@ export async function GET() {
   const scan = source.getPages().map(getLLMText);
   const scanned = await Promise.all(scan);
 
-  return new Response(scanned.join('\n\n'));
+  const header = `# Primitives.org.ai — full documentation
+
+Documented by The Org.AI Foundation: https://foundation.org.ai
+Authored in MDXLD (https://mdx.org.ai), our extension of MDX (https://mdxjs.com, an open standard authored by the MDX community).
+`;
+
+  return new Response([header, ...scanned].join('\n\n'));
 }

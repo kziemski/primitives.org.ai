@@ -45,9 +45,11 @@ in, and they are documented on their own sites rather than restated here:
 
 - **[MDXLD](https://mdx.org.ai)** — our extension of [MDX](https://mdxjs.com). MDX is an
   **open standard authored by the MDX community**, not by us; MDXLD is ours, a **superset**
-  of it that adds `$id`, `$type` and `$context` to the frontmatter, making it also a
-  superset of YAML-LD. Every valid MDX document is already a valid MDXLD document.
-  `$context` is always [`https://schema.org.ai`](https://schema.org.ai), unversioned.
+  of MDX whose frontmatter is in turn a superset of YAML-LD. Every valid MDX document is
+  already a valid MDXLD document. The `$id` and `$type` keys are not our invention either —
+  they come from the linked-data community's dollar-convenience context. Our one real
+  deviation is `$context`, which is always
+  [`https://schema.org.ai`](https://schema.org.ai), unversioned.
   Also served at [mdxld.org](https://mdxld.org).
 - **MDXUI** — components and layouts selected from a document's `$type`. Its home
   (`ui.org.ai`) is not yet serving; until it does, the packages are the documentation.

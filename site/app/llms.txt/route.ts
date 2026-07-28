@@ -25,8 +25,12 @@ Primitives.org.ai documents the primitives that compose together to build anythi
 - **Product**: Compose primitives into complete products with declarative interfaces.
 - **Service**: Services-as-Software—AI delivering work traditionally done by humans.
 - **Business**: Business-as-Code—traditional processes manifested as code.
-- **MDXLD**: The authoring format. An extension of MDX (an open standard by the MDX community, https://mdxjs.com) that adds $id/$type/$context linked-data frontmatter, making it also a superset of YAML-LD. $context is always https://schema.org.ai, unversioned. Documented at https://mdx.org.ai
+- **MDXLD**: The authoring format. Our extension of MDX (an open standard authored by the MDX community, https://mdxjs.com), with linked-data frontmatter that is a superset of YAML-LD. $id and $type come from the linked-data community's dollar-convenience context; our one deviation is $context, always https://schema.org.ai, unversioned. Documented at https://mdx.org.ai
 - **MDXUI**: Components and layouts selected from a document's $type.
+
+## Stewardship
+
+The primitives are documented by The Org.AI Foundation: https://foundation.org.ai
 
 ## Documentation
 
