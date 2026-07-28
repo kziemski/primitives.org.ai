@@ -38,11 +38,15 @@ export async function generateMetadata(props: PageProps<'/[[...slug]]'>): Promis
   const page = source.getPage(params.slug ?? [])
   if (!page) notFound()
 
+  /* Every docs page gets its own generated card from app/og/[...slug]. The
+     home page is the exception: it is the one the estate links to, and it has
+     a hand-built card of its own in the root layout. Overriding it here would
+     replace that card with the generic template. */
+  const isHome = (params.slug ?? []).length === 0
+
   return {
     title: page.data.title,
     description: page.data.description,
-    openGraph: {
-      images: getPageImage(page).url,
-    },
+    ...(isHome ? {} : { openGraph: { images: getPageImage(page).url } }),
   }
 }
