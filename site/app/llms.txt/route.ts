@@ -14,7 +14,7 @@ export async function GET() {
 
 > The fundamental abstractions for building AI-native software.
 
-Primitives.org.ai documents the primitives that compose together to build anything—from simple functions to entire businesses. The set below is the runtime half; the authoring format is MDXLD.
+Primitives.org.ai documents the primitives that compose together to build anything—from simple functions to entire businesses. Most are runtime objects; MDXLD and MDXUI are the format everything else is authored in.
 
 ## Core Primitives
 
